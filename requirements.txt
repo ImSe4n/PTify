@@ -1,0 +1,28 @@
+# Live Piano Synthesizer — dependencies
+#
+# NOTE ON TORCH: the default PyPI torch wheel is CPU-only on Windows.
+# If you have an NVIDIA GPU, install the CUDA build INSTEAD, before
+# installing this file, for much more inference headroom:
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# Phase 1 will detect and report which one you ended up with.
+
+# --- Audio capture ---
+sounddevice==0.4.7          # PortAudio bindings; callback-based mic input
+numpy==1.26.4               # ring buffer + array math (pinned <2.0 for torch/librosa compat)
+
+# --- Transcription ---
+torch==2.2.2                # see CUDA note above
+piano_transcription_inference==0.0.5   # ByteDance high-resolution piano AMT
+librosa==0.10.2.post1       # resampling / audio loading used by the model
+ffmpeg-python==0.2.0        # audio decode support
+
+# --- UI ---
+PySide6==6.7.2              # Qt6 bindings; falling-note canvas + packaging
+
+# --- MIDI (Phase 4 practice mode) ---
+mido==1.3.2                 # MIDI file parsing for song mode
+
+# --- Packaging (Phase 5) ---
+pyinstaller==6.9.0

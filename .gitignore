@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+develop-eggs/
+dist/
+build/
+eggs/
+*.egg-info/
+*.egg
+.installed.cfg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Model weights — large binaries, downloaded on first run.
+# See README: these are NOT committed.
+*.pth
+*.pt
+*.ckpt
+*.onnx
+models/
+checkpoints/
+
+# PyInstaller
+*.manifest
+*.spec
+build/
+dist/
+
+# Audio scratch / recordings captured during testing
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.aiff
+recordings/
+scratch/
+
+# MIDI output from transcription runs (keep sample songs in assets/ if needed)
+out/
+*.out.mid
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
