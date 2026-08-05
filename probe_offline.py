@@ -114,10 +114,25 @@ def main() -> int:
     if model_sr != config.SAMPLE_RATE:
         print(f"  [WARN] Model expects {model_sr}Hz but config says {config.SAMPLE_RATE}Hz.")
 
+    # Must run BEFORE PianoTranscription(): the library downloads via `wget`,
+    # which does not exist on Windows. See transcribe/weights.py.
+    from transcribe.weights import ensure_checkpoint
+
+    ensure_checkpoint(progress=print)
+
+    torch.set_num_threads(config.INFERENCE_THREADS)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    transcriptor = PianoTranscription(device=device)
+
+    # Match segment length to our window. The library default (10s) pads
+    # short windows and runs two overlapping segments — 5.5x the compute.
+    # Must be divisible by 4 (asserted in the library's _deframe).
+    seg = int(config.INFERENCE_SEGMENT_SEC * config.SAMPLE_RATE)
+    seg -= seg % 4
+
+    transcriptor = PianoTranscription(device=device, segment_samples=seg)
     load_s = time.perf_counter() - t0
-    print(f"  loaded in {load_s:.1f}s on {device.upper()}")
+    print(f"  loaded in {load_s:.1f}s on {device.upper()} "
+          f"({config.INFERENCE_THREADS} threads, {seg / config.SAMPLE_RATE:.1f}s segments)")
 
     # --- Full-file transcription ----------------------------------------
     print("\nTranscribing full clip...")
@@ -177,27 +192,31 @@ def main() -> int:
     median = float(np.median(times))
     budget = config.INFERENCE_HOP_SEC
 
+    # Real-time factor is the number that matters: compute seconds per
+    # audio second. >1.0 means we can never keep up, no matter the hop.
+    rtf = median / config.INFERENCE_WINDOW_SEC
+
     print(f"\n  median   : {median * 1000:.0f} ms per window")
-    print(f"  budget   : {budget * 1000:.0f} ms (config.INFERENCE_HOP_SEC)")
+    print(f"  hop      : {budget * 1000:.0f} ms (config.INFERENCE_HOP_SEC)")
+    print(f"  RTF      : {rtf:.2f}x  (compute seconds per audio second)")
 
-    if median <= budget:
-        print("\n  [ OK ] Fast enough to keep up at the planned hop.")
+    if rtf > 1.0:
+        print(f"\n  [FAIL] RTF > 1.0 - cannot keep up with live audio at all.")
+        print("         Audio arrives faster than it can be transcribed, so lag")
+        print("         grows without bound. A larger display delay does NOT fix")
+        print("         this; only a faster model or a GPU does.")
+    elif median > budget:
+        print(f"\n  [WARN] Slower than the {budget * 1000:.0f}ms hop, but RTF < 1.0,")
+        print(f"         so it can keep up if the hop is raised to ~{median * 1.2:.2f}s.")
+        print("         Fewer updates/sec; notes still land in the right place.")
     else:
-        need = median / budget
-        print(f"\n  [WARN] {need:.1f}x TOO SLOW for a {budget * 1000:.0f}ms hop.")
-        print("         Options, in order of preference:")
-        print(f"           1. Raise INFERENCE_HOP_SEC to ~{median * 1.2:.2f}s")
-        print("              (fewer updates/sec; notes still land correctly)")
-        print("           2. Shorten INFERENCE_WINDOW_SEC (less lookahead, less accuracy)")
-        print("           3. Swap to a lighter model behind TranscriptionEngine")
-        print("         Note: this does NOT block the project - the display delay")
-        print("         absorbs it. It only limits how responsive the app feels.")
+        print("\n  [ OK ] Fast enough to keep up at the planned hop.")
 
-    print(f"\n  For reference, DISPLAY_DELAY_SEC is {config.DISPLAY_DELAY_SEC * 1000:.0f}ms;")
-    print("  inference must finish within that for notes to be drawn on time.")
-    if median > config.DISPLAY_DELAY_SEC:
-        print(f"  [WARN] {median * 1000:.0f}ms > {config.DISPLAY_DELAY_SEC * 1000:.0f}ms "
-              "-> raise DISPLAY_DELAY_SEC.")
+    print(f"\n  DISPLAY_DELAY_SEC is {config.DISPLAY_DELAY_SEC * 1000:.0f}ms; it must exceed")
+    print("  (inference time + hop) or notes get drawn before they are known.")
+    needed = median + budget
+    if needed > config.DISPLAY_DELAY_SEC:
+        print(f"  [WARN] Needs >= {needed * 1000:.0f}ms -> raise DISPLAY_DELAY_SEC.")
 
     return 0
 

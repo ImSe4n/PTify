@@ -149,6 +149,30 @@ def probe_audio() -> None:
         print("         Not fatal - we can capture at its native rate and resample.")
 
 
+def probe_checkpoint() -> None:
+    """The library downloads weights with `wget`, which Windows lacks.
+
+    When that fails it does so silently, surfacing later as a confusing
+    FileNotFoundError from torch.load. transcribe/weights.py works around it.
+    """
+    _rule("Model checkpoint")
+    try:
+        from transcribe.weights import checkpoint_path, is_present
+    except Exception as exc:  # noqa: BLE001
+        print(f"  {WARN} Could not import transcribe.weights: {exc}")
+        return
+
+    path = checkpoint_path()
+    if is_present():
+        print(f"  {OK} Present ({path.stat().st_size / 1e6:.0f} MB)")
+        print(f"       {path}")
+    else:
+        print(f"  {WARN} Not downloaded yet (~165MB).")
+        print("         Fetched automatically on first probe run.")
+        print("         Note: the upstream library uses `wget`, which does not")
+        print("         exist on Windows - transcribe/weights.py handles this.")
+
+
 def main() -> int:
     print("=" * 62)
     print(" Live Piano Synthesizer - Phase 1a environment probe")
@@ -159,6 +183,7 @@ def main() -> int:
     abi_ok = probe_numpy_torch_abi(versions)
     device = probe_compute()
     probe_audio()
+    probe_checkpoint()
 
     _rule("Summary")
     missing = [n for n, _ in RELEVANT if versions.get(n) is None]
