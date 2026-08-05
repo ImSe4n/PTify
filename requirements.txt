@@ -1,19 +1,28 @@
 # Live Piano Synthesizer — dependencies
 #
-# NOTE ON TORCH: the default PyPI torch wheel is CPU-only on Windows.
-# If you have an NVIDIA GPU, install the CUDA build INSTEAD, before
-# installing this file, for much more inference headroom:
+# Install into a VENV, not globally:
+#     python -m venv .venv
+#     .venv\Scripts\activate
+#     pip install -r requirements.txt
+#
+# Why a venv matters here: this machine's global environment has
+# torch 2.4.0 + numpy 2.2.6, which is a broken combination (torch 2.4 was
+# compiled against numpy 1.x and cannot convert tensors to arrays under
+# numpy 2.x). The pins below are a known-good set. Run `python probe_env.py`
+# to verify.
+#
+# NOTE ON TORCH: probe_env.py found no usable CUDA GPU on this machine, so
+# these pins use the CPU wheel (much smaller). If you later add an NVIDIA
+# GPU, install the CUDA build FIRST for more inference headroom:
 #
 #   pip install torch --index-url https://download.pytorch.org/whl/cu121
-#
-# Phase 1 will detect and report which one you ended up with.
 
 # --- Audio capture ---
 sounddevice==0.4.7          # PortAudio bindings; callback-based mic input
-numpy==1.26.4               # ring buffer + array math (pinned <2.0 for torch/librosa compat)
+numpy==1.26.4               # ring buffer + array math (MUST be <2.0 for torch/librosa)
 
 # --- Transcription ---
-torch==2.2.2                # see CUDA note above
+torch==2.2.2                # CPU wheel; see CUDA note above
 piano_transcription_inference==0.0.5   # ByteDance high-resolution piano AMT
 librosa==0.10.2.post1       # resampling / audio loading used by the model
 ffmpeg-python==0.2.0        # audio decode support
