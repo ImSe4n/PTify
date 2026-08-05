@@ -11,7 +11,10 @@ CHANNELS = 1               # mono
 BLOCK_SIZE = 1024          # frames per sounddevice callback
 
 # --- Ring buffer ---
-RING_SECONDS = 2.0         # rolling audio history retained for inference
+# Must exceed DISPLAY_DELAY_SEC + INFERENCE_WINDOW_SEC: the renderer reads
+# ~DISPLAY_DELAY_SEC behind the write head, and inference needs a full window
+# of history before that point. Anything less and reads hit overwritten audio.
+# Defined at the bottom of this file, where those values are known.
 
 # --- Inference ---
 INFERENCE_WINDOW_SEC = 1.0  # audio length handed to the model each pass
@@ -57,3 +60,9 @@ SCROLL_SECONDS_VISIBLE = 3.0  # how much time fits on screen vertically
 # --- Practice mode scoring ---
 # Deliberately forgiving: a "miss" may be the transcriber's fault, not yours.
 HIT_WINDOW_SEC = 0.15
+
+# --- Derived ---
+# Ring capacity, computed rather than hardcoded so it cannot drift out of sync
+# when the delay or window is retuned. 1.5x headroom covers scheduling jitter
+# and a late inference pass.
+RING_SECONDS = (DISPLAY_DELAY_SEC + INFERENCE_WINDOW_SEC) * 1.5
