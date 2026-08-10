@@ -90,10 +90,12 @@ def get_engine(name: str = "bytedance") -> TranscriptionEngine:
     if key == "basicpitch":
         try:
             from .basicpitch import BasicPitchEngine
-        except ImportError as exc:  # not present until sub-phase 2b
+        except ImportError as exc:
+            # onnxruntime / basic_pitch are optional; ByteDance alone is a
+            # working install.
             raise ValueError(
-                "The basicpitch engine is not available yet (added in 2b). "
-                "Use --engine bytedance."
+                "The basicpitch engine needs 'basic-pitch' and 'onnxruntime'. "
+                "Install them, or use --engine bytedance."
             ) from exc
         return BasicPitchEngine()
     raise ValueError(f"Unknown engine {name!r}. Options: bytedance, basicpitch")
