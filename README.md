@@ -1,126 +1,128 @@
-# Live Piano Synthesizer
+# PTify
 
-A Synthesia-style desktop app that **listens to a real acoustic piano through a microphone** and renders falling notes in real time.
+Turn a piano recording into **MIDI**, an interactive **piano roll**, and **sheet music**.
 
-Two planned modes:
-- **Live visualizer** — notes scroll on screen as you play, a real-time mirror of your performance.
-- **Practice mode** — load a MIDI song, follow the falling notes, get scored on your timing.
+> **Status: Phase 2 complete.** A working command-line transcriber (audio → MIDI).
+> Notation, the web app, and a custom-trained model are later phases — see the roadmap.
 
-> **Status: Phase 0 — scaffold only.** Nothing here is functional yet. Modules are stubs.
-
----
-
-## How this differs from Synthesia
-
-Synthesia does **not** do what this app does. Synthesia reads a **MIDI cable** from a digital piano, where note data is exact and instantaneous. This project listens to an **acoustic piano through a microphone**, which is a fundamentally harder problem known as **Automatic Music Transcription (AMT)** — an active research area, not a solved one.
-
-## The core design idea: a deliberate display delay
-
-Two findings from the research drive the entire architecture:
-
-1. **Truly low-latency transcription is bad.** Causal models — ones that never look ahead — achieve only **~31–37% note onset F1** ([Exploring System Adaptations for Minimum Latency Real-Time Piano Transcription, 2025](https://arxiv.org/html/2509.07586)). Roughly two of every three notes would be missed or mistimed.
-
-2. **Accurate models need to hear the *future*.** ByteDance's high-resolution transcription model resolves onsets, offsets, velocity, and pedal precisely *because* it examines audio after a note begins. A note's attack transient alone is ambiguous; the sustain that follows disambiguates it.
-
-So this app doesn't fight the lookahead requirement — it **spends** it. A deliberate **~300–400ms display delay** means rendering happens slightly in the past, giving the model the future context it needs. Notes are drawn already-confirmed rather than flickering in and being retracted.
-
-For a *visualizer* this delay is nearly invisible, because you're watching your own playing rather than triggering a sound.
-
-## Honest expectations
-
-These are inherent to microphone-based transcription, not bugs to be fixed later:
-
-- Clean single notes and simple chords: **reliable**.
-- Dense passages, heavy sustain pedal, fast runs: **notes will be missed, and phantom notes will appear.**
-- Sustain pedal blurs note offsets especially badly.
-- Room noise, microphone quality, and piano tuning all measurably affect accuracy.
-- Repeated strikes of the same note under pedal are the hardest case in the field.
-
-The app is designed to **degrade gracefully** here rather than pretend to be perfect.
-
----
-
-## Architecture
-
-Three threads decoupled by queues, so slow inference can never stutter the animation:
-
-```
-[Audio thread]  sounddevice callback, 16kHz mono
-      |            never blocks; only appends to a ring buffer
-      v
-[Ring buffer]  ~2s of audio, thread-safe
-      |
-      v
-[Inference thread]  every ~100ms, run model on a window that
-      |             INCLUDES lookahead past the display cursor
-      |             -> emits NoteOn/NoteOff events with timestamps
-      v
-[Event store]  timestamped notes (the "score so far")
-      |
-      v
-[Render thread]  Qt, 60fps. Draws the world at (now - 350ms).
-                 Because it renders in the past, every note it
-                 draws is already confirmed.
+```bash
+python -m transcriber recording.mp3
 ```
 
-### Layout
-
-| Path | Responsibility |
-|---|---|
-| `main.py` | App entry, mode selection, wiring |
-| `audio/capture.py` | `sounddevice` input stream -> ring buffer |
-| `audio/ringbuffer.py` | Circular numpy buffer w/ overlapping window reads |
-| `transcribe/engine.py` | Abstract `TranscriptionEngine` interface |
-| `transcribe/bytedance.py` | Concrete engine wrapping `piano_transcription_inference` |
-| `transcribe/events.py` | `NoteEvent` + onset dedup across overlapping windows |
-| `ui/pianoroll.py` | Falling-note canvas + 88-key keyboard |
-| `ui/mainwindow.py` | Mode switching, device picker, calibration UI |
-| `practice/session.py` | Song mode: load MIDI, score hits/misses |
-| `calibrate.py` | Mic level, noise floor, latency calibration wizard |
-
-### The tricky part: window stitching
-
-The model runs on overlapping windows every ~100ms, so the *same* note is detected repeatedly across consecutive windows. Naive appending produces duplicates and visual stutter.
-
-`transcribe/events.py` maintains a confirmed-notes set keyed by `(pitch, onset_time)` with ~50ms tolerance:
-- Detection matching an existing key within tolerance -> ignore (already drawn).
-- Detection with no match -> emit `NoteOn`, add to set.
-- Previously-emitted note absent from the latest window, still within the retraction horizon -> mark tentative / fade.
-- Notes older than the display cursor are frozen permanently — **never retract something the user has already seen.**
-
-This dedup layer is where most of the perceived quality lives.
+```
+8 notes, 0 pedal events, range C4-C5, 5.0s
+took 13.0s on CPU (RTF 2.58x)
+Wrote recording.mid
+```
 
 ---
 
-## Build phases
+## Usage
 
-- [x] **Phase 0** — Repo scaffold *(you are here)*
-- [ ] **Phase 1** — Console proof-of-concept: mic -> model -> printed notes. **Viability gate.**
-- [ ] **Phase 2** — Audio + transcription pipeline (ring buffer, threading, dedup)
-- [ ] **Phase 3** — Falling-note visualizer (Live mode)
-- [ ] **Phase 4** — Practice mode (MIDI song following + scoring)
-- [ ] **Phase 5** — Calibration wizard + PyInstaller packaging
+```bash
+python -m transcriber song.mp3                    # -> song.mid
+python -m transcriber song.mp3 -o out.mid         # choose the output path
+python -m transcriber song.wav --notes            # print the detected notes
+python -m transcriber song.wav --verify           # read the MIDI back and check it
+python -m transcriber song.mp3 --engine basicpitch
+python -m transcriber --doctor                    # check the environment
+```
 
-**Phase 1 is the real go/no-go.** It's a throwaway script, deliberately: play scales and chords into your actual mic in your actual room and confirm transcription quality is worth building a UI on. If it isn't, we reconsider the approach rather than polishing a broken foundation.
+Accepts mp3, wav, m4a, flac, ogg, aiff.
 
----
+## Engines
 
-## Setup
+| | ByteDance *(default)* | Basic Pitch |
+|---|---|---|
+| Piano-specific | yes | no (multi-instrument) |
+| Sustain pedal | **yes** | no |
+| Velocity | **real dynamics** | near-constant |
+| Speed (CPU) | ~1.1x real time | ~0.02x real time |
+| Published note F1 | 0.9677 | — |
+
+Both scored 8/8 on a real C major scale recording, with onsets agreeing to
+within ~10ms. The difference showed in velocity: ByteDance reported 47-54
+(actual playing dynamics), Basic Pitch a flat ~120.
+
+**ByteDance is the default** because it models the sustain pedal. Measured on a
+single C4 held under pedal:
+
+| | real strike | merely ringing |
+|---|---|---|
+| Basic Pitch | 0.955 | **0.823** ← indistinguishable |
+| ByteDance | onset | **nothing** ← correct |
+
+No threshold separates 0.955 from 0.823, so Basic Pitch repeats notes endlessly
+through pedalled passages. It is still useful as a **fast preview** on long files,
+and it is not piano-specific, so it reports strong overtones as separate notes —
+hence the harmonic filter in `basicpitch.py`.
+
+First run downloads a ~165MB checkpoint.
+
+## Install
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate        # Windows
+.venv\Scripts\activate          # Windows
 pip install -r requirements.txt
+python -m transcriber --doctor
 ```
 
-If you have an NVIDIA GPU, install the CUDA build of torch *first* — see the note at the top of `requirements.txt`.
+The venv matters: this machine's global environment has torch 2.4 with numpy 2.x,
+a broken pairing — torch <2.3 is compiled against numpy 1.x and its tensor→array
+conversion raises under numpy 2.x. That conversion runs on every transcription.
+`--doctor` checks for exactly this.
 
-Model weights (~100–200MB) are **not committed**; they download on first run.
+## Layout
 
-## Packaging
+| Path | Purpose |
+|---|---|
+| `transcriber/engine.py` | `TranscriptionEngine` ABC + `get_engine()` factory |
+| `transcriber/events.py` | `NoteEvent`, `PedalEvent`, `Transcription` |
+| `transcriber/bytedance.py` | Default engine (pedal + velocity) |
+| `transcriber/basicpitch.py` | Fast ONNX engine + harmonic filtering |
+| `transcriber/midi.py` | MIDI read/write; pedal as CC64 |
+| `transcriber/weights.py` | Windows-safe checkpoint download |
+| `transcriber/doctor.py` | Environment diagnostics |
+| `config.py` | Tuning constants |
 
-PyTorch plus model weights makes for a large bundle — expect a **300MB–1GB** `.exe`. Weights download on first run to keep the installer small.
+Adding an engine means subclassing `TranscriptionEngine` (implement `name`,
+`load`, `transcribe_file`, `device`) and adding a branch to `get_engine()`. That
+seam is deliberate — a custom-trained model plugs in the same way.
 
-## License
+## Roadmap
 
-MIT — see [LICENSE](LICENSE).
+**App**
+- [x] **Phase 2** — core library + CLI (audio → MIDI)
+- [ ] **Phase 3** — notation: beats → quantize → hand separation → MusicXML → PDF
+- [ ] **Phase 4** — FastAPI backend + ARQ job queue
+- [ ] **Phase 5** — Supabase auth and persistence
+- [ ] **Phase 6–8** — React frontend, piano roll, sheet music view
+- [ ] **Phase 9–11** — error handling, deploy, YouTube input
+
+**Training** (can run in parallel)
+- [ ] **Phase 12** — evaluation harness (no GPU needed)
+- [ ] **Phase 13** — personal benchmark + baseline numbers
+- [ ] **Phase 14–16** — data pipeline, model, augmentation-focused training
+- [ ] **Phase 17** — ship the custom model behind `TranscriptionEngine`
+
+The training goal is **beating ByteDance on your own recordings**, not on the
+MAESTRO benchmark. Models overfit badly to their training audio — a
+[20-point note-F1 drop](https://arxiv.org/abs/2402.01424) from sound conditions
+alone — so ByteDance's 96.72% is on studio Disklavier recordings, not your piano
+in your room. That gap is real, measurable, and beatable on free-tier compute.
+
+## Notes on accuracy
+
+Microphone transcription is genuinely hard, and results degrade with:
+- dense passages and fast runs
+- heavy sustain pedal (blurs note offsets)
+- room noise, mic quality, and low input level
+
+Clean single notes and simple chords are reliable. A real C major scale
+transcribed as exactly 8 correct notes with no extras.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). Bundled models have their own licences:
+ByteDance (Apache 2.0), Basic Pitch (Apache 2.0).

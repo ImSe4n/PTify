@@ -1,4 +1,4 @@
-# Live Piano Synthesizer — dependencies
+# Piano Transcriber — dependencies
 #
 # Install into a VENV, not globally:
 #     python -m venv .venv
@@ -8,30 +8,50 @@
 # Why a venv matters here: this machine's global environment has
 # torch 2.4.0 + numpy 2.2.6, which is a broken combination (torch 2.4 was
 # compiled against numpy 1.x and cannot convert tensors to arrays under
-# numpy 2.x). The pins below are a known-good set. Run `python probe_env.py`
-# to verify.
+# numpy 2.x). The pins below are a known-good set. Run
+# `python -m transcriber --doctor` to verify.
 #
-# NOTE ON TORCH: probe_env.py found no usable CUDA GPU on this machine, so
-# these pins use the CPU wheel (much smaller). If you later add an NVIDIA
-# GPU, install the CUDA build FIRST for more inference headroom:
+# NOTE ON TORCH: no usable CUDA GPU was found on this machine (AMD
+# integrated graphics, 1GB shared VRAM), so
+# these pins use the CPU wheel (much smaller). Offline transcription does not
+# need a GPU — a 3-minute file takes ~3.3 minutes on CPU. If you later add an
+# NVIDIA GPU, install the CUDA build FIRST for faster batch processing:
 #
 #   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# INSTALL ORDER NOTE: basic-pitch's dependency resolver tries to build numpy
+# from source here. Install it with --no-deps to keep the pinned numpy:
+#
+#   pip install --no-deps basic-pitch onnxruntime pretty_midi mir_eval \
+#       resampy importlib_resources
 
-# --- Audio capture ---
-sounddevice==0.4.7          # PortAudio bindings; callback-based mic input
-numpy==1.26.4               # ring buffer + array math (MUST be <2.0 for torch/librosa)
+# --- Core ---
+numpy==1.26.4               # MUST be <2.0 for the torch 2.2 / librosa ABI
+librosa==0.10.2.post1       # audio decode + resampling
+soundfile==0.14.0           # WAV/FLAC I/O behind librosa
+ffmpeg-python==0.2.0        # mp3/m4a decode support
+resampy==0.4.3              # resampling backend
 
-# --- Transcription ---
+# --- Transcription engines ---
 torch==2.2.2                # CPU wheel; see CUDA note above
-piano_transcription_inference==0.0.5   # ByteDance high-resolution piano AMT
-librosa==0.10.2.post1       # resampling / audio loading used by the model
-ffmpeg-python==0.2.0        # audio decode support
+piano_transcription_inference==0.0.5   # ByteDance piano AMT — DEFAULT engine
+basic-pitch==0.4.0          # Spotify multi-instrument AMT — fast alternative
+onnxruntime==1.28.0         # ONNX runtime backing basic-pitch on Windows
 
-# --- UI ---
-PySide6==6.7.2              # Qt6 bindings; falling-note canvas + packaging
+# --- MIDI ---
+pretty_midi==0.2.11.post0   # MIDI construction and inspection
+mido==1.3.2                 # low-level MIDI file I/O
 
-# --- MIDI (Phase 4 practice mode) ---
-mido==1.3.2                 # MIDI file parsing for song mode
+# --- Evaluation (Phase 5) ---
+mir_eval==0.8.2             # standard transcription metrics (note onset F1)
 
-# --- Packaging (Phase 5) ---
+# --- UI (Phase 3) ---
+PySide6==6.7.2              # Qt6 bindings; piano roll canvas + packaging
+
+# --- Packaging ---
 pyinstaller==6.9.0
+
+# --- Sheet music (Phase 4) — NOT YET INSTALLED ---
+# Added when Phase 4 starts; listed here so the intent is visible.
+# music21==9.1.0            # MusicXML export, key/meter inference
+# verovio==4.3.1            # MEI/MusicXML -> SVG engraving (no MuseScore needed)
