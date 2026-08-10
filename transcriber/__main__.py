@@ -49,7 +49,10 @@ def main(argv: list[str] | None = None) -> int:
         prog="transcriber",
         description="Transcribe a piano recording to MIDI.",
     )
-    ap.add_argument("input", type=Path, help="audio file (mp3/wav/m4a/flac)")
+    ap.add_argument("input", type=Path, nargs="?",
+                    help="audio file (mp3/wav/m4a/flac)")
+    ap.add_argument("--doctor", action="store_true",
+                    help="check the environment and exit")
     ap.add_argument("-o", "--output", type=Path, default=None,
                     help="output .mid path (default: alongside the input)")
     ap.add_argument("--engine", default="bytedance",
@@ -60,6 +63,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--verify", action="store_true",
                     help="read the written MIDI back and confirm it matches")
     args = ap.parse_args(argv)
+
+    if args.doctor:
+        from .doctor import run
+
+        return run()
+
+    if args.input is None:
+        ap.error("an input file is required (or use --doctor)")
 
     if not args.input.exists():
         print(f"error: no such file: {args.input}", file=sys.stderr)

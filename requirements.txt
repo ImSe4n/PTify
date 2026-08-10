@@ -8,10 +8,11 @@
 # Why a venv matters here: this machine's global environment has
 # torch 2.4.0 + numpy 2.2.6, which is a broken combination (torch 2.4 was
 # compiled against numpy 1.x and cannot convert tensors to arrays under
-# numpy 2.x). The pins below are a known-good set. Run `python probe_env.py`
-# to verify.
+# numpy 2.x). The pins below are a known-good set. Run
+# `python -m transcriber --doctor` to verify.
 #
-# NOTE ON TORCH: probe_env.py found no usable CUDA GPU on this machine, so
+# NOTE ON TORCH: no usable CUDA GPU was found on this machine (AMD
+# integrated graphics, 1GB shared VRAM), so
 # these pins use the CPU wheel (much smaller). Offline transcription does not
 # need a GPU — a 3-minute file takes ~3.3 minutes on CPU. If you later add an
 # NVIDIA GPU, install the CUDA build FIRST for faster batch processing:
