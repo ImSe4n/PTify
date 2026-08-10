@@ -57,7 +57,7 @@ NUM_KEYS = MIDI_HIGHEST - MIDI_LOWEST + 1  # 88
 TARGET_FPS = 60
 SCROLL_SECONDS_VISIBLE = 3.0  # how much time fits on screen vertically
 
-# --- Practice mode scoring ---
+# --- Practice mode scoring ---1
 # Deliberately forgiving: a "miss" may be the transcriber's fault, not yours.
 HIT_WINDOW_SEC = 0.15
 
