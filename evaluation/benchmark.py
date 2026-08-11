@@ -37,6 +37,20 @@ from .cases import CASES, load_all
 from .metrics import ScoreResult, score
 from .synth import DEFAULT_SAMPLE_RATE, render
 
+#: MIDI extensions searched beside an audio file, in priority order. MAESTRO
+#: ships `.midi`, not `.mid` — matching only `.mid` reported a directory full
+#: of ground truth as empty.
+MIDI_EXTENSIONS = (".mid", ".midi")
+
+#: Audio extensions, in priority order. Order matters: when one stem has
+#: several audio files, the first match wins so a single stem yields a single
+#: result.
+AUDIO_EXTENSIONS = (".wav", ".flac", ".mp3", ".m4a", ".ogg")
+
+#: Characters Windows forbids in filenames. Real corpora carry titles with
+#: colons and quotes, and the temp WAV path is derived from the stem.
+_ILLEGAL_CHARS = '<>:"/\\|?*'
+
 
 @dataclass
 class BenchmarkRow:
@@ -59,6 +73,51 @@ class BenchmarkRow:
         """Notes the engine invented."""
         r = self.result
         return r.n_estimated - int(round(r.onset_precision * r.n_estimated))
+
+
+def _safe_stem(stem: str) -> str:
+    """Make a stem safe to use as a temp filename.
+
+    `run_real_audio` accepts any directory the user points it at, and derives
+    the scratch WAV path from the recording's stem. A title containing `:` or
+    `?` — ordinary in real corpora — would raise OSError on Windows after the
+    audio had already been loaded.
+    """
+    cleaned = "".join("_" if c in _ILLEGAL_CHARS else c for c in stem)
+    cleaned = cleaned.strip(". ")  # Windows rejects trailing dots and spaces
+    return cleaned[:60] or "rec"
+
+
+def _find_pairs(audio_dir: Path) -> list[tuple[Path, Path]]:
+    """Audio files that have MIDI ground truth beside them.
+
+    Filesystem-only: no model, no network, so the pairing rule is testable.
+
+    NOT recursive, deliberately. `run_real_audio` keys each result on
+    `audio_path.stem`, and the report formatters index by that name, so
+    `2011/x.wav` and `2013/x.wav` would collapse into one case and silently
+    drop a result. A flat directory keeps stems unique.
+    """
+    by_stem: dict[str, dict[str, Path]] = {}
+    for entry in audio_dir.iterdir():
+        if not entry.is_file():
+            continue
+        # Match on the lowered suffix rather than globbing per extension:
+        # `Path.glob` patterns are not reliably case-insensitive, and looping
+        # over both cases double-counts on a case-insensitive filesystem.
+        by_stem.setdefault(entry.stem, {})[entry.suffix.lower()] = entry
+
+    pairs: list[tuple[Path, Path]] = []
+    for stem in sorted(by_stem):
+        found = by_stem[stem]
+        # One pair per stem. song.wav and song.mp3 both pairing to song.mid
+        # produced two rows with the same case name, and the name-keyed
+        # formatters then silently kept only one of them.
+        audio = next((found[e] for e in AUDIO_EXTENSIONS if e in found), None)
+        midi = next((found[e] for e in MIDI_EXTENSIONS if e in found), None)
+        if audio is not None and midi is not None:
+            pairs.append((audio, midi))
+    return pairs
 
 
 def _score_audio(
@@ -128,17 +187,14 @@ def run_real_audio(
     engine = get_engine(engine_name)
     audio_dir = Path(audio_dir)
 
-    pairs = []
-    for ext in ("*.wav", "*.mp3", "*.flac", "*.m4a", "*.ogg"):
-        for audio_path in sorted(audio_dir.glob(ext)):
-            midi_path = audio_path.with_suffix(".mid")
-            if midi_path.exists():
-                pairs.append((audio_path, midi_path))
+    pairs = _find_pairs(audio_dir)
 
     if not pairs:
         raise ValueError(
             f"No audio+MIDI pairs in {audio_dir}. Each recording needs a "
-            f"matching .mid with the same stem (e.g. song.wav + song.mid)."
+            f"MIDI file with the same stem (e.g. song.wav + song.mid). "
+            f"Audio: {', '.join(AUDIO_EXTENSIONS)}. "
+            f"MIDI: {', '.join(MIDI_EXTENSIONS)}. Not searched recursively."
         )
 
     rows: list[BenchmarkRow] = []
@@ -152,7 +208,14 @@ def run_real_audio(
             ref = read_midi(midi_path)
             audio, sr = librosa.load(str(audio_path), sr=None, mono=True)
             audio, labels = apply_preset(audio, ref, sr, preset)
-            result, secs = _score_audio(engine, audio, labels, sr, tmp)
+            # Per-recording filename, like the synthetic path above. A shared
+            # name is safe for a sequential loop but scores stale audio the
+            # moment an engine caches by path or this is parallelised. The
+            # index guarantees uniqueness even if two stems sanitise alike.
+            result, secs = _score_audio(
+                engine, audio, labels, sr, tmp,
+                name=f"{i:02d}_{_safe_stem(audio_path.stem)}",
+            )
             rows.append(
                 BenchmarkRow(engine_name, audio_path.stem, preset, result, secs)
             )
