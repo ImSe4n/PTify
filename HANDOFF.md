@@ -11,18 +11,25 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 12 (evaluation harness) — all four sub-phases |
-| **Branch** | `phase-12-eval`, based on `master` at `3d7b459` |
-| **Tests** | 167 passing, ~14s, no model or network needed |
-| **Next** | Phase 13 (real-audio benchmark) or Phase 3 (notation) |
+| **Last completed** | Phase 13 (real-audio benchmark) — 13a–13f |
+| **Branch** | `phase-13-real-audio`, based on `master` |
+| **Tests** | 243 passing, ~25s, no model or network needed |
+| **Next** | Phase 3 (notation) or training (14–17) |
 
 **Shipped and working**
 - `transcriber/` — audio file → MIDI, two engines, CLI
 - `evaluation/` — metrics, piano synthesis, augmentation, benchmark CLI
-- `tests/` — 167 tests, all pure functions
+- `evaluation/corpus.py` — fetches a real MAESTRO corpus, writes a manifest
+- `evaluation/report.py` — JSON baselines with environment provenance
+- `benchmarks/` — corpus manifest + real-audio baselines (no audio committed)
+- `tests/` — 243 tests, all pure functions
 
 **Not started:** notation (Phase 3), backend (4), auth (5), frontend (6–8),
 deploy (10), training (14–17).
+
+**Deferred from Phase 13:** the full 8-preset × 2-engine degradation matrix.
+The `clean` baseline for both engines exists; the augmented cells do not. See
+§9 for why that is a scoping decision rather than an oversight.
 
 ## 2. Run it
 
@@ -32,10 +39,27 @@ deploy (10), training (14–17).
 .venv\Scripts\python.exe -m evaluation --compare
 .venv\Scripts\python.exe -m evaluation --all-presets
 .venv\Scripts\python.exe -m pytest tests/ -q
+
+# real-audio corpus (12 MAESTRO tracks, ~867MB, not committed)
+.venv\Scripts\python.exe -m evaluation.corpus --list      # preview, no download
+.venv\Scripts\python.exe -m evaluation.corpus --out recordings/maestro_test12
+.venv\Scripts\python.exe -m evaluation --audio-dir recordings/maestro_test12 ^
+    --engine bytedance --preset clean ^
+    --json benchmarks/real/bytedance-clean.json
 ```
 
-`python -m evaluation` takes ~5 min with ByteDance (model load ~40s + ~1.1x
-real time). Use `--engine basicpitch` or `--case X` while iterating.
+**Long runs: always pass `--json`, and set `PYTHONUNBUFFERED=1`.** A 2.6h
+ByteDance run was lost because its output went through a `tail` pipe and the
+per-segment progress counter flooded it. `--json` writes the result
+independently of stdout; unbuffering makes progress visible while it runs.
+
+`python -m evaluation` takes ~5 min with ByteDance on the synthetic cases (model
+load ~40s + ~1.1x real time on 22kHz mono).
+
+**On the real corpus ByteDance runs at ~1.87x real time, not 1.1x** — measured
+over all 12 tracks (44.1/48kHz stereo resampled to 16kHz, plus per-file
+overhead). 84.5 min of audio takes **~2.6h**. Budget from 1.87x, not 1.1x. Use
+`--engine basicpitch` (~50x faster, whole corpus in ~3 min) while iterating.
 
 ## 3. Architecture
 
@@ -56,6 +80,12 @@ evaluation/             measure before improving
   augment.py            reverb / pitch / noise / EQ / level + presets
   cases.py              the 8-case benchmark corpus, defined in code
   benchmark.py          runner + 3 report formats
+  corpus.py             MAESTRO fetch + seeded stratified selection + manifest
+  report.py             JSON baselines, provenance, key-joined baseline diff
+
+benchmarks/             committed artifacts, NEVER audio
+  maestro_test12.json   corpus manifest: tracks, seed, sha256 per file
+  real/*.json           per-(engine,preset) baselines with environment
 ```
 
 **Adding an engine:** subclass `TranscriptionEngine` (implement `name`,
@@ -66,6 +96,34 @@ custom-trained model drops in the same way.
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**MAESTRO is ByteDance's training distribution. Its 0.969 here is not a
+real-world number.** The test split is held out, but the acoustics are not —
+same Disklavier, same hall, same mics. ByteDance is playing at home on this
+corpus. **A custom model that beats 0.969 here has NOT beaten ByteDance on a
+home recording.** The meaningful target for Phases 14–17 is the
+**clean→degraded delta**, which both conditions share, not the absolute score.
+The engines moving in opposite directions (+0.099 vs −0.130 on identical audio)
+is the proof that absolute numbers from this corpus cannot be compared across
+models with different training data.
+
+**Corpus audio is CC BY-NC-SA and must never be committed.** `.gitignore`
+covers `*.wav`, `*.midi` and `recordings/`. The corpus is reconstructed from
+`benchmarks/maestro_test12.json`, which carries the track list and a sha256 per
+file. Verify with `git diff --cached --name-only` before any commit.
+
+**Excerpt/boundary semantics do not exist yet — tracks are used whole.** If a
+future phase adds excerpting to cut runtime, note that truncating a note at an
+excerpt boundary rewrites its reference duration, and `mir_eval` matches offsets
+within 20% of that duration. Truncation therefore manufactures offset failures
+that look like engine errors. Keep notes strictly interior (both ends inside) and
+clip only pedals, which are not scored.
+
+**Trust `--json`, not the console, for anything long.** A 2.6h run was lost
+because its stdout went through `tail -30` and ByteDance's per-segment counter
+flooded the captured lines. Python also block-buffers stdout when redirected, so
+a file can sit empty for an hour and then flush 8KB at once — empty is not
+evidence of a hang. `report.py` writes results independently of stdout.
 
 **A benchmark is a measurement instrument. Validate it first.**
 Two rounds of conclusions in Phase 12 came from a broken instrument, not the
@@ -125,24 +183,46 @@ measurements that produced them. Two are load-bearing:
 
 ## 6. Current accuracy
 
-Mean onset F1 over the 8 synthetic cases, clean:
+**Synthetic** — mean onset F1 over the 8 cases, clean:
 
 | engine | mean | notes |
 |---|---|---|
 | ByteDance | ~0.87 | default; models pedal; weak on `octaves` (0.500) |
 | Basic Pitch | ~0.86 | ~50x faster; no pedal |
 
-**Known weak spots:** `+offset` scores are far below onset scores for both
-engines — durations are much less accurate than starts. Low bass is the
-weakest register. Semitone clusters are hard for both.
+**Real audio** — 12 MAESTRO test-split tracks, 84.5 min, 52,478 reference notes,
+CPU, 8 threads. **Not comparable to the synthetic table above.**
+
+| engine | onset | +offset | +vel | vs synthetic |
+|---|---|---|---|---|
+| ByteDance | **0.969** | 0.381 | 0.949 | **+0.099** |
+| Basic Pitch | **0.730** | 0.176 | 0.361 | **−0.130** |
+
+**The engines move in OPPOSITE directions on real audio.** ByteDance rises
+because MAESTRO is its training distribution; Basic Pitch falls 13 points
+because it is a general-purpose multi-instrument model. There is no single
+"real-audio accuracy" number.
+
+Reassuring check: ByteDance's published MAESTRO note F1 is 0.9677 and this
+corpus measures 0.9693 — agreement to within 0.002, which independently
+validates the whole chain (selection, fetch, pairing, alignment, scoring).
+
+**Known weak spots:** `+offset` is far below onset for both engines (0.381 and
+0.176) — durations are much less accurate than starts, and this is the input to
+Phase 3 notation. Basic Pitch's real-audio errors are overwhelmingly **octave
+confusions**: 95.9% of onsets land within 50ms, but only 74.3% match on time
+*and* pitch. Low bass is the weakest register; semitone clusters are hard for
+both.
 
 ## 7. Hard constraints
 
 - **No usable GPU.** AMD Radeon integrated, 1GB shared VRAM. CUDA is
   impossible; ROCm needs Linux and excludes integrated GPUs. **Local training
   is not an option** — this is hardware, not configuration.
-- **59GB free disk.** MAESTRO is 103GB. It must be streamed from HuggingFace,
-  never downloaded.
+- **~58GB free disk.** MAESTRO is 103GB in full — but this turned out not to
+  bind. The `ddPn08/maestro-v3.0.0` mirror stores it as loose per-track files,
+  so the 12-track corpus cost **867MB** via plain `urllib`. No streaming and no
+  bulk download were needed. Scale `--n` with that in mind.
 - **No MIDI capture on the piano.** Ground truth for real recordings has to
   be produced by hand or by rendering known MIDI.
 - **Python 3.12, numpy pinned <2** for the torch 2.2 ABI. `madmom` is capped
@@ -159,17 +239,33 @@ weakest register. Semitone clusters are hard for both.
 
 ## 9. What the next phase should know
 
-### If Phase 13 (real-audio benchmark) — recommended
-The evaluation harness cannot measure the number the training track exists to
-close. Augmentation *improves* scores on synthetic audio (+9.4 F1 for `room`)
-because `synth.py` is perfectly dry and reverb pushes it toward realism. On a
-real recording the same preset behaves correctly (agreement drops to 0.889).
+### Finishing Phase 13's deferred matrix (optional, ~20h)
+The `clean` cell exists for both engines. The remaining 7 presets × 2 engines
+were deferred once the real cost became clear: **inference is ~1.87x realtime on
+this corpus, not the ~1.1x this file used to claim** (44.1/48kHz stereo needing
+resample to 16kHz, plus per-file overhead over 12 calls). ByteDance alone is
+~20h for 8 presets, plus ~2.6h of pitch-shift augmentation (`detuned` and
+`worst_case` cost 22.2s per 60s of audio).
 
-So Phase 13 needs **real recordings with ground truth**. Without MIDI capture,
-the options are: play along to a known MIDI file and align, hand-correct a
-transcription into ground truth, or use a public dataset with real audio.
-`python -m evaluation --audio-dir` already accepts `name.wav` + `name.mid`
-pairs — the runner exists, the data does not.
+Cheaper options, in order of value per hour:
+- **Basic Pitch, all 8 presets** — minutes, not hours. Gives a full degradation
+  curve immediately.
+- **ByteDance, `room` only** — ~2.6h, and `room` is the condition the training
+  track actually targets.
+- The full matrix, staged with `--resume` (one JSON per cell, so an interruption
+  costs one cell).
+
+Remember `room` on MAESTRO double-reverbs — a room convolved onto a hall. It is
+a *relative* robustness measure, not a prediction of home-recording accuracy.
+
+### The benchmark this project still lacks
+MAESTRO answers "how well does this engine do on studio Disklavier audio." It
+cannot answer "how well does it do on **your** piano in **your** room," which is
+the actual product goal. That needs recordings of the user's own instrument with
+ground truth, and HANDOFF §7 records why that is blocked: no MIDI capture on the
+piano. Options remain hand-correcting a transcription, or playing along to a
+known MIDI file and aligning. **Do this before investing heavily in 14–17** —
+otherwise the training target is a proxy.
 
 ### If Phase 3 (notation)
 The riskiest phase. Already verified as installable and working on this
@@ -182,9 +278,21 @@ on the page — the weakest part of transcription feeds the most visible part
 of notation.
 
 ### If training (Phases 14–17)
-Do not start before a real-audio baseline exists. The goal is beating
-ByteDance **on room-matched recordings**, not on MAESTRO — its published
-96.72% is on studio Disklavier audio, and models drop ~20 F1 points on
-unfamiliar acoustics. That gap is winnable on free Kaggle GPU (30 hrs/week,
-12-hour session cap, so **checkpoint/resume is mandatory**). Beating the
-MAESTRO benchmark itself is open research and is not the target.
+A real-audio baseline now exists (§6), so the precondition is met — but read it
+correctly. **ByteDance scores 0.969 on this corpus because MAESTRO is its
+training distribution.** Beating that number is not the goal and would not mean
+what it appears to mean.
+
+The goal is beating ByteDance **on room-matched recordings**. Its published
+96.72% is studio Disklavier audio, and models drop ~20 F1 points on unfamiliar
+acoustics. That gap is winnable on free Kaggle GPU (30 hrs/week, 12-hour session
+cap, so **checkpoint/resume is mandatory**). Beating the MAESTRO benchmark itself
+is open research and is not the target.
+
+Two concrete things to carry forward:
+- Compare against `benchmarks/real/*.json` using `report.compare_reports()`,
+  which joins **by (engine, case, preset)**, never by position. Every baseline
+  carries `inference_threads`, device, torch/numpy versions and git commit,
+  because all of those change the numbers.
+- A new model drops in as a third `TranscriptionEngine` and is scored by the
+  same harness on the same corpus. That seam is why `get_engine()` exists.

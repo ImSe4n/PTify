@@ -588,10 +588,52 @@ general-purpose multi-instrument model. Precision (0.744) and recall (0.723) are
 balanced, which rules out misalignment or mispaired MIDI — those collapse both
 together toward zero.
 
-### PENDING — ByteDance and the sanity gate
+### ByteDance and the sanity gate — PASSED, and the instrument validated itself
 
-Run in progress at the time of writing. To be filled with mean onset F1, the
-gate verdict against the 0.85 threshold, and the per-track spread.
+**Mean onset F1 = 0.9693** over 12 tracks, against a 0.85 gate threshold.
+
+The number that matters more than the gate: ByteDance's *published* MAESTRO note
+F1 is **0.9677**. Measured here on 12 test-split tracks: **0.9693** — a
+difference of **+0.0016**. Independently reproducing a published benchmark to
+within 0.002 is the strongest available evidence that the whole chain is
+correct: selection, fetch, `.midi` pairing, alignment, and `mir_eval` scoring.
+Phase 12's lesson was that a benchmark is a measurement instrument; this is the
+first time this project's instrument has been checkable against an external
+reference, and it agrees.
+
+| ByteDance, clean real MAESTRO | |
+|---|---|
+| onset F1 | **0.9693** |
+| precision / recall | 0.981 / 0.958 |
+| +offset | 0.381 |
+| +velocity | 0.949 |
+| wall time | 2.64 h for 84.5 min of audio |
+
+Per-track range 0.896 (Schubert/Liszt song transcriptions) to 0.996 (Bach
+Prelude and Fugue). The weakest track is the densest texture; the strongest is
+the most contrapuntally clean. No track fell below 0.89.
+
+### The two engines move in OPPOSITE directions on real audio
+
+| engine | synthetic clean | real clean | delta |
+|---|---|---|---|
+| ByteDance | ~0.87 | **0.969** | **+0.099** |
+| Basic Pitch | ~0.86 | **0.730** | **−0.130** |
+
+This is the single most important result of Phase 13, and it is exactly what the
+training-distribution caveat predicted. ByteDance goes *up* on real audio because
+MAESTRO is its training distribution — same Disklavier, same hall, same mics.
+Basic Pitch goes *down* by 13 points because it is a general-purpose
+multi-instrument model meeting real piano acoustics for the first time.
+
+**A single "real-audio accuracy" number would have been meaningless.** The same
+audio produces +0.099 for one engine and −0.130 for the other. Any future claim
+that a model "beats ByteDance" on this corpus has to be read against the fact
+that ByteDance is playing at home here.
+
+`+offset` remains the weak spot for both (0.381 and 0.176 against onset scores of
+0.969 and 0.730). Note durations are far less accurate than note starts, which
+matters directly for Phase 3 — durations become note values on the page.
 
 ### Inference is 1.8x realtime, not 1.1x
 
