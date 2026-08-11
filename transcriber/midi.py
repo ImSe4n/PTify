@@ -75,14 +75,24 @@ def read_midi(path: str | Path) -> Transcription:
 
     for inst in pm.instruments:
         for n in inst.notes:
-            tr.notes.append(
-                NoteEvent(
-                    pitch=n.pitch,
-                    onset=float(n.start),
-                    offset=float(n.end),
-                    velocity=int(n.velocity),
+            # clamp=False keeps reading LOSSLESS. With the default clamp, a
+            # legitimately short note is silently lengthened on read, which
+            # mutated ground-truth reference MIDI before it reached scoring.
+            try:
+                tr.notes.append(
+                    NoteEvent(
+                        pitch=n.pitch,
+                        onset=float(n.start),
+                        offset=float(n.end),
+                        velocity=int(n.velocity),
+                        clamp=False,
+                    )
                 )
-            )
+            except ValueError:
+                # Notes outside the 88-key range exist in general MIDI files
+                # (other instruments, sound effects). Skip them rather than
+                # refusing to read the file at all.
+                continue
 
         # Reconstruct pedal spans from CC64 transitions.
         down: float | None = None

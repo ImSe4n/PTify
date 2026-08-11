@@ -1,0 +1,525 @@
+# PTify — Development History
+
+A running log of what was built, what broke, and what came next. Dates are
+commit dates. Bugs are recorded whether or not they were mine, because the
+pattern of *how* they were found is the useful part.
+
+---
+
+## 2026-08-04 — Phase 0: scaffold
+
+**Completed**
+- `git init` as a standalone repo, MIT licence, `.gitignore`, `requirements.txt`
+- Package skeleton (`audio/`, `transcribe/`, `ui/`, `practice/`) with stub modules
+- First commit `88b9795`
+
+**Issues found**
+- **Repo was nested inside another repo.** `LivePianoSynthesizer/` sat inside a
+  git repo rooted at `C:\Users\SeanN` whose remote was an unrelated FTC
+  robotics project. Committing would have pushed application code into that
+  repo. Caught before the first `git add`; fixed with `git init` in the
+  project folder.
+- **Security note raised:** that home-directory repo had `.ssh/` and
+  `.claude.json` untracked — one `git add -A` from leaking private keys.
+  Flagged to the user; not touched.
+
+**Next**
+- Prove the model works before building any UI.
+
+---
+
+## 2026-08-05 — Phase 1: live microphone probes
+
+The original concept was a Synthesia-style **live** visualiser: listen to an
+acoustic piano through a mic and draw falling notes in real time.
+
+**Completed**
+- `probe_env.py` — environment/GPU/audio-device probe (`09f428c`)
+- `probe_offline.py` — offline transcription + CPU benchmark (`eb53bce`)
+- `probe_live.py` — live mic → rolling window → console notes (`1d07cd1`)
+- `transcribe/weights.py` — Windows-safe checkpoint download
+- Bug-fix pass (`79528f4`)
+
+**Issues found**
+- **`wget` does not exist on Windows.** `piano_transcription_inference`
+  downloads its checkpoint with `os.system('wget ...')`. The failure is
+  *silent* — it surfaced later as a confusing `FileNotFoundError` from
+  `torch.load`. Fixed by fetching the same file with `urllib` to the same
+  path (`weights.py`), using a `.part` file so an interrupted download cannot
+  leave a truncated checkpoint that looks valid.
+- **5.5x wasted compute.** The library defaults to `segment_samples=16000*10`
+  and `enframe()` overlaps segments 50%, so a 1.5s buffer was padded to 10s
+  and run as *two* segments: **9232ms**. Matching the segment to the window
+  cut it to **1672ms** with no accuracy loss.
+- **Broken global Python environment.** torch 2.4.0 against numpy 2.2.6 —
+  torch <2.3 is compiled for numpy 1.x and its tensor→array conversion
+  *raises* under numpy 2.x. That conversion runs on every inference. Fixed by
+  building a venv with pinned versions rather than touching global packages.
+- **No usable GPU.** torch reported a `+cu118` build but
+  `cuda.is_available() == False`. Repinned to the CPU wheel.
+
+**Next**
+- Measure whether CPU inference can keep up with live audio.
+
+---
+
+## 2026-08-10 — Phase 1 conclusion: the live approach fails
+
+**Completed**
+- Basic Pitch ONNX engine as a fast alternative
+- `probe_levels.py` — mic level meter and device scanner
+- Extensive real-piano testing (`637c10d`)
+
+**Issues found — several were my own bugs, and they masked the real problem**
+
+1. **Dedup keyed on arrival time, not note onset.** The analysis window is
+   ~2s and re-runs every 250ms, so one keystrike sits in ~8 consecutive
+   windows. Deduping on *when the detection arrived* meant one strike printed
+   as 5–8 identical lines. It read like the model hallucinating; it was
+   bookkeeping.
+2. **Peak picking fired on every rising edge.** A piano attack is not a clean
+   pulse — confidence oscillates across the threshold during the hammer
+   strike, so one strike produced several events ~12ms apart
+   (`C4 C4 E4 E4 G4 G4`). Fixed with strict local-maximum detection plus a
+   90ms minimum gap.
+3. **Edge onsets marched forward forever.** When a note's attack scrolled off
+   the window's left edge, the model reported it as starting at frame 0 — the
+   earliest point it could see. Every subsequent window repeated the claim, so
+   the computed onset advanced at the hop rate and permanently outran any
+   dedup tolerance. Fixed by discarding the leading 3 frames of each window.
+   *Traced by printing the absolute onset per window and watching it climb:
+   0.994, 0.990, 0.997, 0.993, then 1.012, 1.262, 1.512…*
+4. **ONNX outputs identified by position.** Both the onset and sustain maps
+   are `(172, 88)`, so shape cannot distinguish them, and `get_outputs()`
+   returns them in the order `:2, :1, :0` — not the order the names imply.
+   Positional indexing silently swaps onsets for sustain activations. Fixed by
+   requesting outputs **by name**, verified against the library source.
+5. **A test that verified nothing.** `LiveProbe.__init__` defaulted
+   `suppress_harmonics=False` while the CLI passed `True`. My test scripts
+   constructed the class directly, so the harmonic filter was **off in every
+   test I ran** — I reported "13 detections → 3" as verified when I had been
+   measuring unfiltered output. The number was meaningless.
+6. **Microphone input was the real bottleneck for a while.** Peak level 0.019
+   (1.9% of full scale) on a laptop Realtek mic *array* via MME — array mics
+   apply speech-tuned beamforming and noise suppression that actively
+   attenuates sustained musical tones.
+
+**The finding that ended the live approach.** On a single C4 held under
+sustain pedal:
+
+| | real strike | merely ringing |
+|---|---|---|
+| Basic Pitch | 0.955 | **0.823** ← indistinguishable |
+| ByteDance | onset | **nothing** ← correct |
+
+No threshold separates 0.955 from 0.823. Basic Pitch **cannot** tell "still
+sounding" from "struck again" — a model limitation, not a post-processing bug,
+and no amount of dedup tuning fixes it.
+
+**Next**
+- Pivot away from live transcription.
+
+---
+
+## 2026-08-10 — Pivot: offline transcriber, then full-stack web app
+
+**Completed**
+- Deleted the live-only layer: `audio/` (ring buffer, capture), `calibrate.py`,
+  `probe_levels.py`, `practice/`, `ui/`, `NoteStitcher` (`667a025`)
+- New `transcriber/` package: `events.py`, `engine.py`, `bytedance.py`,
+  `midi.py`, CLI (`afbada5`)
+- Basic Pitch engine ported to whole-file chunking (`7bd7bd1`)
+- `doctor.py`, README rewrite, stale probe removal (`104d405`)
+- Merged to `master` via PR #1 (`3d7b459`)
+
+**Why this fixed everything at once** — the pivot deleted the problems rather
+than solving them:
+
+| Live problem | Offline |
+|---|---|
+| RTF 1.1x, inference slower than incoming audio | Gone — a 3-min file taking 3.3 min is fine |
+| Cross-window dedup, ~8 re-detections per note | Gone — whole file in one pass |
+| `DISPLAY_DELAY_SEC`, the core design constraint | Gone |
+| Edge-onset artefacts | Gone — no sliding window |
+
+**ByteDance, rejected in Phase 1 for being too slow, became the default.** Its
+only flaw was speed, which no longer matters offline.
+
+**Issues found**
+- **`requirements.txt` was broken.** Missing `basic_pitch`, `onnxruntime`,
+  `pretty_midi`, `soundfile` — all imported by committed code. A fresh clone
+  could not run.
+- **`probe_offline.py` referenced four deleted config constants**
+  (`INFERENCE_HOP_SEC`, `DISPLAY_DELAY_SEC`, …) and would crash. Deleted;
+  `python -m transcriber` supersedes it.
+- **Duplicate notes at chunk boundaries** in the new whole-file Basic Pitch
+  path — the same edge-onset problem as Phase 1, in a new context. Fixed with
+  `EDGE_FRAMES` on non-initial chunks.
+
+**Verified on real audio** (`piano-c-major-scale-sound.mp3`) — both engines
+returned all 8 notes in order, onsets agreeing within ~10ms:
+
+| | Onsets | Velocity | Pedal |
+|---|---|---|---|
+| ByteDance | 8/8 | 47–54 (real dynamics) | 0 (correct — no pedal played) |
+| Basic Pitch | 8/8 | ~120 (flat) | not supported |
+
+**Next**
+- Evaluation harness, so "better" becomes measurable.
+
+---
+
+## 2026-08-10 — Phase 12a: evaluation metrics
+
+**Completed**
+- `evaluation/metrics.py` — onset, onset+offset, and velocity F1 via
+  `mir_eval`, using the library's standard tolerances so numbers are
+  comparable to published figures (`3f7598a`)
+- Validated against 13 known-answer cases
+
+**Issues found**
+- **Velocities were pre-normalised to 0–1.** `mir_eval` expects raw MIDI
+  0–127 and normalises internally, so the velocity metric returned 1.0 for
+  everything. Caught only because a deliberately-wrong test case scored 1.0
+  when I expected lower — the reason for testing against known answers rather
+  than eyeballing plausible output.
+- **Documented two surprising `mir_eval` behaviours** (both verified as the
+  library's own, not wrapper bugs): it rescales estimated velocities to
+  best-fit the reference, so it measures *relative* dynamics; and on a
+  two-value loud/soft pattern a fully inverted reading also scores 1.0.
+
+**Next**
+- Full audit before continuing — see below.
+
+---
+
+## 2026-08-10 — Audit and hardening
+
+A full audit of `transcriber/` and `evaluation/` before building further on
+top. Findings and fixes are tracked in the commit that follows this entry.
+
+**High-severity bugs found**
+1. **`_merge` deleted legitimately repeated notes.** `MERGE_WINDOW_SEC = 0.35`
+   merged *any* two same-pitch notes within 350ms, but the peak picker
+   deliberately emits repeats as close as 90ms. A five-note trill at 0.3s
+   spacing came back as three notes. Anything faster than ~171 BPM repeated
+   eighths was decimated.
+2. **`_merge` mutated its input.** It rewrote `NoteEvent` objects still
+   referenced by the caller, making the function non-idempotent — a landmine
+   for any future retry or parameter sweep.
+3. **`--verify` compared only note *counts*.** A writer bug that transposed
+   every note or zeroed every velocity would have passed.
+
+**Structural problems**
+- `import config` from inside the package resolved only because the repo root
+  happened to be on `sys.path`. The package was not installable or
+  relocatable — a hard blocker for the planned FastAPI backend.
+- `_drop_harmonics` was O(n²): 0.65s at 2000 notes, **11.5s at 8000**. That
+  negates the entire point of the "fast preview" engine.
+- Pitch was never range-validated, despite `config.MIDI_LOWEST/HIGHEST`
+  existing for exactly that. `NoteEvent(pitch=200)` was accepted silently.
+- `NoteEvent.__post_init__` silently lengthened short notes on *read*, so
+  ground-truth reference MIDI was mutated before scoring.
+
+---
+
+## 2026-08-10 — First polyphonic testing
+
+Everything until now had been tested on **monophonic scales — one note at a
+time**. Polyphony is where transcription actually gets hard, because
+simultaneous notes share harmonics. Built a 7-case ground-truth set
+(triads, sustain pedal, dense runs, wide two-hand range, repeated notes,
+dynamic range, semitone clusters) using `pretty_midi.synthesize()` so every
+label is exact.
+
+**First real measurement of both engines**
+
+| case | Basic Pitch | ByteDance |
+|---|---|---|
+| triads | 0.960 | 0.857 |
+| pedal | 0.933 | 0.778 |
+| dense | 0.952 | 0.985 |
+| wide (two hands) | 0.769 | 0.615 |
+| repeats | 0.647 → **0.917** | 0.917 |
+| dynamics | 0.909 | 0.400 |
+| cluster | 0.667 | 0.571 |
+| **mean** | 0.834 → **0.872** | 0.732 |
+
+**Bug found and fixed — attack echoes.** The `repeats` case transcribed 12
+notes as **22**. Every real strike produced a second, weaker onset ~93ms
+later that shared its parent's offset:
+
+```
+C4  0.497 -> 0.682  vel 85   <- real note
+C4  0.590 -> 0.682  vel 70   <- echo: +93ms, same offset, quieter
+```
+
+93ms is *longer* than `MIN_REPEAT_SEC` (90ms), so no onset-distance rule
+could remove it without also destroying genuine fast repeats. The reliable
+signature is the **shared offset** — an echo is the same sustain traced
+twice, whereas a real repeat is traced to its own note end. Filtering on
+(close onset AND same offset AND quieter) fixed `repeats` 0.647 → 0.917 with
+no regression elsewhere.
+
+**Known weaknesses, now measured rather than assumed**
+- **Semitone clusters** (0.667 / 0.571) — adjacent semitones are the hardest
+  pitch-resolution case for both engines. Post-processing is not at fault;
+  the models genuinely merge them.
+- **Wide two-hand range** (0.769 / 0.615) — low bass notes are the weakest
+  register for both.
+- **ByteDance loses badly on `dynamics`** (0.400) — it invented 7 extra notes
+  on a passage of decreasing velocity. Worth investigating; it is the default
+  engine.
+- **`+offset` scores are much lower than onset scores across the board.** Note
+  *durations* are far less accurate than note starts, which matters for the
+  Phase 3 notation work.
+
+**Next**
+- Investigate ByteDance's `dynamics` failure (0.400 is bad for the default).
+
+---
+
+## 2026-08-10 — The benchmark was measuring the wrong thing
+
+Investigated ByteDance's 0.400 on `dynamics`. It turned out **the test
+material was invalid, not the model.**
+
+**Trail:** ByteDance reported a note running `3.50 → 9.50` in a 6.20s file.
+Checked whether that came from my post-processing — it did not; the raw
+library output already contained it. Checked the audio — a clean decay
+matching the velocity ramp, nothing wrong. Then checked the *spectrum*:
+
+```
+pretty_midi.synthesize(), single C4 (261.6 Hz):
+    263.8 Hz  1.01x f0   power 3.24e-02
+    258.4 Hz  0.99x f0   power 2.48e-02
+    269.2 Hz  1.03x f0   power 2.02e-03      <- and nothing above
+```
+
+**`pretty_midi.synthesize()` produces essentially a pure sine wave** — all
+energy at the fundamental, no harmonic series, no attack transient. That is
+not piano audio. ByteDance is piano-specific and trained on real recordings,
+so a sine wave is far out of its training distribution.
+
+**Fix:** wrote `evaluation/synth.py`, a physical piano model with a proper
+harmonic series (~1/n falloff), **inharmonicity** (`f_n = n*f0*sqrt(1+B*n^2)`,
+B scaled across the keyboard — the most piano-specific cue in the signal),
+broadband hammer-noise attack, per-partial decay, and velocity-dependent
+brightness.
+
+**Re-scored on realistic audio — the ranking reversed:**
+
+| case | ByteDance (sine → piano) | Basic Pitch (sine → piano) |
+|---|---|---|
+| triads | 0.857 → 0.813 | 0.960 → 0.929 |
+| pedal | 0.778 → 0.778 | 0.933 → 0.737 |
+| dense | 0.985 → 0.914 | 0.952 → 0.667 |
+| wide | 0.615 → **0.842** | 0.769 → 0.762 |
+| repeats | 0.917 → **0.960** | 0.917 → 0.846 |
+| dynamics | 0.400 → **0.909** | 0.909 → 0.909 |
+| cluster | 0.571 → **1.000** | 0.667 → 0.800 |
+| **mean** | 0.732 → **0.888** | 0.872 → 0.807 |
+
+ByteDance gained 0.156 and now leads; Basic Pitch lost 0.065. **This
+vindicates keeping ByteDance as the default** — the earlier numbers suggested
+switching, and acting on them would have been wrong.
+
+**Lesson recorded:** a benchmark is a measurement instrument and has to be
+validated like one. Two rounds of conclusions here came from a broken
+instrument rather than from the system under test.
+
+**Also fixed:** `render_note` could exceed ±1.0 (measured 1.17) when partials
+summed constructively — caught by a test, not by inspection. `render()`
+normalised the mix but a single note written straight to WAV would clip.
+
+**Next**
+- 12c: augmentation.
+
+---
+
+## 2026-08-10 — Phase 12c: augmentation
+
+Built `evaluation/augment.py`: reverb (convolution with a synthetic room
+impulse response), pitch shift, noise at a target SNR, two-band EQ, and level
+setting. Eight named presets from `clean` through `worst_case`.
+
+**Design decision that matters:** every function returns
+`(audio, labels)`. A pitch shift transposes the audio, so the ground-truth
+pitches must move with it — returning only audio would let a caller silently
+score shifted audio against unshifted labels, invalidating the benchmark
+without ever failing.
+
+**Finding: augmentation IMPROVES scores on synthetic audio.** Measured +9.4
+F1 for `room` and +14.2 for `quiet_mic` on Basic Pitch, the opposite of what
+the research predicts. Not a bug: `synth.py` renders a perfectly dry signal
+and no real piano is ever heard that way, so reverb and noise move it TOWARD
+the training distribution. Confirmed by testing on a **real** recording,
+where `room` behaves as expected — agreement drops to 0.889 and two phantom
+notes appear. Documented in the module: the clean→augmented drop is only
+meaningful on real audio.
+
+### End-of-phase audit
+
+Nine issues found, all fixed and pinned with regression tests.
+
+**Critical**
+- **`rt60=0` produced an all-NaN impulse response.** The floor was applied to
+  the IR *length* but not to the divisor. Worse, NaN slips silently past the
+  peak check in `_normalise` (`NaN > 0` is False), so it would poison every
+  downstream metric instead of raising.
+
+**High**
+- **EQ phase-cancelled at the crossover.** Summing separately-filtered
+  Butterworth bands is not an allpass reconstruction — measured >2x amplitude
+  error on a tone at the crossover, an uncontrolled artefact on top of the
+  intended tilt. Fixed with zero-phase `sosfiltfilt`.
+- **Reverb truncated its own tail.** The convolution was cut back to
+  `len(audio)`, removing the reverb from any note struck near the end — the
+  "released note keeps ringing" case that hurts transcription most. The
+  augmentation was mildest exactly where it should bite hardest.
+- **`wet` had no consistent meaning.** The wet path was peak-rescaled per
+  call, so the reverberant level depended on `rt60` and the input's crest
+  factor. Fixed by unit-energy-normalising the impulse response instead.
+- **Per-note peak limiting destroyed velocity distinction.** `render_note`
+  clipped each note to 1.0 individually, so velocity 100 and 127 rendered
+  identically on high notes — silently undermining the velocity metric.
+  Replaced with a fixed headroom divisor.
+
+**Medium**
+- **Quiet notes collapsed back to a sine wave.** A geometric
+  `brightness ** (k-1)` tilt put the 16th partial ~80dB down at velocity 30,
+  reintroducing the exact defect this module was written to avoid. Replaced
+  with a velocity-dependent power-law tilt.
+- **Sustain pedal was never implemented** despite a comment claiming it was.
+  `tr.pedals` was never read. This is the condition `metrics.py` names as the
+  hard case for note offsets, so the synthesizer could not produce it.
+- **Zero-duration notes rang undamped** for the full 0.6s tail (`0 <` should
+  have been `0 <=`). `read_midi` passes `clamp=False`, so these arrive from
+  real MIDI files.
+- **`apply_preset` used truthiness**, so a preset setting `snr_db=0.0` or
+  `peak=0.0` was silently ignored rather than applied.
+
+**Two bugs I introduced while fixing the above**, both caught by tests rather
+than inspection: softening the spectral tilt made the attack transient
+quieter than the sustain (backwards for a piano), and drawing partial phases
+from the global RNG made a note's peak depend on call order — so velocity 100
+could out-peak velocity 127. Both fixed; attack noise and phases are now
+seeded per note, and velocity is verified strictly monotonic at every pitch.
+
+**Tests: 115 passing** (was 73).
+
+**Re-verified engine scores after the synth changes** — ByteDance 0.888 →
+0.870 across the polyphonic set. Not a regression: the audio itself changed
+(louder attack transient, different spectral tilt), so the numbers are not
+directly comparable to the previous run. Recorded here as the new baseline.
+A lesson from earlier in this phase applies — when the measuring instrument
+changes, previous measurements do not carry over.
+
+**Next**
+- 12d: benchmark CLI.
+
+---
+
+## 2026-08-11 — Phase 12d: benchmark CLI (Phase 12 complete)
+
+**Completed**
+- `evaluation/cases.py` — the benchmark corpus, defined **in code** rather
+  than shipped as audio so it is reproducible from a clean checkout and
+  diffable in review. Eight cases, each chosen because it exposed a real
+  bug or a real difference between engines.
+- `evaluation/benchmark.py` — runner and three report formats.
+- `evaluation/__main__.py` — `python -m evaluation`, with `--compare`,
+  `--all-presets`, `--case`, and `--audio-dir` for real recordings.
+- Promoted the scratch scripts used throughout Phase 12 into committed,
+  tested code.
+
+**New case: `octaves`.** Deliberately-played octaves at equal strength, which
+`_drop_harmonics` must NOT remove. Added because the harmonic filter's whole
+job is deleting octave partials, and nothing was guarding the case where the
+octave is real. It immediately earned its place — see below.
+
+**Regression found by the new corpus.** `repeats` had dropped 0.917 → 0.647.
+Cause: the 12c synth changes (louder attack transient) strengthened the
+octave partial, pushing its velocity ratio to ~0.87 — just above the 0.85
+filter threshold. Swept the threshold against cases that pull in opposite
+directions:
+
+| ratio | repeats | octaves | triads |
+|---|---|---|---|
+| 0.85 | 0.647 | 1.000 | 0.929 |
+| **0.90** | **0.846** | **1.000** | **0.929** |
+| 0.93 | 0.846 | 0.667 | 0.889 |
+| 0.95 | 0.880 | 0.667 | 0.889 |
+
+0.90 satisfies both; above it, real octaves start being eaten. The tradeoff
+is recorded in `config.py` so the next person changing it sees the data.
+
+**Also found: ByteDance scores 0.500 on `octaves`** — it drops deliberately
+played octaves. A genuine weakness in the default engine that no previous
+case could see.
+
+### End-of-phase audit
+
+Eight issues found and fixed.
+
+**High**
+- **`format_comparison` crashed on unequal engine results.** Rows were zipped
+  by INDEX, so an engine producing fewer rows raised `IndexError` — after all
+  the expensive inference had run. Worse: equal-length but differently-ordered
+  lists silently compared *different cases* and reported wrong numbers with
+  no error at all. Now keyed by case name.
+- **The degradation table's baseline was positional.** It took the first dict
+  entry, so a caller ordering the dict differently inverted the sign of every
+  drop — reporting degradation as improvement. Now looks up `clean` by name.
+- **`ImportError` escaped as a raw traceback** after the header had printed,
+  because `soundfile`/`librosa` are imported lazily inside the run functions.
+- **The reported device was always wrong.** `_single` read `.device` off a
+  freshly-constructed engine, but that field is only set from
+  `torch.cuda.is_available()` inside `load()` — so the header printed `cpu`
+  on any machine, for a field the module docstring calls load-bearing.
+
+**Medium**
+- `--case` was silently ignored under `--audio-dir`, printing a subset header
+  over full-corpus results. Now an explicit error.
+- `np.mean` of an empty list printed `nan` mid-table.
+- `cases._make` computed duration from note offsets only, so a pedal held
+  past the last note produced a short label.
+- Every case wrote to the same `bench.wav` — safe today, but silently scores
+  stale audio if an engine ever caches by path or this is parallelised.
+
+**Tests: 167 passing** (was 115).
+
+---
+
+## Phase 12 complete — what the evaluation harness can and cannot do
+
+**Can:** compare engines on reproducible polyphonic cases, catch
+post-processing regressions (it caught three during this phase alone), and
+score real recordings that have MIDI ground truth.
+
+**Cannot:** measure the clean→degraded drop that the training track targets.
+Synthetic audio is too dry, so augmentation *improves* scores on it. That
+number requires real recordings, which is Phase 13's job.
+
+**Still open**
+- `+offset` scores remain far below onset scores for both engines. Note
+  durations are much less accurate than note starts — this matters directly
+  for Phase 3 notation, where duration becomes note values on the page.
+- ByteDance's `octaves` weakness (0.500) is unexplained.
+- No real-audio benchmark exists yet.
+- 12c: augmentation (reverb, pitch shift, noise) to simulate room acoustics.
+- 12d: benchmark CLI reporting the clean-vs-augmented accuracy drop — the
+  number the training track exists to close.
+
+---
+
+## Standing goals
+
+- **Training target:** beat ByteDance **on room-matched recordings**, not on
+  the MAESTRO benchmark. Models drop ~20 note-F1 points on unfamiliar acoustic
+  conditions ([Robust AMT, 2024](https://arxiv.org/abs/2402.01424)), so
+  ByteDance's 96.72% is on studio Disklavier audio, not a real room. That gap
+  is winnable on free-tier compute; the benchmark number is not.
+- **Hard constraints:** AMD integrated graphics (1GB shared VRAM) means no
+  CUDA and no local training. 59GB free disk against a 103GB dataset means
+  MAESTRO must be streamed, never downloaded.

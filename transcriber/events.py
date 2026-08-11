@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import config
+
 # Note names. Middle C (MIDI 60) is C4.
 _NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -33,17 +35,39 @@ class NoteEvent:
 
     pitch: int          # MIDI note number, 21-108 (A0-C8)
     onset: float        # seconds from the start of the audio
-    offset: float       # seconds; always > onset after __post_init__
+    offset: float       # seconds
     velocity: int = 80  # MIDI velocity, 1-127
 
+    #: When True (the default, used by engines), a degenerate offset is
+    #: lengthened to MIN_NOTE_SEC. `read_midi` sets this False so that reading
+    #: a file is LOSSLESS — otherwise legitimately short notes (grace notes,
+    #: or anything written by another tool) were silently rewritten on read,
+    #: which quietly mutated ground-truth reference MIDI before scoring.
+    clamp: bool = True
+
     def __post_init__(self) -> None:
-        # Engines occasionally return an offset at or before the onset when
-        # they fail to find a note's end. Clamping here keeps every downstream
-        # consumer (MIDI writer, piano roll, notation) from having to guard.
-        if self.offset < self.onset + MIN_NOTE_SEC:
-            self.offset = self.onset + MIN_NOTE_SEC
         self.pitch = int(self.pitch)
+
+        # An out-of-range pitch is not a recoverable data problem — it means
+        # an engine indexed its output wrongly (e.g. a bad MIDI offset when
+        # converting model bins to note numbers). Raise rather than clamp, so
+        # the bug surfaces where it happens instead of producing a corrupt
+        # MIDI file or a nonsense note name like 'G#15'.
+        if not (config.MIDI_LOWEST <= self.pitch <= config.MIDI_HIGHEST):
+            raise ValueError(
+                f"pitch {self.pitch} is outside the piano range "
+                f"{config.MIDI_LOWEST}-{config.MIDI_HIGHEST} "
+                f"({midi_to_name(config.MIDI_LOWEST)}-"
+                f"{midi_to_name(config.MIDI_HIGHEST)})"
+            )
+
         self.velocity = max(1, min(127, int(self.velocity)))
+
+        # Engines occasionally return an offset at or before the onset when
+        # they fail to find a note's end. Clamping keeps downstream consumers
+        # (MIDI writer, piano roll, notation) from having to guard.
+        if self.clamp and self.offset < self.onset + MIN_NOTE_SEC:
+            self.offset = self.onset + MIN_NOTE_SEC
 
     @property
     def duration(self) -> float:
