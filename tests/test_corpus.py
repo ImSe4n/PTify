@@ -345,6 +345,27 @@ def test_manifest_round_trips_as_json(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8")) == manifest
 
 
+# --- CLI (Phase 13d) ------------------------------------------------------
+#
+# Argument validation only: these must reject bad input BEFORE any download,
+# so they never touch the network.
+
+def test_cli_rejects_non_positive_n():
+    from evaluation.corpus import main
+
+    assert main(["--n", "0", "--list"]) == 1
+    assert main(["--n", "-3", "--list"]) == 1
+
+
+def test_cli_rejects_out_pointing_at_a_file(tmp_path):
+    """A typo'd --out must fail up front, not after gigabytes have landed."""
+    from evaluation.corpus import main
+
+    target = tmp_path / "not-a-dir"
+    target.write_text("x")
+    assert main(["--out", str(target)]) == 1
+
+
 def test_importing_corpus_pulls_in_no_network_client():
     """The suite's no-network guarantee is structural: the module must not
     import a heavyweight HTTP client at import time."""

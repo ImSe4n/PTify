@@ -408,3 +408,83 @@ def summarise_selection(tracks: list[TrackMeta]) -> str:
         f"{total / 60:.1f} min total audio"
     )
     return "\n".join(lines)
+
+
+# --- CLI ------------------------------------------------------------------
+
+DEFAULT_OUT = Path("recordings/maestro_test12")
+DEFAULT_MANIFEST = Path("benchmarks/maestro_test12.json")
+DEFAULT_CACHE = Path("benchmarks/.maestro-metadata.csv")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """python -m evaluation.corpus
+
+        --list                     show the selection, download nothing
+        --out recordings/...       fetch audio+MIDI and write the manifest
+    """
+    import argparse
+    import sys
+
+    ap = argparse.ArgumentParser(
+        prog="evaluation.corpus",
+        description="Build the real-audio benchmark corpus from MAESTRO.",
+    )
+    ap.add_argument("--n", type=int, default=DEFAULT_N,
+                    help=f"tracks to select (default: {DEFAULT_N})")
+    ap.add_argument("--seed", type=int, default=SELECTION_SEED,
+                    help="selection seed; changing it re-draws the corpus and "
+                         "invalidates published numbers")
+    ap.add_argument("--list", action="store_true",
+                    help="print the selection and exit (needs only the ~300KB "
+                         "metadata CSV, no audio)")
+    ap.add_argument("--out", type=Path, default=DEFAULT_OUT,
+                    help=f"corpus directory (default: {DEFAULT_OUT})")
+    ap.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST,
+                    help=f"manifest path (default: {DEFAULT_MANIFEST})")
+    ap.add_argument("--quiet", action="store_true", help="suppress progress")
+    args = ap.parse_args(argv)
+
+    if args.n <= 0:
+        print(f"error: --n must be positive, got {args.n}", file=sys.stderr)
+        return 1
+    if args.out.exists() and not args.out.is_dir():
+        print(f"error: --out exists and is not a directory: {args.out}",
+              file=sys.stderr)
+        return 1
+
+    try:
+        if args.list:
+            # The cheap dry run: catching a selection bug here costs seconds
+            # instead of a multi-gigabyte download.
+            tracks = parse_metadata(fetch_metadata(DEFAULT_CACHE))
+            print(summarise_selection(
+                select_tracks(tracks, n=args.n, seed=args.seed)))
+            return 0
+
+        manifest = build_corpus(
+            n=args.n, out_dir=args.out, seed=args.seed,
+            cache=DEFAULT_CACHE, progress=not args.quiet,
+        )
+        write_manifest(manifest, args.manifest)
+
+        total = sum(t["duration"] for t in manifest["tracks"])
+        notes = sum(t["n_notes"] for t in manifest["tracks"])
+        print(f"\n  {manifest['n']} tracks -> {args.out}")
+        print(f"  {total / 60:.1f} min audio, {notes} reference notes")
+        print(f"  manifest: {args.manifest}")
+        print(f"\n  NOTE: {manifest['license']}. The audio is NOT committed;")
+        print(f"        the manifest reconstructs it.")
+        return 0
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\ncancelled", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())
