@@ -80,3 +80,6 @@ desktop.ini
 # above; *.midi is NOT, and the fetcher writes .midi deliberately.
 *.midi
 recordings/
+# Cached MAESTRO metadata (~300KB, re-fetched on demand). The manifest records
+# its sha256, so the cache itself does not need to be committed.
+benchmarks/.maestro-metadata.csv

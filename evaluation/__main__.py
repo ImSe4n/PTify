@@ -18,6 +18,7 @@ from pathlib import Path
 from transcriber import config
 from transcriber.engine import get_engine
 
+from . import report
 from .augment import PRESETS
 from .benchmark import (
     format_comparison,
@@ -48,6 +49,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="limit to specific cases (repeatable)")
     ap.add_argument("--audio-dir", type=Path, default=None,
                     help="score real recordings (needs matching .mid files)")
+    ap.add_argument("--json", type=Path, default=None, metavar="PATH",
+                    help="write results as JSON. With --all-presets or "
+                         "--compare, PATH may contain {engine} and {preset}, "
+                         "which writes one file per run so an interrupted "
+                         "matrix can be resumed")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip runs whose --json file already exists")
     ap.add_argument("--quiet", action="store_true", help="suppress progress")
     args = ap.parse_args(argv)
 
@@ -63,6 +71,30 @@ def main(argv: list[str] | None = None) -> int:
         print("error: --case applies to synthetic cases only, not --audio-dir",
               file=sys.stderr)
         return 1
+
+    if args.resume and not args.json:
+        print("error: --resume needs --json (it skips runs whose file exists)",
+              file=sys.stderr)
+        return 1
+
+    # A multi-run mode writing to one fixed path would overwrite itself and
+    # leave only the last run. Require the placeholder so the loss is caught
+    # here rather than after hours of inference.
+    if args.json and (args.all_presets or args.compare):
+        multi = "{preset}" if args.all_presets else "{engine}"
+        if multi not in str(args.json):
+            print(f"error: --json needs {multi} in the path for this mode, "
+                  f"or every run overwrites the previous one", file=sys.stderr)
+            return 1
+
+    if args.json:
+        try:
+            # Fail on a bad path NOW, not after an hour of inference.
+            probe = str(args.json).replace("{engine}", "e").replace("{preset}", "p")
+            report.check_writable(probe)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
 
     corpus = None
     if args.case:
@@ -100,11 +132,69 @@ def main(argv: list[str] | None = None) -> int:
         return 130
 
 
-def _run(args, corpus, engine: str, preset: str):
+def _json_path(args, engine: str, preset: str) -> Path | None:
+    if not args.json:
+        return None
+    return Path(str(args.json).replace("{engine}", engine)
+                .replace("{preset}", preset))
+
+
+def _source(args, n_items: int) -> dict:
+    """Provenance for the report. `kind` matters: Phase 12 established that
+    real and synthetic scores are not comparable, so nothing may average
+    them without noticing."""
     if args.audio_dir:
-        return run_real_audio(engine, args.audio_dir, preset,
+        return {"kind": "real", "audio_dir": str(args.audio_dir),
+                "n_items": n_items}
+    return {"kind": "synthetic", "n_items": n_items}
+
+
+#: Device per engine, filled in after a load so the value is real. Reading
+#: `.device` off a FRESH engine always says "cpu" — it is only set inside
+#: load() — so recording it unloaded would write a falsehood into the
+#: provenance block, the exact bug the 12d audit fixed in the header.
+_DEVICE_CACHE: dict[str, str] = {}
+
+
+def _device_of(engine_name: str) -> str:
+    """The engine's real device, loading it once if needed.
+
+    Cached because get_engine().load() costs ~40s for ByteDance, and every
+    cell of a preset sweep would otherwise pay it again just to record the
+    same string.
+    """
+    if engine_name not in _DEVICE_CACHE:
+        try:
+            engine = get_engine(engine_name)
+            engine.load()
+            _DEVICE_CACHE[engine_name] = engine.device
+        except Exception:
+            _DEVICE_CACHE[engine_name] = "unknown"
+    return _DEVICE_CACHE[engine_name]
+
+
+def _run(args, corpus, engine: str, preset: str):
+    """Run one (engine, preset) cell, writing its JSON immediately.
+
+    Per-cell writes plus --resume are what make a long matrix survivable: an
+    interruption costs one cell, not the whole run.
+    """
+    path = _json_path(args, engine, preset)
+    if args.resume and path and path.exists():
+        print(f"  skipping {engine}/{preset}: {path} exists", file=sys.stderr)
+        return report.rows_from_json(path)
+
+    if args.audio_dir:
+        rows = run_real_audio(engine, args.audio_dir, preset,
                               progress=not args.quiet)
-    return run(engine, preset, cases=corpus, progress=not args.quiet)
+    else:
+        rows = run(engine, preset, cases=corpus, progress=not args.quiet)
+
+    if path:
+        report.write_json(path, rows, source=_source(args, len(rows)),
+                          device=_device_of(engine))
+        print(f"  wrote {path}", file=sys.stderr)
+    return rows
 
 
 def _single(args, corpus) -> int:
@@ -120,6 +210,7 @@ def _single(args, corpus) -> int:
     engine.load()
     print(f" device : {engine.device}")
     print()
+    _DEVICE_CACHE[args.engine] = engine.device  # already loaded; don't reload
 
     rows = _run(args, corpus, args.engine, args.preset)
     print(format_rows(rows))

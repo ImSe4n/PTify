@@ -134,3 +134,11 @@ transcribed as exactly 8 correct notes with no extras.
 
 MIT — see [LICENSE](LICENSE). Bundled models have their own licences:
 ByteDance (Apache 2.0), Basic Pitch (Apache 2.0).
+
+**Benchmark data.** The real-audio benchmark scores excerpts of
+[MAESTRO v3.0.0](https://magenta.withgoogle.com/datasets/maestro), which is
+CC BY-NC-SA 4.0 — research and benchmarking, not commercial use. **No MAESTRO
+content is redistributed in this repository.** `benchmarks/maestro_test12.json`
+records which tracks were selected and a sha256 for each file; running
+`python -m evaluation.corpus --out recordings/maestro_test12` reconstructs the
+corpus locally, and `.gitignore` keeps the audio out of git.
