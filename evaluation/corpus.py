@@ -45,8 +45,12 @@ carrying them.
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
+import json
 import random
+import urllib.parse
+import urllib.request
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,6 +66,13 @@ MAESTRO_CSV_URL = (
 #: does not fit the disk budget; this mirror is what makes selective fetching
 #: possible at all. Paths match the official CSV exactly.
 MAESTRO_HF_REPO = "ddPn08/maestro-v3.0.0"
+
+#: Direct file endpoint for the mirror. Deliberately plain urllib rather than
+#: `huggingface_hub`: these URLs serve individual files with no auth, so the
+#: library would add three dependencies (huggingface_hub, pyyaml, tqdm) to a
+#: venv whose torch 2.2 / numpy <2 ABI pinning is documented as fragile, in
+#: exchange for nothing this module needs.
+MAESTRO_FILE_URL = f"https://huggingface.co/datasets/{MAESTRO_HF_REPO}/resolve/main/"
 
 #: Bumped only to deliberately re-draw the corpus. Changing it invalidates
 #: every previously published number, so it is a constant rather than a
@@ -217,6 +228,160 @@ def select_tracks(
             break
 
     return picked
+
+
+# --- fetching -------------------------------------------------------------
+#
+# Every network call goes through an injectable seam (`opener` / `downloader`)
+# so the test suite keeps its no-network guarantee. The defaults are resolved
+# inside the function bodies, never at import time.
+
+def _default_opener(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=60) as response:
+        return response.read()
+
+
+def _default_downloader(url: str, dest: Path) -> None:
+    """Download to a .part file, then rename.
+
+    The same discipline as `transcriber/weights.py`: an interrupted download
+    must never leave a truncated WAV in place, because librosa will happily
+    read a partial file and it would score as a mysteriously bad recording
+    rather than as a broken one.
+    """
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    try:
+        urllib.request.urlretrieve(url, tmp)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    tmp.replace(dest)
+
+
+def fetch_metadata(cache: Path | None = None, *, opener=None) -> str:
+    """The MAESTRO metadata CSV, cached on disk after the first fetch.
+
+    ~300KB, and the only thing `--list` needs — which is what makes a dry run
+    cost two seconds instead of a multi-gigabyte download.
+    """
+    if cache is not None and cache.exists():
+        return cache.read_text(encoding="utf-8")
+
+    fetch = opener or _default_opener
+    # MAESTRO is UTF-8; see TrackMeta.stem on why this must not become latin-1.
+    text = fetch(MAESTRO_CSV_URL).decode("utf-8")
+
+    if cache is not None:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(text, encoding="utf-8")
+    return text
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def fetch_track(
+    meta: TrackMeta, dest_dir: Path, *, downloader=None
+) -> tuple[Path, Path]:
+    """Fetch one track's audio and MIDI into a flat directory.
+
+    Idempotent: an existing file is left alone, so re-running after an
+    interruption resumes instead of re-downloading tens of megabytes.
+
+    Writes MIDI as `.midi`, matching MAESTRO. That is deliberate — it makes
+    the real corpus exercise the `.midi` pairing fix rather than leaving that
+    path covered only by unit tests.
+    """
+    download = downloader or _default_downloader
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    audio_dest = dest_dir / f"{meta.stem}.wav"
+    midi_dest = dest_dir / f"{meta.stem}.midi"
+
+    for source, dest in ((meta.audio_filename, audio_dest),
+                         (meta.midi_filename, midi_dest)):
+        if dest.exists():
+            continue
+        download(MAESTRO_FILE_URL + urllib.parse.quote(source), dest)
+
+    return audio_dest, midi_dest
+
+
+def build_corpus(
+    n: int = DEFAULT_N,
+    out_dir: Path = Path("recordings/maestro_test12"),
+    *,
+    seed: int = SELECTION_SEED,
+    cache: Path | None = None,
+    progress: bool = True,
+    opener=None,
+    downloader=None,
+) -> dict:
+    """Select, fetch, and describe a real-audio benchmark corpus.
+
+    Returns the manifest. The manifest is the committed artifact — the audio
+    is CC BY-NC-SA and is never redistributed, so recording exactly which
+    tracks were chosen and the sha256 of each file is what lets a later phase
+    prove it measured the same bytes.
+    """
+    import sys
+
+    from transcriber.midi import read_midi
+
+    out_dir = Path(out_dir)
+    csv_text = fetch_metadata(cache, opener=opener)
+    selected = select_tracks(parse_metadata(csv_text), n=n, seed=seed)
+
+    entries = []
+    for i, meta in enumerate(selected, 1):
+        if progress:
+            print(f"  [{i}/{len(selected)}] {meta.composer} — {meta.title[:40]}",
+                  file=sys.stderr, flush=True)
+
+        audio_path, midi_path = fetch_track(meta, out_dir, downloader=downloader)
+        ref = read_midi(midi_path)
+        entries.append({
+            "stem": meta.stem,
+            "composer": meta.composer,
+            "title": meta.title,
+            "year": meta.year,
+            "source_audio": meta.audio_filename,
+            "source_midi": meta.midi_filename,
+            "duration": meta.duration,
+            "n_notes": len(ref.notes),
+            "n_pedals": len(ref.pedals),
+            "sha256_audio": _sha256(audio_path),
+            "sha256_midi": _sha256(midi_path),
+        })
+
+    return {
+        "schema": 1,
+        "dataset": "maestro-v3.0.0",
+        "source_repo": MAESTRO_HF_REPO,
+        "license": "CC BY-NC-SA 4.0",
+        "split": "test",
+        "seed": seed,
+        "n": len(entries),
+        "csv_sha256": hashlib.sha256(csv_text.encode("utf-8")).hexdigest(),
+        "audio_dir": str(out_dir).replace("\\", "/"),
+        "tracks": entries,
+    }
+
+
+def write_manifest(manifest: dict, path: Path) -> Path:
+    """Write the manifest as sorted, indented JSON so it diffs readably."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def summarise_selection(tracks: list[TrackMeta]) -> str:

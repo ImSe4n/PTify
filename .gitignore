@@ -69,4 +69,14 @@ desktop.ini
 # count-only verification), so it has to travel with the code.
 .pytest_cache/
 
-HANDOFF.md
+# NOTE: HANDOFF.md is deliberately TRACKED as of Phase 13. It is the working
+# brief the agreement says to update every phase, so a fresh clone that got
+# HISTORY.md without it was missing half the context.
+
+# Real-audio benchmark corpus (Phase 13).
+# MAESTRO is CC BY-NC-SA 4.0 and this repo is MIT, so NO corpus audio or MIDI
+# is ever committed. The corpus is reconstructed from benchmarks/*.json, which
+# records the track list and a sha256 per file. *.wav is already ignored
+# above; *.midi is NOT, and the fetcher writes .midi deliberately.
+*.midi
+recordings/
