@@ -11,9 +11,14 @@ python -m transcriber recording.mp3
 
 ```
 8 notes, 0 pedal events, range C4-C5, 5.0s
-took 13.0s on CPU (RTF 2.58x)
+took 45.2s on CPU (RTF 8.98x)
 Wrote recording.mid
 ```
+
+Real output from a C major scale recording. Two things that look wrong but
+are not: `0 pedal events` is correct because no pedal was played, and the RTF
+on a 5-second clip is dominated by ~40s of one-off model loading — on
+real-length recordings it settles near the ~1.1x quoted below.
 
 ---
 
@@ -84,7 +89,10 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `transcriber/midi.py` | MIDI read/write; pedal as CC64 |
 | `transcriber/weights.py` | Windows-safe checkpoint download |
 | `transcriber/doctor.py` | Environment diagnostics |
-| `config.py` | Tuning constants |
+| `transcriber/config.py` | Tuning constants |
+| `evaluation/metrics.py` | Accuracy scoring via `mir_eval` |
+| `tests/` | `python -m pytest tests/` |
+| `HISTORY.md` | Development log: what broke and why |
 
 Adding an engine means subclassing `TranscriptionEngine` (implement `name`,
 `load`, `transcribe_file`, `device`) and adding a branch to `get_engine()`. That

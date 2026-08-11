@@ -1,0 +1,243 @@
+# PTify — Development History
+
+A running log of what was built, what broke, and what came next. Dates are
+commit dates. Bugs are recorded whether or not they were mine, because the
+pattern of *how* they were found is the useful part.
+
+---
+
+## 2026-08-04 — Phase 0: scaffold
+
+**Completed**
+- `git init` as a standalone repo, MIT licence, `.gitignore`, `requirements.txt`
+- Package skeleton (`audio/`, `transcribe/`, `ui/`, `practice/`) with stub modules
+- First commit `88b9795`
+
+**Issues found**
+- **Repo was nested inside another repo.** `LivePianoSynthesizer/` sat inside a
+  git repo rooted at `C:\Users\SeanN` whose remote was an unrelated FTC
+  robotics project. Committing would have pushed application code into that
+  repo. Caught before the first `git add`; fixed with `git init` in the
+  project folder.
+- **Security note raised:** that home-directory repo had `.ssh/` and
+  `.claude.json` untracked — one `git add -A` from leaking private keys.
+  Flagged to the user; not touched.
+
+**Next**
+- Prove the model works before building any UI.
+
+---
+
+## 2026-08-05 — Phase 1: live microphone probes
+
+The original concept was a Synthesia-style **live** visualiser: listen to an
+acoustic piano through a mic and draw falling notes in real time.
+
+**Completed**
+- `probe_env.py` — environment/GPU/audio-device probe (`09f428c`)
+- `probe_offline.py` — offline transcription + CPU benchmark (`eb53bce`)
+- `probe_live.py` — live mic → rolling window → console notes (`1d07cd1`)
+- `transcribe/weights.py` — Windows-safe checkpoint download
+- Bug-fix pass (`79528f4`)
+
+**Issues found**
+- **`wget` does not exist on Windows.** `piano_transcription_inference`
+  downloads its checkpoint with `os.system('wget ...')`. The failure is
+  *silent* — it surfaced later as a confusing `FileNotFoundError` from
+  `torch.load`. Fixed by fetching the same file with `urllib` to the same
+  path (`weights.py`), using a `.part` file so an interrupted download cannot
+  leave a truncated checkpoint that looks valid.
+- **5.5x wasted compute.** The library defaults to `segment_samples=16000*10`
+  and `enframe()` overlaps segments 50%, so a 1.5s buffer was padded to 10s
+  and run as *two* segments: **9232ms**. Matching the segment to the window
+  cut it to **1672ms** with no accuracy loss.
+- **Broken global Python environment.** torch 2.4.0 against numpy 2.2.6 —
+  torch <2.3 is compiled for numpy 1.x and its tensor→array conversion
+  *raises* under numpy 2.x. That conversion runs on every inference. Fixed by
+  building a venv with pinned versions rather than touching global packages.
+- **No usable GPU.** torch reported a `+cu118` build but
+  `cuda.is_available() == False`. Repinned to the CPU wheel.
+
+**Next**
+- Measure whether CPU inference can keep up with live audio.
+
+---
+
+## 2026-08-10 — Phase 1 conclusion: the live approach fails
+
+**Completed**
+- Basic Pitch ONNX engine as a fast alternative
+- `probe_levels.py` — mic level meter and device scanner
+- Extensive real-piano testing (`637c10d`)
+
+**Issues found — several were my own bugs, and they masked the real problem**
+
+1. **Dedup keyed on arrival time, not note onset.** The analysis window is
+   ~2s and re-runs every 250ms, so one keystrike sits in ~8 consecutive
+   windows. Deduping on *when the detection arrived* meant one strike printed
+   as 5–8 identical lines. It read like the model hallucinating; it was
+   bookkeeping.
+2. **Peak picking fired on every rising edge.** A piano attack is not a clean
+   pulse — confidence oscillates across the threshold during the hammer
+   strike, so one strike produced several events ~12ms apart
+   (`C4 C4 E4 E4 G4 G4`). Fixed with strict local-maximum detection plus a
+   90ms minimum gap.
+3. **Edge onsets marched forward forever.** When a note's attack scrolled off
+   the window's left edge, the model reported it as starting at frame 0 — the
+   earliest point it could see. Every subsequent window repeated the claim, so
+   the computed onset advanced at the hop rate and permanently outran any
+   dedup tolerance. Fixed by discarding the leading 3 frames of each window.
+   *Traced by printing the absolute onset per window and watching it climb:
+   0.994, 0.990, 0.997, 0.993, then 1.012, 1.262, 1.512…*
+4. **ONNX outputs identified by position.** Both the onset and sustain maps
+   are `(172, 88)`, so shape cannot distinguish them, and `get_outputs()`
+   returns them in the order `:2, :1, :0` — not the order the names imply.
+   Positional indexing silently swaps onsets for sustain activations. Fixed by
+   requesting outputs **by name**, verified against the library source.
+5. **A test that verified nothing.** `LiveProbe.__init__` defaulted
+   `suppress_harmonics=False` while the CLI passed `True`. My test scripts
+   constructed the class directly, so the harmonic filter was **off in every
+   test I ran** — I reported "13 detections → 3" as verified when I had been
+   measuring unfiltered output. The number was meaningless.
+6. **Microphone input was the real bottleneck for a while.** Peak level 0.019
+   (1.9% of full scale) on a laptop Realtek mic *array* via MME — array mics
+   apply speech-tuned beamforming and noise suppression that actively
+   attenuates sustained musical tones.
+
+**The finding that ended the live approach.** On a single C4 held under
+sustain pedal:
+
+| | real strike | merely ringing |
+|---|---|---|
+| Basic Pitch | 0.955 | **0.823** ← indistinguishable |
+| ByteDance | onset | **nothing** ← correct |
+
+No threshold separates 0.955 from 0.823. Basic Pitch **cannot** tell "still
+sounding" from "struck again" — a model limitation, not a post-processing bug,
+and no amount of dedup tuning fixes it.
+
+**Next**
+- Pivot away from live transcription.
+
+---
+
+## 2026-08-10 — Pivot: offline transcriber, then full-stack web app
+
+**Completed**
+- Deleted the live-only layer: `audio/` (ring buffer, capture), `calibrate.py`,
+  `probe_levels.py`, `practice/`, `ui/`, `NoteStitcher` (`667a025`)
+- New `transcriber/` package: `events.py`, `engine.py`, `bytedance.py`,
+  `midi.py`, CLI (`afbada5`)
+- Basic Pitch engine ported to whole-file chunking (`7bd7bd1`)
+- `doctor.py`, README rewrite, stale probe removal (`104d405`)
+- Merged to `master` via PR #1 (`3d7b459`)
+
+**Why this fixed everything at once** — the pivot deleted the problems rather
+than solving them:
+
+| Live problem | Offline |
+|---|---|
+| RTF 1.1x, inference slower than incoming audio | Gone — a 3-min file taking 3.3 min is fine |
+| Cross-window dedup, ~8 re-detections per note | Gone — whole file in one pass |
+| `DISPLAY_DELAY_SEC`, the core design constraint | Gone |
+| Edge-onset artefacts | Gone — no sliding window |
+
+**ByteDance, rejected in Phase 1 for being too slow, became the default.** Its
+only flaw was speed, which no longer matters offline.
+
+**Issues found**
+- **`requirements.txt` was broken.** Missing `basic_pitch`, `onnxruntime`,
+  `pretty_midi`, `soundfile` — all imported by committed code. A fresh clone
+  could not run.
+- **`probe_offline.py` referenced four deleted config constants**
+  (`INFERENCE_HOP_SEC`, `DISPLAY_DELAY_SEC`, …) and would crash. Deleted;
+  `python -m transcriber` supersedes it.
+- **Duplicate notes at chunk boundaries** in the new whole-file Basic Pitch
+  path — the same edge-onset problem as Phase 1, in a new context. Fixed with
+  `EDGE_FRAMES` on non-initial chunks.
+
+**Verified on real audio** (`piano-c-major-scale-sound.mp3`) — both engines
+returned all 8 notes in order, onsets agreeing within ~10ms:
+
+| | Onsets | Velocity | Pedal |
+|---|---|---|---|
+| ByteDance | 8/8 | 47–54 (real dynamics) | 0 (correct — no pedal played) |
+| Basic Pitch | 8/8 | ~120 (flat) | not supported |
+
+**Next**
+- Evaluation harness, so "better" becomes measurable.
+
+---
+
+## 2026-08-10 — Phase 12a: evaluation metrics
+
+**Completed**
+- `evaluation/metrics.py` — onset, onset+offset, and velocity F1 via
+  `mir_eval`, using the library's standard tolerances so numbers are
+  comparable to published figures (`3f7598a`)
+- Validated against 13 known-answer cases
+
+**Issues found**
+- **Velocities were pre-normalised to 0–1.** `mir_eval` expects raw MIDI
+  0–127 and normalises internally, so the velocity metric returned 1.0 for
+  everything. Caught only because a deliberately-wrong test case scored 1.0
+  when I expected lower — the reason for testing against known answers rather
+  than eyeballing plausible output.
+- **Documented two surprising `mir_eval` behaviours** (both verified as the
+  library's own, not wrapper bugs): it rescales estimated velocities to
+  best-fit the reference, so it measures *relative* dynamics; and on a
+  two-value loud/soft pattern a fully inverted reading also scores 1.0.
+
+**Next**
+- Full audit before continuing — see below.
+
+---
+
+## 2026-08-10 — Audit and hardening
+
+A full audit of `transcriber/` and `evaluation/` before building further on
+top. Findings and fixes are tracked in the commit that follows this entry.
+
+**High-severity bugs found**
+1. **`_merge` deleted legitimately repeated notes.** `MERGE_WINDOW_SEC = 0.35`
+   merged *any* two same-pitch notes within 350ms, but the peak picker
+   deliberately emits repeats as close as 90ms. A five-note trill at 0.3s
+   spacing came back as three notes. Anything faster than ~171 BPM repeated
+   eighths was decimated.
+2. **`_merge` mutated its input.** It rewrote `NoteEvent` objects still
+   referenced by the caller, making the function non-idempotent — a landmine
+   for any future retry or parameter sweep.
+3. **`--verify` compared only note *counts*.** A writer bug that transposed
+   every note or zeroed every velocity would have passed.
+
+**Structural problems**
+- `import config` from inside the package resolved only because the repo root
+  happened to be on `sys.path`. The package was not installable or
+  relocatable — a hard blocker for the planned FastAPI backend.
+- `_drop_harmonics` was O(n²): 0.65s at 2000 notes, **11.5s at 8000**. That
+  negates the entire point of the "fast preview" engine.
+- Pitch was never range-validated, despite `config.MIDI_LOWEST/HIGHEST`
+  existing for exactly that. `NoteEvent(pitch=200)` was accepted silently.
+- `NoteEvent.__post_init__` silently lengthened short notes on *read*, so
+  ground-truth reference MIDI was mutated before scoring.
+
+**Next**
+- 12b: MIDI → audio synthesis, to generate test audio with exact known ground
+  truth (there is no MIDI capture on the piano, so this is how the benchmark
+  gets its labels).
+- 12c: augmentation (reverb, pitch shift, noise) to simulate room acoustics.
+- 12d: benchmark CLI reporting the clean-vs-augmented accuracy drop — the
+  number the training track exists to close.
+
+---
+
+## Standing goals
+
+- **Training target:** beat ByteDance **on room-matched recordings**, not on
+  the MAESTRO benchmark. Models drop ~20 note-F1 points on unfamiliar acoustic
+  conditions ([Robust AMT, 2024](https://arxiv.org/abs/2402.01424)), so
+  ByteDance's 96.72% is on studio Disklavier audio, not a real room. That gap
+  is winnable on free-tier compute; the benchmark number is not.
+- **Hard constraints:** AMD integrated graphics (1GB shared VRAM) means no
+  CUDA and no local training. 59GB free disk against a 103GB dataset means
+  MAESTRO must be streamed, never downloaded.

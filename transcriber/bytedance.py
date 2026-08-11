@@ -29,8 +29,7 @@ from __future__ import annotations
 
 import numpy as np
 
-import config
-
+from . import config
 from .engine import ProgressCallback, TranscriptionEngine
 from .events import NoteEvent, PedalEvent, Transcription
 from .weights import ensure_checkpoint

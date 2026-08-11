@@ -5,9 +5,10 @@
     python -m transcriber recording.wav --notes        # list what was found
     python -m transcriber recording.wav --verify       # read the MIDI back
 
-Sub-phase 2a supports the ByteDance engine only. Expect roughly 1.1x the
-audio duration on CPU — a 3-minute file takes about 3.3 minutes. The first
-run also downloads a 165MB checkpoint.
+ByteDance (the default) runs at roughly 1.1x the audio duration on CPU — a
+3-minute file takes about 3.3 minutes — and models sustain pedal. Basic Pitch
+is ~50x faster but has no pedal support; see `--engine`. The first ByteDance
+run downloads a 165MB checkpoint.
 """
 
 from __future__ import annotations
@@ -72,6 +73,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.input is None:
         ap.error("an input file is required (or use --doctor)")
 
+    if args.input.is_dir():
+        print(f"error: {args.input} is a directory, not an audio file",
+              file=sys.stderr)
+        return 1
     if not args.input.exists():
         print(f"error: no such file: {args.input}", file=sys.stderr)
         return 1
@@ -94,11 +99,26 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.perf_counter()
     try:
         tr = engine.transcribe_file(str(args.input), progress=_progress_printer())
-    except FileNotFoundError as exc:
-        print(f"\nerror: {exc}", file=sys.stderr)
+    except ImportError as exc:
+        # Optional engine dependencies are imported lazily inside load(), so
+        # a missing package surfaces here rather than from get_engine().
+        print(f"\nerror: {args.engine} is missing a dependency: {exc}",
+              file=sys.stderr)
+        print("       pip install -r requirements.txt, or use "
+              "--engine bytedance", file=sys.stderr)
         return 1
-    except ValueError as exc:
-        print(f"\nerror: {exc}", file=sys.stderr)
+    except KeyboardInterrupt:
+        print("\ncancelled", file=sys.stderr)
+        return 130
+    except Exception as exc:  # noqa: BLE001
+        # Corrupt audio, unsupported codec, missing ffmpeg, and a directory
+        # passed as a file all land here. A raw traceback is not a useful
+        # error message for a CLI.
+        print(f"\nerror: could not transcribe {args.input.name}: "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        if args.input.suffix.lower() in {".mp3", ".m4a"}:
+            print("       mp3/m4a decoding needs ffmpeg on PATH.",
+                  file=sys.stderr)
         return 1
     elapsed = time.perf_counter() - t0
 
@@ -107,9 +127,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"took {elapsed:.1f}s on {engine.device.upper()} (RTF {rtf:.2f}x)")
 
     if not tr.notes:
+        # A silent recording is a SUCCESSFUL transcription with zero notes,
+        # not a failure. Still write the (empty) MIDI and exit 0 so callers
+        # can distinguish "quiet input" from "the tool broke".
         print("\nNo notes detected. Is the recording silent or very quiet?",
               file=sys.stderr)
-        return 1
 
     if args.notes:
         print(f"\n  {'onset':>7} {'offset':>7} {'note':>5} {'vel':>4}")
@@ -125,16 +147,60 @@ def main(argv: list[str] | None = None) -> int:
         print("  (this engine does not detect sustain pedal)")
 
     if args.verify:
-        back = read_midi(out)
-        ok = len(back.notes) == len(tr.notes) and len(back.pedals) == len(tr.pedals)
-        print(f"\nVerify: read back {len(back.notes)} notes, "
-              f"{len(back.pedals)} pedal events -> {'MATCH' if ok else 'MISMATCH'}")
-        if not ok:
-            print(f"  expected {len(tr.notes)} notes, {len(tr.pedals)} pedals",
-                  file=sys.stderr)
-            return 1
+        return _verify(tr, out)
 
     return 0
+
+
+def _verify(tr, path) -> int:
+    """Read the MIDI back and compare every field, not just counts.
+
+    Comparing counts alone (the previous behaviour) would pass a writer bug
+    that transposed every note, shifted all timings, or zeroed every velocity
+    — precisely the failures worth catching.
+    """
+    back = read_midi(path)
+
+    # MIDI stores time in ticks, so a sub-millisecond rounding difference is
+    # expected and is NOT a defect. 5ms is still 10x tighter than the 50ms
+    # tolerance used for scoring, so a genuine timing bug cannot hide here.
+    tol = 0.005
+
+    def key(n):
+        return (n.pitch, n.onset, n.offset, n.velocity)
+
+    want = sorted(key(n) for n in tr.notes)
+    got = sorted(key(n) for n in back.notes)
+
+    def same(a, b) -> bool:
+        return (
+            a[0] == b[0]
+            and abs(a[1] - b[1]) <= tol
+            and abs(a[2] - b[2]) <= tol
+            and a[3] == b[3]
+        )
+
+    print(f"\nVerify: read back {len(back.notes)} notes, "
+          f"{len(back.pedals)} pedal events")
+
+    fields_ok = len(want) == len(got) and all(
+        same(w, g) for w, g in zip(want, got)
+    )
+    if fields_ok and len(back.pedals) == len(tr.pedals):
+        print("  MATCH - every pitch, onset, offset and velocity round-tripped")
+        return 0
+
+    print("  MISMATCH", file=sys.stderr)
+    if len(want) != len(got):
+        print(f"  note count: wrote {len(want)}, read {len(got)}", file=sys.stderr)
+    if len(back.pedals) != len(tr.pedals):
+        print(f"  pedal count: wrote {len(tr.pedals)}, read {len(back.pedals)}",
+              file=sys.stderr)
+    for w, g in zip(want, got):
+        if not same(w, g):
+            print(f"  first differing note: wrote {w}, read {g}", file=sys.stderr)
+            break
+    return 1
 
 
 if __name__ == "__main__":

@@ -185,10 +185,14 @@ def format_table(results: list[ScoreResult]) -> str:
     if not results:
         return "(no results)"
 
-    width = max(len(r.label) for r in results + [ScoreResult(*([0.0] * 9), 0, 0, "engine")])
+    # Minimum width so short labels still line up under the header. The
+    # previous version constructed a throwaway ScoreResult with 12 positional
+    # args purely to call len() on a constant, which broke silently whenever
+    # a field was added or reordered.
+    width = max([len(r.label) for r in results] + [len("engine")])
     lines = [
         f"  {'':<{width}}  {'onset':>7} {'+offset':>8} {'+vel':>7}  {'notes':>11}",
-        "  " + "-" * (width + 38),
+        "  " + "-" * (width + 41),
     ]
     for r in results:
         lines.append(
