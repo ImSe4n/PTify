@@ -513,6 +513,137 @@ number requires real recordings, which is Phase 13's job.
 
 ---
 
+## Phase 13 — the real-audio benchmark
+
+The harness could not measure the number the training track exists to close.
+Phase 13 supplied the data, fixed the bugs standing between the runner and that
+data, and recorded a baseline Phases 14–17 can diff against.
+
+### The pairing bug that would have made the corpus invisible
+
+`run_real_audio` paired ground truth with `audio_path.with_suffix(".mid")`.
+MAESTRO ships `.midi`. Every file would have been skipped and a full directory
+reported as "No audio+MIDI pairs" — with the error message naming `.mid`,
+pointing debugging in the wrong direction.
+
+Fixed *before* any data was downloaded. That ordering was deliberate: had the
+data landed first, the natural suspect would have been the fetcher.
+
+Two more found in the same pass:
+- `song.wav` + `song.mp3` both paired to `song.mid`, producing two rows with the
+  same case name; the name-keyed formatters then silently dropped one.
+- Every recording wrote to the same `tmp/bench.wav`. The synthetic path had
+  passed per-case names since 12d for exactly this reason.
+
+All three are pinned by regression tests, verified to fail against the old code.
+
+### Selective fetching beat the disk constraint
+
+This log recorded "59GB free vs MAESTRO's 103GB — must be streamed, never
+downloaded." Avoidable: the `ddPn08/maestro-v3.0.0` mirror stores MAESTRO as
+loose per-track files, so 12 selected tracks cost **867MB**. No streaming, no
+103GB download.
+
+`huggingface_hub` was considered and rejected — three extra packages in a venv
+whose torch 2.2 / numpy <2 pinning is documented as fragile, when stdlib
+`urllib` fetches those URLs directly. Zero new dependencies.
+
+### Three false alarms from bad measurement, one real finding
+
+Checking corpus alignment produced three wrong answers before a right one:
+1. An energy-threshold detector flagged Mendelssohn 989ms off. It was firing on
+   **audience noise** — live competition recordings, and that track opens
+   pianissimo (velocity 31).
+2. A spectral-flux detector then flagged six tracks. It has a fixed group delay.
+3. Cross-correlating the MIDI onset train against the audio envelope gave an
+   identical ~46.4ms lag on **every** track — `onset_strength`'s own two-hop
+   delay. A constant across all 12 is a property of the tool, not the data.
+
+Residual after removing that bias: **23.3ms**, inside the 50ms tolerance and
+exactly one frame-grid hop. The corpus is aligned.
+
+Same lesson as 12b, one level up: when a measurement disagrees with the data,
+suspect the measurement first.
+
+The real finding: one track (Mendelssohn) is **48kHz** while the rest are
+44.1kHz — MAESTRO spans recording years. `librosa.load(sr=None)` handles it and
+nothing downstream hardcodes a rate.
+
+### Basic Pitch: the first honest real-audio number
+
+| Basic Pitch | onset F1 | +offset |
+|---|---|---|
+| synthetic clean (Phase 12) | ~0.86 | — |
+| **real MAESTRO clean** | **0.730** | **0.176** |
+| drop | **−13 points** | |
+
+52,478 reference notes over 84.5 min of audio, scored in 159 seconds.
+
+**Why 0.730 is the engine, not a broken instrument.** On the Scarlatti track,
+846/882 reference onsets (95.9%) match within 50ms with a **median timing error
+of 4.4ms** — but only 655 (74.3%) match on time *and* pitch. Of the mismatches,
+**100 are octave errors**, 2 semitone. Basic Pitch places notes at the right
+time and the wrong pitch on dense real piano audio: a known weakness of a
+general-purpose multi-instrument model. Precision (0.744) and recall (0.723) are
+balanced, which rules out misalignment or mispaired MIDI — those collapse both
+together toward zero.
+
+### PENDING — ByteDance and the sanity gate
+
+Run in progress at the time of writing. To be filled with mean onset F1, the
+gate verdict against the 0.85 threshold, and the per-track spread.
+
+### Inference is 1.8x realtime, not 1.1x
+
+This log documents ~1.1x. Measured across nine completed tracks on this corpus:
+**~1.82x**. The corpus is 44.1/48kHz stereo needing resampling to 16kHz, plus
+per-file overhead across 12 separate `transcribe_file` calls.
+
+Consequence for 14–17: the 8-preset x 2-engine matrix was costed at ~15h using
+1.1x. At the measured rate it is **~20.5h for ByteDance alone**, plus ~2.6h of
+pitch-shift augmentation (`detuned` and `worst_case`, measured at 22.2s per 60s
+of audio). Basic Pitch is negligible — its full sweep takes minutes.
+
+### Issues found and fixed
+
+- **A two-hour run was lost to a `tail -30` pipe.** The gate was run without
+  `--json`, and ByteDance's per-segment progress counter flooded the 30 captured
+  lines, discarding the results table. `report.py` existed specifically to
+  prevent this and was not used on the one run that mattered. The re-run writes
+  JSON *and* redirects stdout to a file, and both paths were proven on a fast
+  synthetic case before being relied on.
+- `--all-presets --json out.json` without a `{preset}` placeholder would have
+  written every preset to one path, leaving only the last and silently
+  discarding hours of inference. Now rejected up front, with a test.
+- `--json` validates writability *before* inference rather than after.
+- `_device_of` caches per engine — otherwise every cell of a preset sweep paid
+  ByteDance's ~40s load again just to record the same string.
+
+### What Phase 13 delivers
+
+- `benchmarks/maestro_test12.json` — the corpus manifest: 12 tracks, 12
+  composers, seed, per-file sha256. **No CC BY-NC-SA audio is committed**; the
+  corpus is reconstructed from the manifest.
+- `benchmarks/real/*.json` — per-run baselines carrying `inference_threads`,
+  device, torch/numpy versions and git commit, because all of those change the
+  numbers.
+- 243 tests, still no network and no model — verified by running the suite with
+  sockets hard-blocked.
+
+### Caveats that must travel with these numbers
+
+- **MAESTRO is ByteDance's training distribution.** Held-out split, but the same
+  Disklavier, hall and mics. Its absolute score here is flattered; a custom model
+  that beats it on this corpus has **not** beaten it on a home recording. The
+  meaningful target for 14–17 is the **clean→degraded delta**, which both
+  conditions share.
+- **`room` on MAESTRO double-reverbs** — a room convolved onto a hall. A relative
+  robustness measure, not a prediction of home accuracy.
+- **12 tracks is a modest sample.** Differences under ~0.03 in the mean are not
+  meaningful. Phase 14+ must not chase noise.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

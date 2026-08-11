@@ -2,8 +2,10 @@
 
 Turn a piano recording into **MIDI**, an interactive **piano roll**, and **sheet music**.
 
-> **Status: Phase 2 complete.** A working command-line transcriber (audio → MIDI).
-> Notation, the web app, and a custom-trained model are later phases — see the roadmap.
+> **Status: Phase 2 + 12 complete, Phase 13 in progress.** A working
+> command-line transcriber (audio → MIDI) and an evaluation harness that scores
+> it against both synthetic cases and real recordings. Notation, the web app,
+> and a custom-trained model are later phases — see the roadmap.
 
 ```bash
 python -m transcriber recording.mp3
@@ -91,12 +93,67 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `transcriber/doctor.py` | Environment diagnostics |
 | `transcriber/config.py` | Tuning constants |
 | `evaluation/metrics.py` | Accuracy scoring via `mir_eval` |
+| `evaluation/synth.py` | MIDI → piano-like audio (physical model) |
+| `evaluation/augment.py` | Reverb / pitch / noise / EQ presets |
+| `evaluation/cases.py` | The 8 synthetic benchmark cases |
+| `evaluation/corpus.py` | Real-audio corpus: fetch MAESTRO, build a manifest |
+| `evaluation/benchmark.py` | Runner + report formats |
+| `evaluation/report.py` | JSON baselines with environment provenance |
+| `benchmarks/` | Committed manifests and baseline scores (no audio) |
 | `tests/` | `python -m pytest tests/` |
 | `HISTORY.md` | Development log: what broke and why |
 
 Adding an engine means subclassing `TranscriptionEngine` (implement `name`,
 `load`, `transcribe_file`, `device`) and adding a branch to `get_engine()`. That
 seam is deliberate — a custom-trained model plugs in the same way.
+
+## Benchmarking
+
+```bash
+python -m evaluation                       # 8 synthetic cases, default engine
+python -m evaluation --compare             # both engines side by side
+python -m evaluation --all-presets         # degradation table
+```
+
+Synthetic cases are defined in code, so they are reproducible from a clean
+checkout and diff in review. They catch post-processing regressions and compare
+engines — but they **cannot** measure real-world degradation. `synth.py` renders
+a perfectly dry signal, so reverb pushes it *toward* realism and scores go up.
+
+For that you need real recordings with ground truth:
+
+```bash
+python -m evaluation.corpus --list                        # preview, no download
+python -m evaluation.corpus --out recordings/maestro_test12
+python -m evaluation --audio-dir recordings/maestro_test12 \
+    --engine bytedance --preset clean \
+    --json benchmarks/real/bytedance-clean.json
+```
+
+The corpus is 12 MAESTRO test-split tracks, one per composer, chosen by a seeded
+round-robin so the sample is reproducible and not four Chopin performances.
+`--json` records scores **with provenance** — thread count, device, torch/numpy
+versions, git commit — because all of those change the numbers.
+
+Add `--resume` to skip cells whose JSON already exists; a long matrix then costs
+one cell per interruption instead of the whole run.
+
+**Two things worth knowing before trusting a number from this corpus.** MAESTRO
+is ByteDance's training distribution — the test split is held out, but the
+acoustics are not, so its absolute score is flattered. And the `room` preset
+convolves a room onto audio that already contains hall reverb. The meaningful
+output is the **clean→degraded delta**, not the absolute score.
+
+Measured so far (12 tracks, 84.5 min, 52,478 reference notes, CPU, 8 threads):
+
+| engine | synthetic clean | real clean | drop |
+|---|---|---|---|
+| Basic Pitch | ~0.86 | **0.730** | −13 pts |
+| ByteDance | ~0.87 | *pending* | |
+
+Basic Pitch's real-audio errors are mostly **octave confusions**: 95.9% of onsets
+land within 50ms (median error 4.4ms), but only 74.3% match on time *and* pitch.
+It is a general-purpose multi-instrument model, not a piano-specific one.
 
 ## Roadmap
 
@@ -109,8 +166,8 @@ seam is deliberate — a custom-trained model plugs in the same way.
 - [ ] **Phase 9–11** — error handling, deploy, YouTube input
 
 **Training** (can run in parallel)
-- [ ] **Phase 12** — evaluation harness (no GPU needed)
-- [ ] **Phase 13** — personal benchmark + baseline numbers
+- [x] **Phase 12** — evaluation harness (no GPU needed)
+- [ ] **Phase 13** — real-audio benchmark + baseline numbers *(in progress)*
 - [ ] **Phase 14–16** — data pipeline, model, augmentation-focused training
 - [ ] **Phase 17** — ship the custom model behind `TranscriptionEngine`
 
