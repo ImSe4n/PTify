@@ -9,6 +9,17 @@ number, "better" is unfalsifiable.
     print(result.onset_f1)
 """
 
-from .metrics import ScoreResult, score, score_midi_files
+from .augment import PRESETS, apply_preset
+from .metrics import ScoreResult, format_table, score, score_midi_files
+from .synth import render, render_to_file
 
-__all__ = ["ScoreResult", "score", "score_midi_files"]
+__all__ = [
+    "ScoreResult",
+    "score",
+    "score_midi_files",
+    "format_table",
+    "render",
+    "render_to_file",
+    "apply_preset",
+    "PRESETS",
+]

@@ -60,7 +60,17 @@ B_TREBLE = 8e-4
 
 # Attack transient: broadband hammer noise, very short.
 ATTACK_NOISE_SEC = 0.008
-ATTACK_NOISE_GAIN = 0.35
+# Scaled relative to the note's own partial energy, not an absolute level.
+# A fixed gain stopped standing out once the spectral tilt was softened, and
+# a piano's loudest instant is the hammer strike — an attack quieter than the
+# sustain is backwards, and onset detectors key on exactly that transient.
+ATTACK_NOISE_GAIN = 0.45
+
+# Fixed divisor keeping a full-velocity note inside +-1.0. Partials sum
+# constructively well above the fundamental, so this is a constant rather
+# than a per-note limiter — a limiter would clip every loud note to the same
+# peak and destroy velocity distinction. Measured worst case ~1.9x.
+PARTIAL_HEADROOM = 3.5
 
 
 def _inharmonicity(pitch: int) -> float:
@@ -93,6 +103,11 @@ def render_note(
     base_decay = _decay_rate(pitch)
     out = np.zeros(n, dtype=np.float64)
 
+    # Phases seeded from the PITCH, not the global RNG. Drawing them globally
+    # made a note's peak depend on call order, so rendering the same note at
+    # two velocities could invert their relative loudness.
+    phase_rng = np.random.default_rng(pitch)
+
     for k in range(1, N_PARTIALS + 1):
         # Inharmonic partial: sits slightly sharp of the integer multiple.
         fk = k * f0 * np.sqrt(1.0 + B * k * k)
@@ -101,37 +116,53 @@ def render_note(
 
         # Amplitude ~1/k, with harder strikes exciting upper partials more.
         # This is why a decrescendo changes timbre and not just level.
-        brightness = 0.4 + 0.6 * vel
-        amp = (1.0 / k) * (brightness ** (k - 1) if k > 1 else 1.0)
+        #
+        # The tilt is a POWER of k, not a geometric decay in k. An earlier
+        # `brightness ** (k-1)` put the 16th partial ~80dB down at velocity
+        # 30 — below any render's noise floor — so quiet notes collapsed back
+        # toward the sine wave this module exists to avoid. Real pianos shift
+        # spectral tilt with velocity; they do not lose their partials.
+        tilt = 1.0 + 1.2 * (1.0 - vel)
+        amp = k ** (-tilt)
 
         # Higher partials decay faster.
         decay = base_decay / (1.0 + 0.35 * (k - 1))
         env = np.exp(-t / decay)
 
-        phase = np.random.uniform(0, 2 * np.pi)
+        phase = phase_rng.uniform(0, 2 * np.pi)
         out += amp * env * np.sin(2 * np.pi * fk * t + phase)
 
-    # Hammer noise: broadband, brief, louder on a harder strike.
+    # Hammer noise: broadband, brief, louder on a harder strike. Scaled to
+    # the note's own partial energy so it stays audible above the sustain
+    # regardless of the spectral tilt.
+    partial_peak = np.abs(out).max()
     n_attack = int(ATTACK_NOISE_SEC * sr)
-    if n_attack > 0:
-        noise = np.random.randn(min(n_attack, n))
+    if n_attack > 0 and partial_peak > 0:
+        # Seeded per (pitch, duration) rather than drawn from the global RNG.
+        # Random noise phase made the note's PEAK non-monotonic in velocity —
+        # velocity 100 could out-peak 127 — which would corrupt exactly the
+        # dynamics the velocity metric measures.
+        rng = np.random.default_rng((pitch * 1000 + int(duration * 100)) % 2**31)
+        noise = rng.standard_normal(min(n_attack, n))
         noise *= np.exp(-np.arange(len(noise)) / (n_attack / 3.0))
-        out[: len(noise)] += noise * ATTACK_NOISE_GAIN * vel
+        out[: len(noise)] += noise * ATTACK_NOISE_GAIN * partial_peak * vel
 
     # Key release: a gentle damper, not a hard cut.
     release_start = int(duration * sr)
-    if 0 < release_start < n:
+    # `0 <=`, not `0 <`: a zero-duration note previously skipped the release
+    # entirely and rang at full amplitude for the whole 0.6s tail — louder
+    # and longer than a 10ms note. read_midi passes clamp=False, so
+    # zero-length notes from external MIDI files do reach here.
+    if 0 <= release_start < n:
         rel = np.exp(-(np.arange(n - release_start)) / (0.12 * sr))
         out[release_start:] *= rel
 
-    out *= vel
-
-    # Partials can sum constructively past +-1.0 (measured 1.17 on a high
-    # note). render() normalises the full mix, but a single note written
-    # straight to a WAV would clip, so bound it here too.
-    peak = np.abs(out).max()
-    if peak > 1.0:
-        out /= peak
+    # Fixed headroom, NOT a per-note peak limiter. Limiting each note to 1.0
+    # individually saturated every loud note to the same peak, so velocity
+    # 100 and 127 rendered identically on high notes — silently destroying
+    # the dynamics the velocity metric is supposed to measure. A constant
+    # divisor preserves relative loudness across notes.
+    out *= vel / PARTIAL_HEADROOM
 
     return out.astype(np.float32)
 
@@ -152,18 +183,30 @@ def render(
     if not tr.notes:
         return np.zeros(int(max(tr.duration, 0.1) * sr), dtype=np.float32)
 
-    end = max(max(n.offset for n in tr.notes) + 1.0, tr.duration)
+    # Leave room for the decay tail, and for any pedal held past the last
+    # note — otherwise pedal-sustained audio is silently truncated.
+    last_pedal = max((p.offset for p in tr.pedals), default=0.0)
+    end = max(max(n.offset for n in tr.notes), last_pedal, tr.duration) + 1.0
     out = np.zeros(int(end * sr) + 1, dtype=np.float32)
 
     for note in tr.notes:
-        seg = render_note(note.pitch, note.duration, note.velocity, sr)
+        # Sustain pedal: the damper stays off the string, so a released key
+        # keeps ringing until the pedal lifts. Modelled by extending the
+        # note's sounding duration to the end of any pedal span covering its
+        # offset. This is the condition metrics.py names as the hard case for
+        # note offsets, so the synthesizer has to be able to produce it.
+        duration = note.duration
+        for ped in tr.pedals:
+            if ped.onset <= note.offset <= ped.offset:
+                duration = max(duration, ped.offset - note.onset)
+                break
+
+        seg = render_note(note.pitch, duration, note.velocity, sr)
         i = int(note.onset * sr)
         j = min(i + len(seg), len(out))
         if j > i:
             out[i:j] += seg[: j - i]
 
-    # Sustain pedal: undamped strings keep ringing. Modelled as a decaying
-    # tail added over the pedal span rather than a physical simulation.
     peak = np.abs(out).max()
     if peak > 0:
         out = out / peak * 0.7  # headroom, no clipping

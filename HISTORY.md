@@ -333,14 +333,97 @@ summed constructively — caught by a test, not by inspection. `render()`
 normalised the mix but a single note written straight to WAV would clip.
 
 **Next**
-- 12c: augmentation (reverb, pitch shift, noise) to simulate room acoustics.
-- 12d: benchmark CLI reporting the clean-vs-augmented drop — the number the
-  training track exists to close.
+- 12c: augmentation.
+
+---
+
+## 2026-08-10 — Phase 12c: augmentation
+
+Built `evaluation/augment.py`: reverb (convolution with a synthetic room
+impulse response), pitch shift, noise at a target SNR, two-band EQ, and level
+setting. Eight named presets from `clean` through `worst_case`.
+
+**Design decision that matters:** every function returns
+`(audio, labels)`. A pitch shift transposes the audio, so the ground-truth
+pitches must move with it — returning only audio would let a caller silently
+score shifted audio against unshifted labels, invalidating the benchmark
+without ever failing.
+
+**Finding: augmentation IMPROVES scores on synthetic audio.** Measured +9.4
+F1 for `room` and +14.2 for `quiet_mic` on Basic Pitch, the opposite of what
+the research predicts. Not a bug: `synth.py` renders a perfectly dry signal
+and no real piano is ever heard that way, so reverb and noise move it TOWARD
+the training distribution. Confirmed by testing on a **real** recording,
+where `room` behaves as expected — agreement drops to 0.889 and two phantom
+notes appear. Documented in the module: the clean→augmented drop is only
+meaningful on real audio.
+
+### End-of-phase audit
+
+Nine issues found, all fixed and pinned with regression tests.
+
+**Critical**
+- **`rt60=0` produced an all-NaN impulse response.** The floor was applied to
+  the IR *length* but not to the divisor. Worse, NaN slips silently past the
+  peak check in `_normalise` (`NaN > 0` is False), so it would poison every
+  downstream metric instead of raising.
+
+**High**
+- **EQ phase-cancelled at the crossover.** Summing separately-filtered
+  Butterworth bands is not an allpass reconstruction — measured >2x amplitude
+  error on a tone at the crossover, an uncontrolled artefact on top of the
+  intended tilt. Fixed with zero-phase `sosfiltfilt`.
+- **Reverb truncated its own tail.** The convolution was cut back to
+  `len(audio)`, removing the reverb from any note struck near the end — the
+  "released note keeps ringing" case that hurts transcription most. The
+  augmentation was mildest exactly where it should bite hardest.
+- **`wet` had no consistent meaning.** The wet path was peak-rescaled per
+  call, so the reverberant level depended on `rt60` and the input's crest
+  factor. Fixed by unit-energy-normalising the impulse response instead.
+- **Per-note peak limiting destroyed velocity distinction.** `render_note`
+  clipped each note to 1.0 individually, so velocity 100 and 127 rendered
+  identically on high notes — silently undermining the velocity metric.
+  Replaced with a fixed headroom divisor.
+
+**Medium**
+- **Quiet notes collapsed back to a sine wave.** A geometric
+  `brightness ** (k-1)` tilt put the 16th partial ~80dB down at velocity 30,
+  reintroducing the exact defect this module was written to avoid. Replaced
+  with a velocity-dependent power-law tilt.
+- **Sustain pedal was never implemented** despite a comment claiming it was.
+  `tr.pedals` was never read. This is the condition `metrics.py` names as the
+  hard case for note offsets, so the synthesizer could not produce it.
+- **Zero-duration notes rang undamped** for the full 0.6s tail (`0 <` should
+  have been `0 <=`). `read_midi` passes `clamp=False`, so these arrive from
+  real MIDI files.
+- **`apply_preset` used truthiness**, so a preset setting `snr_db=0.0` or
+  `peak=0.0` was silently ignored rather than applied.
+
+**Two bugs I introduced while fixing the above**, both caught by tests rather
+than inspection: softening the spectral tilt made the attack transient
+quieter than the sustain (backwards for a piano), and drawing partial phases
+from the global RNG made a note's peak depend on call order — so velocity 100
+could out-peak velocity 127. Both fixed; attack noise and phases are now
+seeded per note, and velocity is verified strictly monotonic at every pitch.
+
+**Tests: 115 passing** (was 73).
+
+**Re-verified engine scores after the synth changes** — ByteDance 0.888 →
+0.870 across the polyphonic set. Not a regression: the audio itself changed
+(louder attack transient, different spectral tilt), so the numbers are not
+directly comparable to the previous run. Recorded here as the new baseline.
+A lesson from earlier in this phase applies — when the measuring instrument
+changes, previous measurements do not carry over.
+
+**Next**
+- 12d: benchmark CLI reporting per-preset scores.
 - Fold the polyphonic set into a committed benchmark (Phase 13) rather than
   scratch files.
-- Still open: `+offset` scores remain far below onset scores for both engines.
-  Note durations are much less accurate than note starts, which matters for
-  Phase 3 notation.
+- Still open: `+offset` scores remain far below onset scores for both
+  engines. Note durations are much less accurate than note starts, which
+  matters for Phase 3 notation.
+- Still open: the clean→augmented drop needs REAL recordings to be
+  meaningful. Synthetic audio cannot measure it.
 - 12c: augmentation (reverb, pitch shift, noise) to simulate room acoustics.
 - 12d: benchmark CLI reporting the clean-vs-augmented accuracy drop — the
   number the training track exists to close.

@@ -129,3 +129,79 @@ def test_render_empty_transcription():
     audio = render(Transcription(duration=1.0))
     assert len(audio) > 0
     assert np.abs(audio).max() == pytest.approx(0.0)
+
+
+# --- regressions from the 12c audit ---------------------------------------
+
+def test_velocity_distinction_survives_at_high_velocities():
+    """REGRESSION: a per-note peak limiter clipped every loud note to the
+    same 1.0 peak, so velocity 100 and 127 rendered identically on high
+    notes — silently destroying the dynamics the velocity metric measures.
+    """
+    for pitch in (60, 84, 96):
+        loud = np.abs(render_note(pitch, 1.0, 127)).max()
+        less = np.abs(render_note(pitch, 1.0, 100)).max()
+        assert loud > less, f"velocity not distinguished at pitch {pitch}"
+
+
+def test_quiet_notes_keep_their_harmonic_series():
+    """REGRESSION: a geometric `brightness ** (k-1)` tilt put the 16th
+    partial ~80dB down at velocity 30, so quiet notes collapsed back toward
+    the sine wave this module exists to avoid."""
+    audio = render_note(60, 1.0, 30)
+    f, p = _spectrum(audio)
+    f0 = 440.0 * (2.0 ** ((60 - 69) / 12.0))
+
+    def energy_near(target, width=12.0):
+        band = (f > target - width) & (f < target + width)
+        return p[band].max() if band.any() else 0.0
+
+    fundamental = energy_near(f0)
+    assert energy_near(2 * f0) > fundamental * 1e-4
+    assert energy_near(4 * f0) > fundamental * 1e-6
+
+
+def test_zero_duration_note_does_not_ring_at_full_amplitude():
+    """REGRESSION: `if 0 < release_start` skipped the release envelope for a
+    zero-length note, so it rang for the full 0.6s tail undamped.
+    read_midi passes clamp=False, so these reach here from real files.
+
+    Compares total ENERGY, not peak: the peak is set by the attack transient,
+    which is identical either way, so it cannot detect a missing release.
+    """
+    def energy(duration):
+        a = render_note(60, duration, 100)
+        return float(np.sqrt((a ** 2).mean()))
+
+    assert energy(0.0) < energy(0.2)
+    assert energy(0.0) < energy(0.5)
+
+
+def test_sustain_pedal_extends_note_ringing():
+    """REGRESSION: the code claimed to model pedal in a comment but never
+    read tr.pedals. metrics.py names pedal as the hard case for offsets, so
+    the synthesizer has to be able to produce it."""
+    from transcriber.events import PedalEvent
+
+    base = Transcription(duration=4.0)
+    base.notes = [NoteEvent(60, 0.5, 1.0, 100)]
+
+    pedalled = Transcription(duration=4.0)
+    pedalled.notes = [NoteEvent(60, 0.5, 1.0, 100)]
+    pedalled.pedals = [PedalEvent(0.4, 3.0)]
+
+    dry = render(base)
+    wet = render(pedalled)
+
+    # Energy well after the key release: dry should have decayed away.
+    window = slice(int(2.0 * DEFAULT_SAMPLE_RATE), int(2.8 * DEFAULT_SAMPLE_RATE))
+    assert np.abs(wet[window]).mean() > np.abs(dry[window]).mean()
+
+
+def test_render_extends_for_pedal_held_past_last_note():
+    from transcriber.events import PedalEvent
+
+    tr = Transcription(duration=1.0)
+    tr.notes = [NoteEvent(60, 0.1, 0.5, 100)]
+    tr.pedals = [PedalEvent(0.1, 5.0)]
+    assert len(render(tr)) > int(5.0 * DEFAULT_SAMPLE_RATE)
