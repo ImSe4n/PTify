@@ -172,6 +172,7 @@ class BasicPitchEngine(TranscriptionEngine):
 
         report(0.9, "merging overlaps")
         notes = self._merge(raw)
+        notes = self._drop_attack_echoes(notes)
         if self._suppress_harmonics:
             notes = self._drop_harmonics(notes)
 
@@ -295,6 +296,40 @@ class BasicPitchEngine(TranscriptionEngine):
             last_chunk = chunk_i
 
         return merged
+
+    @staticmethod
+    def _drop_attack_echoes(notes: list[NoteEvent]) -> list[NoteEvent]:
+        """Remove the weaker second onset a piano attack often produces.
+
+        Identified by three properties together — a close-following onset,
+        the SAME note end, and a lower velocity. See ECHO_WINDOW_SEC.
+
+        Using onset distance alone would be wrong: measured echoes arrive
+        ~93ms after the strike, which is longer than the 90ms that genuine
+        fast repeated notes are allowed. The shared offset is what separates
+        them, because a real repeat is traced to its own note end.
+        """
+        if len(notes) < 2:
+            return notes
+
+        by_pitch: dict[int, list[NoteEvent]] = {}
+        for n in notes:
+            by_pitch.setdefault(n.pitch, []).append(n)
+
+        drop: set[int] = set()
+        for group in by_pitch.values():
+            group.sort(key=lambda n: n.onset)
+            for i, n in enumerate(group):
+                for prev in group[:i]:
+                    if id(prev) in drop:
+                        continue
+                    if (0 < n.onset - prev.onset < ECHO_WINDOW_SEC
+                            and abs(n.offset - prev.offset) < ECHO_OFFSET_TOL
+                            and n.velocity < prev.velocity * ECHO_MAX_RATIO):
+                        drop.add(id(n))
+                        break
+
+        return [n for n in notes if id(n) not in drop]
 
     @staticmethod
     def _drop_harmonics(notes: list[NoteEvent]) -> list[NoteEvent]:

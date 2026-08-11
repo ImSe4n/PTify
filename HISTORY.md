@@ -221,10 +221,126 @@ top. Findings and fixes are tracked in the commit that follows this entry.
 - `NoteEvent.__post_init__` silently lengthened short notes on *read*, so
   ground-truth reference MIDI was mutated before scoring.
 
+---
+
+## 2026-08-10 — First polyphonic testing
+
+Everything until now had been tested on **monophonic scales — one note at a
+time**. Polyphony is where transcription actually gets hard, because
+simultaneous notes share harmonics. Built a 7-case ground-truth set
+(triads, sustain pedal, dense runs, wide two-hand range, repeated notes,
+dynamic range, semitone clusters) using `pretty_midi.synthesize()` so every
+label is exact.
+
+**First real measurement of both engines**
+
+| case | Basic Pitch | ByteDance |
+|---|---|---|
+| triads | 0.960 | 0.857 |
+| pedal | 0.933 | 0.778 |
+| dense | 0.952 | 0.985 |
+| wide (two hands) | 0.769 | 0.615 |
+| repeats | 0.647 → **0.917** | 0.917 |
+| dynamics | 0.909 | 0.400 |
+| cluster | 0.667 | 0.571 |
+| **mean** | 0.834 → **0.872** | 0.732 |
+
+**Bug found and fixed — attack echoes.** The `repeats` case transcribed 12
+notes as **22**. Every real strike produced a second, weaker onset ~93ms
+later that shared its parent's offset:
+
+```
+C4  0.497 -> 0.682  vel 85   <- real note
+C4  0.590 -> 0.682  vel 70   <- echo: +93ms, same offset, quieter
+```
+
+93ms is *longer* than `MIN_REPEAT_SEC` (90ms), so no onset-distance rule
+could remove it without also destroying genuine fast repeats. The reliable
+signature is the **shared offset** — an echo is the same sustain traced
+twice, whereas a real repeat is traced to its own note end. Filtering on
+(close onset AND same offset AND quieter) fixed `repeats` 0.647 → 0.917 with
+no regression elsewhere.
+
+**Known weaknesses, now measured rather than assumed**
+- **Semitone clusters** (0.667 / 0.571) — adjacent semitones are the hardest
+  pitch-resolution case for both engines. Post-processing is not at fault;
+  the models genuinely merge them.
+- **Wide two-hand range** (0.769 / 0.615) — low bass notes are the weakest
+  register for both.
+- **ByteDance loses badly on `dynamics`** (0.400) — it invented 7 extra notes
+  on a passage of decreasing velocity. Worth investigating; it is the default
+  engine.
+- **`+offset` scores are much lower than onset scores across the board.** Note
+  *durations* are far less accurate than note starts, which matters for the
+  Phase 3 notation work.
+
 **Next**
-- 12b: MIDI → audio synthesis, to generate test audio with exact known ground
-  truth (there is no MIDI capture on the piano, so this is how the benchmark
-  gets its labels).
+- Investigate ByteDance's `dynamics` failure (0.400 is bad for the default).
+
+---
+
+## 2026-08-10 — The benchmark was measuring the wrong thing
+
+Investigated ByteDance's 0.400 on `dynamics`. It turned out **the test
+material was invalid, not the model.**
+
+**Trail:** ByteDance reported a note running `3.50 → 9.50` in a 6.20s file.
+Checked whether that came from my post-processing — it did not; the raw
+library output already contained it. Checked the audio — a clean decay
+matching the velocity ramp, nothing wrong. Then checked the *spectrum*:
+
+```
+pretty_midi.synthesize(), single C4 (261.6 Hz):
+    263.8 Hz  1.01x f0   power 3.24e-02
+    258.4 Hz  0.99x f0   power 2.48e-02
+    269.2 Hz  1.03x f0   power 2.02e-03      <- and nothing above
+```
+
+**`pretty_midi.synthesize()` produces essentially a pure sine wave** — all
+energy at the fundamental, no harmonic series, no attack transient. That is
+not piano audio. ByteDance is piano-specific and trained on real recordings,
+so a sine wave is far out of its training distribution.
+
+**Fix:** wrote `evaluation/synth.py`, a physical piano model with a proper
+harmonic series (~1/n falloff), **inharmonicity** (`f_n = n*f0*sqrt(1+B*n^2)`,
+B scaled across the keyboard — the most piano-specific cue in the signal),
+broadband hammer-noise attack, per-partial decay, and velocity-dependent
+brightness.
+
+**Re-scored on realistic audio — the ranking reversed:**
+
+| case | ByteDance (sine → piano) | Basic Pitch (sine → piano) |
+|---|---|---|
+| triads | 0.857 → 0.813 | 0.960 → 0.929 |
+| pedal | 0.778 → 0.778 | 0.933 → 0.737 |
+| dense | 0.985 → 0.914 | 0.952 → 0.667 |
+| wide | 0.615 → **0.842** | 0.769 → 0.762 |
+| repeats | 0.917 → **0.960** | 0.917 → 0.846 |
+| dynamics | 0.400 → **0.909** | 0.909 → 0.909 |
+| cluster | 0.571 → **1.000** | 0.667 → 0.800 |
+| **mean** | 0.732 → **0.888** | 0.872 → 0.807 |
+
+ByteDance gained 0.156 and now leads; Basic Pitch lost 0.065. **This
+vindicates keeping ByteDance as the default** — the earlier numbers suggested
+switching, and acting on them would have been wrong.
+
+**Lesson recorded:** a benchmark is a measurement instrument and has to be
+validated like one. Two rounds of conclusions here came from a broken
+instrument rather than from the system under test.
+
+**Also fixed:** `render_note` could exceed ±1.0 (measured 1.17) when partials
+summed constructively — caught by a test, not by inspection. `render()`
+normalised the mix but a single note written straight to WAV would clip.
+
+**Next**
+- 12c: augmentation (reverb, pitch shift, noise) to simulate room acoustics.
+- 12d: benchmark CLI reporting the clean-vs-augmented drop — the number the
+  training track exists to close.
+- Fold the polyphonic set into a committed benchmark (Phase 13) rather than
+  scratch files.
+- Still open: `+offset` scores remain far below onset scores for both engines.
+  Note durations are much less accurate than note starts, which matters for
+  Phase 3 notation.
 - 12c: augmentation (reverb, pitch shift, noise) to simulate room acoustics.
 - 12d: benchmark CLI reporting the clean-vs-augmented accuracy drop — the
   number the training track exists to close.
