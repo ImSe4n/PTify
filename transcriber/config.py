@@ -37,7 +37,21 @@ NUM_KEYS = MIDI_HIGHEST - MIDI_LOWEST + 1  # 88
 # Nothing came back above ~0.80 of its fundamental, so anything at or above
 # this ratio is treated as a note that was really played.
 HARMONIC_INTERVALS = (12, 19, 24, 28, 31, 36, -12)
-HARMONIC_MAX_RATIO = 0.85
+
+# Chosen by sweeping against two cases that pull in OPPOSITE directions:
+# `repeats` needs a high threshold (its octave partials reach ~0.88 of the
+# fundamental), while `octaves` needs a low one (deliberately played octaves
+# sit at ~0.98 and must survive). Measured onset F1:
+#
+#   ratio   repeats  octaves  triads
+#    0.85     0.647    1.000    0.929
+#    0.90     0.846    1.000    0.929   <- best; both cases satisfied
+#    0.93     0.846    0.667    0.889   <- real octaves start being eaten
+#    0.95     0.880    0.667    0.889
+#
+# Re-run `python -m evaluation --compare` after changing this: the two cases
+# trade off directly, so a value that helps one usually hurts the other.
+HARMONIC_MAX_RATIO = 0.90
 HARMONIC_SIMULTANEITY_SEC = 0.05  # partials start with their fundamental
 
 # ByteDance does not need harmonic filtering — it is piano-specific and was

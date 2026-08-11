@@ -416,14 +416,97 @@ A lesson from earlier in this phase applies — when the measuring instrument
 changes, previous measurements do not carry over.
 
 **Next**
-- 12d: benchmark CLI reporting per-preset scores.
-- Fold the polyphonic set into a committed benchmark (Phase 13) rather than
-  scratch files.
-- Still open: `+offset` scores remain far below onset scores for both
-  engines. Note durations are much less accurate than note starts, which
-  matters for Phase 3 notation.
-- Still open: the clean→augmented drop needs REAL recordings to be
-  meaningful. Synthetic audio cannot measure it.
+- 12d: benchmark CLI.
+
+---
+
+## 2026-08-11 — Phase 12d: benchmark CLI (Phase 12 complete)
+
+**Completed**
+- `evaluation/cases.py` — the benchmark corpus, defined **in code** rather
+  than shipped as audio so it is reproducible from a clean checkout and
+  diffable in review. Eight cases, each chosen because it exposed a real
+  bug or a real difference between engines.
+- `evaluation/benchmark.py` — runner and three report formats.
+- `evaluation/__main__.py` — `python -m evaluation`, with `--compare`,
+  `--all-presets`, `--case`, and `--audio-dir` for real recordings.
+- Promoted the scratch scripts used throughout Phase 12 into committed,
+  tested code.
+
+**New case: `octaves`.** Deliberately-played octaves at equal strength, which
+`_drop_harmonics` must NOT remove. Added because the harmonic filter's whole
+job is deleting octave partials, and nothing was guarding the case where the
+octave is real. It immediately earned its place — see below.
+
+**Regression found by the new corpus.** `repeats` had dropped 0.917 → 0.647.
+Cause: the 12c synth changes (louder attack transient) strengthened the
+octave partial, pushing its velocity ratio to ~0.87 — just above the 0.85
+filter threshold. Swept the threshold against cases that pull in opposite
+directions:
+
+| ratio | repeats | octaves | triads |
+|---|---|---|---|
+| 0.85 | 0.647 | 1.000 | 0.929 |
+| **0.90** | **0.846** | **1.000** | **0.929** |
+| 0.93 | 0.846 | 0.667 | 0.889 |
+| 0.95 | 0.880 | 0.667 | 0.889 |
+
+0.90 satisfies both; above it, real octaves start being eaten. The tradeoff
+is recorded in `config.py` so the next person changing it sees the data.
+
+**Also found: ByteDance scores 0.500 on `octaves`** — it drops deliberately
+played octaves. A genuine weakness in the default engine that no previous
+case could see.
+
+### End-of-phase audit
+
+Eight issues found and fixed.
+
+**High**
+- **`format_comparison` crashed on unequal engine results.** Rows were zipped
+  by INDEX, so an engine producing fewer rows raised `IndexError` — after all
+  the expensive inference had run. Worse: equal-length but differently-ordered
+  lists silently compared *different cases* and reported wrong numbers with
+  no error at all. Now keyed by case name.
+- **The degradation table's baseline was positional.** It took the first dict
+  entry, so a caller ordering the dict differently inverted the sign of every
+  drop — reporting degradation as improvement. Now looks up `clean` by name.
+- **`ImportError` escaped as a raw traceback** after the header had printed,
+  because `soundfile`/`librosa` are imported lazily inside the run functions.
+- **The reported device was always wrong.** `_single` read `.device` off a
+  freshly-constructed engine, but that field is only set from
+  `torch.cuda.is_available()` inside `load()` — so the header printed `cpu`
+  on any machine, for a field the module docstring calls load-bearing.
+
+**Medium**
+- `--case` was silently ignored under `--audio-dir`, printing a subset header
+  over full-corpus results. Now an explicit error.
+- `np.mean` of an empty list printed `nan` mid-table.
+- `cases._make` computed duration from note offsets only, so a pedal held
+  past the last note produced a short label.
+- Every case wrote to the same `bench.wav` — safe today, but silently scores
+  stale audio if an engine ever caches by path or this is parallelised.
+
+**Tests: 167 passing** (was 115).
+
+---
+
+## Phase 12 complete — what the evaluation harness can and cannot do
+
+**Can:** compare engines on reproducible polyphonic cases, catch
+post-processing regressions (it caught three during this phase alone), and
+score real recordings that have MIDI ground truth.
+
+**Cannot:** measure the clean→degraded drop that the training track targets.
+Synthetic audio is too dry, so augmentation *improves* scores on it. That
+number requires real recordings, which is Phase 13's job.
+
+**Still open**
+- `+offset` scores remain far below onset scores for both engines. Note
+  durations are much less accurate than note starts — this matters directly
+  for Phase 3 notation, where duration becomes note values on the page.
+- ByteDance's `octaves` weakness (0.500) is unexplained.
+- No real-audio benchmark exists yet.
 - 12c: augmentation (reverb, pitch shift, noise) to simulate room acoustics.
 - 12d: benchmark CLI reporting the clean-vs-augmented accuracy drop — the
   number the training track exists to close.

@@ -68,3 +68,5 @@ desktop.ini
 # in the Phase 12 audit (merge destroying trills, O(n^2) harmonic filter,
 # count-only verification), so it has to travel with the code.
 .pytest_cache/
+
+HANDOFF.md
