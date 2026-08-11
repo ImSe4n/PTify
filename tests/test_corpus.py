@@ -7,15 +7,21 @@ produces a corpus that looks fine and measures the wrong thing. That is
 exactly how Phase 12 lost two rounds of conclusions.
 """
 
+from pathlib import Path
+
 import pytest
 
 from evaluation.corpus import (
     REQUIRED_COLUMNS,
     SELECTION_SEED,
     TrackMeta,
+    build_corpus,
+    fetch_metadata,
+    fetch_track,
     parse_metadata,
     select_tracks,
     summarise_selection,
+    write_manifest,
 )
 
 # A miniature MAESTRO CSV: the real header, and rows chosen to exercise the
@@ -190,3 +196,157 @@ def test_summary_handles_empty():
 
 def test_summary_has_no_nan():
     assert "nan" not in summarise_selection(select_tracks(_tracks(), n=3))
+
+
+# --- fetching (Phase 13c) -------------------------------------------------
+#
+# Every one of these injects a fake opener/downloader. Nothing here touches
+# the network, and importing evaluation.corpus must never import a network
+# client either.
+
+def _fake_pair_writer():
+    """A downloader that writes a real (tiny) WAV or MIDI, recording calls."""
+    import soundfile as sf
+
+    from evaluation.cases import load
+    from evaluation.synth import DEFAULT_SAMPLE_RATE, render
+    from transcriber.midi import write_midi
+
+    calls = []
+
+    def download(url, dest):
+        calls.append(url)
+        tr = load("triads")
+        if str(dest).endswith(".wav"):
+            sf.write(str(dest), render(tr, sr=DEFAULT_SAMPLE_RATE),
+                     DEFAULT_SAMPLE_RATE)
+        else:
+            write_midi(tr, dest)
+
+    return download, calls
+
+
+def test_fetch_metadata_uses_the_cache_without_calling_out(tmp_path):
+    cache = tmp_path / "maestro.csv"
+    cache.write_text(CSV, encoding="utf-8")
+
+    def explode(url):
+        raise AssertionError("cache hit must not reach the network")
+
+    assert fetch_metadata(cache, opener=explode) == CSV
+
+
+def test_fetch_metadata_writes_the_cache(tmp_path):
+    cache = tmp_path / "nested" / "maestro.csv"
+    text = fetch_metadata(cache, opener=lambda url: CSV.encode("utf-8"))
+    assert text == CSV
+    assert cache.read_text(encoding="utf-8") == CSV
+
+
+def test_fetch_metadata_decodes_as_utf8():
+    """MAESTRO really is UTF-8. Decoding as latin-1 would turn every accented
+    composer into mojibake, and that name reaches filenames and the manifest."""
+    body = 'canonical_composer\nFrédéric Chopin\n'.encode("utf-8")
+    assert "é" in fetch_metadata(None, opener=lambda url: body)
+
+
+def test_fetch_track_writes_dot_midi(tmp_path):
+    """The corpus writes .midi on purpose, so the real data exercises the
+    pairing fix rather than leaving it covered only by unit tests."""
+    download, _ = _fake_pair_writer()
+    meta = _tracks()[0]
+    audio, midi = fetch_track(meta, tmp_path, downloader=download)
+
+    assert audio.suffix == ".wav" and midi.suffix == ".midi"
+    assert audio.exists() and midi.exists()
+
+    from evaluation.benchmark import _find_pairs
+    assert len(_find_pairs(tmp_path)) == 1
+
+
+def test_fetch_track_is_idempotent(tmp_path):
+    """Re-running after an interruption must resume, not re-download."""
+    download, calls = _fake_pair_writer()
+    meta = _tracks()[0]
+
+    fetch_track(meta, tmp_path, downloader=download)
+    assert len(calls) == 2
+    fetch_track(meta, tmp_path, downloader=download)
+    assert len(calls) == 2, "existing files were re-downloaded"
+
+
+def test_default_downloader_cleans_up_a_failed_partial(tmp_path):
+    """REGRESSION GUARD: a truncated WAV left behind by an interrupted
+    download reads fine in librosa and would score as a mysteriously bad
+    recording rather than as a broken one."""
+    from evaluation.corpus import _default_downloader
+
+    dest = tmp_path / "x.wav"
+
+    def boom(url, filename, reporthook=None):
+        Path(filename).write_bytes(b"partial")
+        raise KeyboardInterrupt
+
+    import evaluation.corpus as corpus_mod
+    original = corpus_mod.urllib.request.urlretrieve
+    corpus_mod.urllib.request.urlretrieve = boom
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            _default_downloader("http://example/x.wav", dest)
+    finally:
+        corpus_mod.urllib.request.urlretrieve = original
+
+    assert not dest.exists()
+    assert list(tmp_path.iterdir()) == [], "a .part file was left behind"
+
+
+def test_build_corpus_produces_a_complete_manifest(tmp_path):
+    download, _ = _fake_pair_writer()
+    manifest = build_corpus(
+        n=3, out_dir=tmp_path / "recs", progress=False,
+        opener=lambda url: CSV.encode("utf-8"), downloader=download,
+    )
+
+    assert manifest["n"] == 3
+    assert manifest["license"] == "CC BY-NC-SA 4.0"
+    assert len(manifest["tracks"]) == 3
+    for entry in manifest["tracks"]:
+        assert entry["n_notes"] > 0
+        assert len(entry["sha256_audio"]) == 64
+        assert len(entry["sha256_midi"]) == 64
+        assert entry["composer"] and entry["title"]
+
+
+def test_build_corpus_is_reproducible(tmp_path):
+    """Two builds of the same corpus must agree byte for byte, or a baseline
+    measured against one of them is not comparable to the other."""
+    download, _ = _fake_pair_writer()
+    kwargs = dict(n=3, progress=False,
+                  opener=lambda url: CSV.encode("utf-8"), downloader=download)
+
+    a = build_corpus(out_dir=tmp_path / "a", **kwargs)
+    b = build_corpus(out_dir=tmp_path / "b", **kwargs)
+
+    assert [t["stem"] for t in a["tracks"]] == [t["stem"] for t in b["tracks"]]
+    assert ([t["sha256_audio"] for t in a["tracks"]]
+            == [t["sha256_audio"] for t in b["tracks"]])
+    assert a["csv_sha256"] == b["csv_sha256"]
+
+
+def test_manifest_round_trips_as_json(tmp_path):
+    import json
+
+    download, _ = _fake_pair_writer()
+    manifest = build_corpus(
+        n=2, out_dir=tmp_path / "recs", progress=False,
+        opener=lambda url: CSV.encode("utf-8"), downloader=download,
+    )
+    path = write_manifest(manifest, tmp_path / "out" / "manifest.json")
+    assert json.loads(path.read_text(encoding="utf-8")) == manifest
+
+
+def test_importing_corpus_pulls_in_no_network_client():
+    """The suite's no-network guarantee is structural: the module must not
+    import a heavyweight HTTP client at import time."""
+    import sys
+    assert "huggingface_hub" not in sys.modules

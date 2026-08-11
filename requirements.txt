@@ -45,6 +45,17 @@ mido==1.3.2                 # low-level MIDI file I/O
 # --- Evaluation (Phase 12) ---
 mir_eval==0.8.2             # standard transcription metrics (note onset F1)
 
+# --- Real-audio corpus (Phase 13) — NO NEW DEPENDENCIES ---
+# evaluation/corpus.py fetches MAESTRO test-split tracks individually from the
+# ddPn08/maestro-v3.0.0 HuggingFace mirror. Those URLs serve single files over
+# plain HTTPS with no auth, so it uses urllib from the stdlib.
+#
+# huggingface_hub was considered and rejected: it would add three packages
+# (huggingface_hub, pyyaml, tqdm) to a venv whose torch 2.2 / numpy <2 ABI
+# pinning is documented above as fragile, in exchange for nothing this needs.
+# If a future phase wants resumable or parallel dataset downloads, that is the
+# point to reconsider it.
+
 # --- Tests ---
 pytest==8.3.4
 
