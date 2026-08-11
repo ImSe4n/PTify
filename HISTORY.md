@@ -635,6 +635,71 @@ that ByteDance is playing at home here.
 0.969 and 0.730). Note durations are far less accurate than note starts, which
 matters directly for Phase 3 — durations become note values on the page.
 
+### The degradation curve Phase 12 could not produce
+
+Basic Pitch, all 8 presets, real MAESTRO. **Every preset drops.** On synthetic
+audio `room` *raised* Basic Pitch by 9.4 F1 because `synth.py` is perfectly dry;
+on real audio the same preset costs 1.1 points. This is the direct confirmation
+that the harness was previously measuring the wrong thing, and that real audio
+fixes it.
+
+| preset | onset | drop | what it does |
+|---|---|---|---|
+| clean | 0.730 | — | |
+| room | 0.719 | −1.1 | rt60 0.6, wet 0.3, snr 35 |
+| bright_room | 0.718 | −1.2 | + EQ −4/+3 dB |
+| quiet_mic | 0.715 | −1.5 | + peak 0.05 |
+| noisy | 0.715 | −1.5 | rt60 0.4, snr 15 |
+| hall | 0.637 | **−9.3** | rt60 1.4, wet 0.5 |
+| detuned | 0.589 | **−14.1** | 0.25 semitones |
+| worst_case | 0.365 | **−36.5** | everything stacked |
+
+**Three findings that were not predictable from the synthetic runs:**
+
+1. **Reverb hurts nonlinearly.** rt60 0.6 costs ~1 point; rt60 1.4 costs 9.3.
+   A living room is nearly free, a hall is not. There is a threshold between
+   them, not a gradient.
+2. **Detuning by a quarter semitone is the single worst individual factor**
+   (−14.1) — worse than a concert hall, and worse than 15dB SNR noise. Basic
+   Pitch's pitch classifier has no tolerance for being off-grid. This is a
+   *cheap* thing to fix in training with pitch-shift augmentation, and it is
+   the strongest argument the corpus makes for the augmentation-focused plan in
+   Phases 14–16.
+3. **Noise barely matters** (−1.5 at 15dB SNR). Room tone is not the enemy;
+   room *acoustics* and tuning are.
+
+`worst_case` (−36.5) is worse than the sum of its parts (~−25), so the factors
+compound rather than add.
+
+### Offset accuracy is governed by PEDAL DENSITY, not by onset accuracy
+
+Correlation between `+offset` F1 and sustain-pedal events per minute across the
+12 tracks: **−0.794**.
+
+| composer | +offset | pedals/min |
+|---|---|---|
+| Scarlatti | 0.757 | 21.8 |
+| Haydn | 0.677 | 13.4 |
+| Beethoven | 0.653 | 33.5 |
+| … | | |
+| Scriabin | 0.151 | 43.3 |
+| Debussy | 0.146 | 43.4 |
+| Schubert | **0.117** | **51.7** |
+
+Onset accuracy does **not** predict offset accuracy: Schubert scores 0.977 onset
+against 0.117 offset, while Scarlatti scores 0.967 onset against 0.757. The two
+metrics measure different failure modes. Heavy pedalling blurs where a note
+actually stops — release and decay become acoustically indistinguishable — and
+that is a property of the *music*, not of the engine.
+
+**Consequence for Phase 3.** Note values on a page come from durations, so
+notation quality will vary by repertoire in a way that has nothing to do with how
+well notes were detected. A pedalled Romantic piece can have near-perfect onsets
+(0.977) and still produce unusable rhythms. Sparse Baroque and Classical writing
+is where notation will look best. Phase 3 should quantise against a beat grid
+rather than trusting raw durations, and should treat pedal spans (which
+ByteDance already models) as the signal for when an offset is untrustworthy.
+
 ### Inference is 1.8x realtime, not 1.1x
 
 This log documents ~1.1x. Measured across nine completed tracks on this corpus:
