@@ -207,6 +207,29 @@ Reassuring check: ByteDance's published MAESTRO note F1 is 0.9677 and this
 corpus measures 0.9693 — agreement to within 0.002, which independently
 validates the whole chain (selection, fetch, pairing, alignment, scoring).
 
+**Degradation curve** (Basic Pitch, all 8 presets, real audio). On synthetic
+audio `room` *raised* scores by 9.4 F1; on real audio every preset drops, which
+is the confirmation that real audio fixed the instrument.
+
+| preset | onset | drop |
+|---|---|---|
+| clean | 0.730 | — |
+| room / bright_room / quiet_mic / noisy | 0.715–0.719 | −1.1 to −1.5 |
+| hall | 0.637 | **−9.3** |
+| detuned | 0.589 | **−14.1** |
+| worst_case | 0.365 | **−36.5** |
+
+Three things worth knowing before designing training augmentation:
+- **Reverb hurts nonlinearly.** rt60 0.6 ≈ 1 point; rt60 1.4 = 9.3 points. A
+  living room is nearly free; a hall is not.
+- **A quarter-semitone detune (−14.1) is the worst single factor** — worse than
+  a concert hall or 15dB-SNR noise. Cheap to fix with pitch-shift augmentation,
+  and the strongest argument this corpus makes for the Phase 14–16 plan.
+- **Noise barely matters** (−1.5 at 15dB SNR). Room acoustics and tuning are the
+  enemy, not room tone.
+
+ByteDance's degradation curve is NOT measured (~20h; only `clean` exists).
+
 **Known weak spots:** `+offset` is far below onset for both engines (0.381 and
 0.176) — durations are much less accurate than starts, and this is the input to
 Phase 3 notation. Basic Pitch's real-audio errors are overwhelmingly **octave
@@ -271,11 +294,28 @@ otherwise the training target is a proxy.
 The riskiest phase. Already verified as installable and working on this
 machine: `music21` 10.5.0 → MusicXML, `verovio` 6.2.1 → SVG, `svglib` +
 `reportlab` → PDF. **Verovio does not output PDF** despite appearances.
-The full chain was tested end to end.
+The full chain was tested end to end. None are installed yet — they are
+commented out in `requirements.txt` awaiting this phase. `madmom` is unusable
+(capped at Python <3.10); use `librosa.beat` or `beat_this`.
 
-Note that `+offset` accuracy is poor, and note durations become note *values*
-on the page — the weakest part of transcription feeds the most visible part
-of notation.
+**The core risk, now measured.** Note durations become note *values* on the
+page, and durations are the weakest part of transcription: ByteDance scores
+0.969 onset but only **0.381 +offset** on real audio.
+
+**Offset accuracy tracks PEDAL DENSITY, not onset accuracy** — correlation
+**−0.794** across the 12 corpus tracks. Schubert: 0.977 onset, **0.117** offset,
+51.7 pedals/min. Scarlatti: 0.967 onset, **0.757** offset, 21.8 pedals/min.
+Heavy pedalling makes release and decay acoustically indistinguishable.
+
+So notation quality will vary by **repertoire**, not by how well notes were
+detected. Two implications:
+- **Quantise against a beat grid; do not trust raw durations.** A pedalled
+  Romantic piece can have near-perfect onsets and still produce unusable rhythms.
+- **Use pedal spans as a confidence signal.** ByteDance already models them
+  (`supports_pedal = True`), so a note whose offset falls inside a pedal span
+  should be treated as having an unreliable duration.
+- Test on sparse Baroque/Classical first — that is where the chain will look
+  best — but validate on a pedalled Romantic piece before believing it works.
 
 ### If training (Phases 14–17)
 A real-audio baseline now exists (§6), so the precondition is met — but read it
