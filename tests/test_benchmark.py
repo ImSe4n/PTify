@@ -6,6 +6,8 @@ seconds. These tests cover the corpus definitions and the pure formatting
 functions, which is where silent breakage would actually hide.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -266,3 +268,141 @@ def test_pedal_case_duration_covers_the_pedal():
     past the last note produced a too-short label."""
     tr = load("pedal")
     assert tr.duration > max(p.offset for p in tr.pedals)
+
+
+# --- real-audio pairing (Phase 13a) ---------------------------------------
+#
+# These build their pairs from evaluation.synth rather than shipping binary
+# fixtures, so the suite still needs no network and no model.
+
+def _pair(directory, stem, audio_ext=".wav", midi_ext=".mid"):
+    """Write a real audio+MIDI pair so pairing is tested against real files."""
+    import soundfile as sf
+
+    from evaluation.synth import DEFAULT_SAMPLE_RATE, render
+    from transcriber.midi import write_midi
+
+    directory.mkdir(parents=True, exist_ok=True)
+    tr = load("triads")
+    sf.write(str(directory / f"{stem}{audio_ext}"),
+             render(tr, sr=DEFAULT_SAMPLE_RATE), DEFAULT_SAMPLE_RATE)
+    write_midi(tr, directory / f"{stem}{midi_ext}")
+    return directory
+
+
+def test_find_pairs_matches_dot_midi(tmp_path):
+    """REGRESSION: pairing used with_suffix('.mid'), so every MAESTRO file
+    (which ships .midi) was skipped and a full directory of ground truth was
+    reported as containing no pairs at all."""
+    from evaluation.benchmark import _find_pairs
+
+    d = _pair(tmp_path / "recs", "song", midi_ext=".midi")
+    pairs = _find_pairs(d)
+    assert len(pairs) == 1
+    assert pairs[0][1].suffix == ".midi"
+
+
+def test_find_pairs_matches_dot_mid(tmp_path):
+    from evaluation.benchmark import _find_pairs
+
+    d = _pair(tmp_path / "recs", "song", midi_ext=".mid")
+    assert len(_find_pairs(d)) == 1
+
+
+def test_find_pairs_one_result_per_stem(tmp_path):
+    """REGRESSION: song.wav and song.mp3 both paired to song.mid, producing
+    two rows with the same case name; the report formatters key by name and
+    silently dropped one of them."""
+    from evaluation.benchmark import _find_pairs
+
+    d = _pair(tmp_path / "recs", "song")
+    (d / "song.mp3").write_bytes(b"not really an mp3")
+
+    pairs = _find_pairs(d)
+    assert len(pairs) == 1
+    # .wav outranks .mp3 in AUDIO_EXTENSIONS.
+    assert pairs[0][0].suffix == ".wav"
+
+
+def test_find_pairs_is_case_insensitive(tmp_path):
+    from evaluation.benchmark import _find_pairs
+
+    d = _pair(tmp_path / "recs", "song", audio_ext=".WAV", midi_ext=".MID")
+    assert len(_find_pairs(d)) == 1
+
+
+def test_find_pairs_ignores_unpaired_audio(tmp_path):
+    from evaluation.benchmark import _find_pairs
+
+    d = _pair(tmp_path / "recs", "paired")
+    (d / "lonely.wav").write_bytes(b"no midi beside me")
+    assert [p[0].stem for p in _find_pairs(d)] == ["paired"]
+
+
+def test_find_pairs_ignores_midi_without_audio(tmp_path):
+    from evaluation.benchmark import _find_pairs
+
+    d = _pair(tmp_path / "recs", "paired")
+    from transcriber.midi import write_midi
+    write_midi(load("triads"), d / "orphan.mid")
+    assert [p[0].stem for p in _find_pairs(d)] == ["paired"]
+
+
+def test_find_pairs_ignores_subdirectories(tmp_path):
+    """Discovery is flat on purpose: results are keyed by stem, so nested
+    files with the same stem would collapse into one case."""
+    from evaluation.benchmark import _find_pairs
+
+    d = _pair(tmp_path / "recs", "top")
+    _pair(d / "nested", "top")
+    assert len(_find_pairs(d)) == 1
+
+
+def test_find_pairs_is_sorted(tmp_path):
+    from evaluation.benchmark import _find_pairs
+
+    d = tmp_path / "recs"
+    for stem in ("charlie", "alpha", "bravo"):
+        _pair(d, stem)
+    assert [p[0].stem for p in _find_pairs(d)] == ["alpha", "bravo", "charlie"]
+
+
+@pytest.mark.parametrize("char", list('<>:"/\\|?*'))
+def test_safe_stem_strips_windows_illegal_characters(char):
+    from evaluation.benchmark import _safe_stem
+
+    assert char not in _safe_stem(f"prelude{char}no1")
+
+
+def test_safe_stem_never_returns_empty():
+    from evaluation.benchmark import _safe_stem
+
+    assert _safe_stem("...") != ""
+    assert _safe_stem("") != ""
+
+
+def test_real_audio_scores_use_distinct_filenames(tmp_path, monkeypatch):
+    """REGRESSION: every recording was written to the same tmp/bench.wav.
+    The synthetic path already passes per-case names for exactly this reason;
+    the real-audio path did not, so an engine that cached by path would score
+    stale audio."""
+    import evaluation.benchmark as bm
+
+    d = tmp_path / "recs"
+    for stem in ("first", "second"):
+        _pair(d, stem)
+
+    seen = []
+
+    class _FakeEngine:
+        """Records the paths it is handed. No model is loaded."""
+
+        def transcribe_file(self, path, progress=None):
+            seen.append(Path(path).name)
+            return Transcription()
+
+    monkeypatch.setattr(bm, "get_engine", lambda name: _FakeEngine())
+    bm.run_real_audio("fake", d, preset="clean", progress=False)
+
+    assert len(seen) == 2
+    assert len(set(seen)) == 2, f"scratch files collided: {seen}"
