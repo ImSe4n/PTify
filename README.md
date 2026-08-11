@@ -2,10 +2,10 @@
 
 Turn a piano recording into **MIDI**, an interactive **piano roll**, and **sheet music**.
 
-> **Status: Phase 2 + 12 complete, Phase 13 in progress.** A working
-> command-line transcriber (audio → MIDI) and an evaluation harness that scores
-> it against both synthetic cases and real recordings. Notation, the web app,
-> and a custom-trained model are later phases — see the roadmap.
+> **Status: Phases 2, 12 and 13 complete.** A working command-line transcriber
+> (audio → MIDI) and an evaluation harness that scores it against both synthetic
+> cases and real MAESTRO recordings. Notation, the web app, and a custom-trained
+> model are later phases — see the roadmap.
 
 ```bash
 python -m transcriber recording.mp3
@@ -144,16 +144,28 @@ acoustics are not, so its absolute score is flattered. And the `room` preset
 convolves a room onto audio that already contains hall reverb. The meaningful
 output is the **clean→degraded delta**, not the absolute score.
 
-Measured so far (12 tracks, 84.5 min, 52,478 reference notes, CPU, 8 threads):
+Measured (12 tracks, 84.5 min, 52,478 reference notes, CPU, 8 threads):
 
-| engine | synthetic clean | real clean | drop |
+| engine | synthetic clean | real clean | delta |
 |---|---|---|---|
-| Basic Pitch | ~0.86 | **0.730** | −13 pts |
-| ByteDance | ~0.87 | *pending* | |
+| ByteDance | ~0.87 | **0.969** | **+0.099** |
+| Basic Pitch | ~0.86 | **0.730** | **−0.130** |
+
+**The engines move in opposite directions**, which is why a single "real-audio
+accuracy" number would be meaningless. ByteDance goes *up* because MAESTRO is its
+training distribution. Basic Pitch goes *down* 13 points because it is a
+general-purpose multi-instrument model meeting real piano acoustics.
+
+A useful check on the harness itself: ByteDance's published MAESTRO note F1 is
+0.9677, and this corpus measures **0.9693** — agreement to within 0.002,
+independently reproducing a published benchmark.
 
 Basic Pitch's real-audio errors are mostly **octave confusions**: 95.9% of onsets
 land within 50ms (median error 4.4ms), but only 74.3% match on time *and* pitch.
-It is a general-purpose multi-instrument model, not a piano-specific one.
+
+`+offset` is the weak spot for both (0.381 and 0.176). Note durations are far
+less accurate than note starts — which matters for Phase 3, where durations
+become note values on the page.
 
 ## Roadmap
 
@@ -167,7 +179,7 @@ It is a general-purpose multi-instrument model, not a piano-specific one.
 
 **Training** (can run in parallel)
 - [x] **Phase 12** — evaluation harness (no GPU needed)
-- [ ] **Phase 13** — real-audio benchmark + baseline numbers *(in progress)*
+- [x] **Phase 13** — real-audio benchmark + baseline numbers
 - [ ] **Phase 14–16** — data pipeline, model, augmentation-focused training
 - [ ] **Phase 17** — ship the custom model behind `TranscriptionEngine`
 

@@ -83,3 +83,7 @@ recordings/
 # Cached MAESTRO metadata (~300KB, re-fetched on demand). The manifest records
 # its sha256, so the cache itself does not need to be committed.
 benchmarks/.maestro-metadata.csv
+
+# Console logs from benchmark runs. The JSON beside them is the artifact;
+# these are just progress spam (ByteDance prints a line per segment).
+benchmarks/real/*-stdout.txt
