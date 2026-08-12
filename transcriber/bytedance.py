@@ -54,7 +54,10 @@ class ByteDanceEngine(TranscriptionEngine):
 
     def load(self) -> None:
         if self._model is not None:
-            return  # idempotent; loading costs ~10s
+            # Idempotent, and worth it: measured 50.6s on a cold filesystem
+            # cache and 17-19s warm, over three fresh processes with the
+            # checkpoint already on disk. Callers may call this freely.
+            return
 
         import torch
         from piano_transcription_inference import PianoTranscription
@@ -81,7 +84,17 @@ class ByteDanceEngine(TranscriptionEngine):
 
         def report(frac: float, msg: str) -> None:
             if progress:
-                progress(frac, msg)
+                # Progress reporting is DIAGNOSTIC and must never be able to
+                # destroy the work it is describing. A callback that raised
+                # propagated out of here and killed the whole transcription --
+                # measured: a RuntimeError in the callback lost the result at
+                # 90% complete, after minutes of inference, reported as an
+                # error unrelated to transcription. Callers write to job
+                # stores, sockets and log files from here, all of which fail.
+                try:
+                    progress(frac, msg)
+                except Exception:  # noqa: BLE001
+                    pass
 
         report(0.0, "loading model")
         self.load()

@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 3 (notation) — quantise, score, render, CLI |
-| **Branch** | `master` — Phases 2, 12, 13 and 3 all merged |
-| **Tests** | 266 passing, ~32s, no model or network needed |
-| **Next** | Backend (4) or training (14–17) |
+| **Last completed** | Phase 4 (backend) — FastAPI, job queue, SSE, auth seam |
+| **Branch** | `phase-4-backend` — branch the next phase off it once merged |
+| **Tests** | 473 passing, ~45s, no model or network needed |
+| **Next** | Auth/persistence (5) or training (14–17) |
 
 **Shipped and working**
 - `transcriber/` — audio file → MIDI, two engines, CLI
@@ -22,11 +22,20 @@ State of the codebase, the traps in it, and what the next phase needs.
 - `evaluation/corpus.py` — fetches a real MAESTRO corpus, writes a manifest
 - `evaluation/report.py` — JSON baselines with environment provenance
 - `notation/` — beat grid → quantised rhythm → MusicXML / SVG / PDF / MIDI
+- `api/` — HTTP job API, SSE progress, queue seam, auth seam, limits
 - `benchmarks/` — corpus manifest + real-audio baselines (no audio committed)
-- `tests/` — 266 tests, all pure functions
+- `tests/` — 473 tests, all pure functions
 
-**Not started:** backend (4), auth (5), frontend (6–8), deploy (10),
+**Not started:** auth/persistence (5), frontend (6–8), deploy (10),
 training (14–17).
+
+**Phase 4 in one paragraph.** `POST /v1/jobs` uploads audio and returns a job
+id; the work runs on a worker and the client polls `GET /v1/jobs/{id}` or
+streams `GET /v1/jobs/{id}/events`. Artifacts come back from
+`result/{midi,json,musicxml,pdf,svg}`. It adds **no** transcription capability
+— a cross-check confirms the API and the CLI produce byte-identical MIDI. Run
+it with `pip install -e . --no-deps` then
+`python -m uvicorn api.app:create_app --factory`.
 
 **Branch note:** resolved. `master` had been 13 commits behind and was missing
 Phases 12 and 13; Phase 3 was therefore branched off `phase-13-real-audio`
@@ -41,6 +50,13 @@ The `clean` baseline for both engines exists; the augmented cells do not. See
 ## 2. Run it
 
 ```bash
+# the backend (Phase 4). The editable install is REQUIRED -- notation/ imports
+# from transcriber/, which only resolved because the repo root happened to be
+# on sys.path. --no-deps keeps a resolver away from the numpy<2 pin.
+.venv\Scripts\python.exe -m pip install -e . --no-deps
+.venv\Scripts\python.exe -m uvicorn api.app:create_app --factory
+curl -F file=@song.mp3 -F formats=midi,pdf http://127.0.0.1:8000/v1/jobs
+
 .venv\Scripts\python.exe -m transcriber song.mp3 --notes --verify
 .venv\Scripts\python.exe -m transcriber --doctor
 .venv\Scripts\python.exe -m evaluation --compare
@@ -101,10 +117,30 @@ notation/               transcription -> sheet music
   render.py             MusicXML / SVG / PDF writers
   __main__.py           CLI
 
+api/                    HTTP over the library. Adds NO transcription logic
+  app.py                create_app() factory, error mapping, TTL janitor
+  queue.py              JobQueue ABC + get_queue()  <- shaped like get_engine()
+  inproc.py             DEFAULT backend: thread pool + per-worker engine cache
+  arq_queue.py          Redis backend. Ships unused; see §9
+  pipeline.py           audio -> Transcription -> artifacts
+  events.py             SSE progress + heartbeat
+  security.py           get_principal() seam, rate limit, caps
+  storage.py            Storage ABC + LocalStorage, keyed by job id
+  jobs.py               Job / JobState / JobStore
+  settings.py           env config (NOT transcriber/config.py -- see below)
+
 benchmarks/             committed artifacts, NEVER audio
   maestro_test12.json   corpus manifest: tracks, seed, sha256 per file
   real/*.json           per-(engine,preset) baselines with environment
 ```
+
+**`api/settings.py` is separate from `transcriber/config.py` on purpose.** §5
+governs the latter: every constant there carries the measurement that produced
+it. Ports, secrets and Redis URLs are deployment configuration, not
+measurements, and mixing them would erode a rule this project enforces.
+
+**Adding a queue backend** mirrors adding an engine: implement `JobQueue`, add
+a branch to `get_queue()`. The pipeline and routes do not change.
 
 **Adding an engine:** subclass `TranscriptionEngine` (implement `name`,
 `load`, `transcribe_file`, `device`; set `native_sample_rate` and
@@ -114,6 +150,39 @@ custom-trained model drops in the same way.
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**Verovio is NOT thread-safe, and its error message blames the wrong thing.**
+It binds to whichever thread touches it first and fails on every thread after
+that: `loadData` returns False for MusicXML that is **perfectly valid** (the
+same bytes load in a fresh process), so `render.py` raises "could not parse the
+generated MusicXML… makeNotation() left measures that do not add up" and sends
+you to investigate music21 and the score. A lock does **not** fix it —
+serialised calls still run on different threads. `render.py` funnels all
+Verovio work onto one dedicated thread; keep it that way. This would have
+broken every SVG and PDF job in production, because the queue renders in worker
+threads.
+
+**Progress callbacks must never be able to kill a job.** A `RuntimeError`
+raised inside a progress callback used to propagate out of `transcribe_file`
+and destroy a finished transcription. Both engines now swallow callback
+exceptions. Anything writing to a job store, socket or log file from a callback
+can fail; the work it describes must survive that.
+
+**A default argument binds at definition time.** The SSE heartbeat interval was
+a function default, so `PTIFY_SSE_HEARTBEAT_SECONDS` silently did nothing —
+found only by watching a live server produce zero heartbeats through a 3s
+silent span. Settings must be passed explicitly at the call site.
+
+**`sse_starlette` caches a shutdown `Event` on a class attribute**, binding it
+to the first asyncio loop. Any later loop raises "bound to a different event
+loop" from inside anyio. `create_app()` clears it at lifespan start. It affects
+any process that runs more than one event loop, not just tests.
+
+**Writing a cleanup function is not the same as calling it.** `JobStore.sweep()`
+and `LocalStorage.delete()` were written, unit-tested and never invoked, so
+`job_ttl_seconds` looked like it bounded disk use and did nothing at all. The
+tests passed because they called `sweep()` directly. When adding a periodic
+task, grep for its callers.
 
 **MAESTRO is ByteDance's training distribution. Its 0.969 here is not a
 real-world number.** The test split is held out, but the acoustics are not —
@@ -355,6 +424,35 @@ architecture. Sources: [MAPS on Zenodo](https://zenodo.org/records/18160555),
 [SMD](https://www.audiolabs-erlangen.de/resources/MIR/SMD/midi),
 [Vienna 4x22](https://github.com/CPJKU/vienna4x22),
 [ACPAS](https://github.com/cheriell/ACPAS-dataset).
+
+### Phase 5 (auth + persistence) — what Phase 4 left for it
+
+Three seams exist specifically for this phase. Each is one file.
+
+- **`api/security.py: get_principal()`** — replace the body with Supabase JWT
+  verification. Routes depend on the `Principal` it returns, never on how
+  identity was established. `Authorization: Bearer` is already accepted, so a
+  JWT arrives through the same door as today's API key.
+- **`api/jobs.py: JobStore`** — an in-memory dict behind a small interface.
+  Nothing outside that module touches `._jobs`. Swap it for Supabase and the
+  rest of the backend does not notice.
+- **`api/storage.py: Storage`** — `LocalStorage` writes under `var/jobs/<id>`.
+  Supabase storage or S3 is a second implementation.
+
+**`JobStore` is the one that unblocks ARQ.** `api/arq_queue.py` is written and
+tested but ships unused, because an arq worker is a **separate process** and
+cannot see an in-memory store — it would write artifacts to disk that no API
+process could report. `worker_settings(job_store_factory=...)` marks exactly
+where a shared store plugs in, and the worker logs a warning if it starts
+without one. Once jobs live in Supabase, ARQ becomes genuinely usable and
+`PTIFY_QUEUE=arq` is the only change needed.
+
+Two behaviours worth preserving:
+- **Another principal's job returns 404, not 403.** 403 confirms the id exists,
+  which turns job ids into an enumerable directory of other people's work.
+- **A principal id must never contain the credential.** It is a truncated
+  SHA-256 today, because the id becomes a rate-limit dict key that could reach
+  a log.
 
 ### Phase 3 (notation) — DONE, and what it found
 

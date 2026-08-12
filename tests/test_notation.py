@@ -133,6 +133,47 @@ def test_pdf_is_written(tmp_path):
     assert out.read_bytes().startswith(b"%PDF")
 
 
+def test_rendering_works_from_a_worker_thread(tmp_path):
+    """Verovio is not thread-safe, and fails in a misleading way.
+
+    Measured: it binds to whichever thread touches it first and then fails on
+    every other thread -- `loadData` returns False for MusicXML that is
+    perfectly valid, so the error blames music21 and the score when the real
+    cause is the calling thread. Found when the Phase 4 HTTP layer started
+    rendering from worker threads; a plain lock does not fix it, because
+    serialised calls still run on different threads.
+
+    This test renders on the main thread FIRST so that a regression (removing
+    the dedicated Verovio thread) reproduces the original failure.
+    """
+    import threading
+
+    from notation.render import render_pdf, render_svg
+
+    tr = Transcription(notes=_scale(), duration=4.0, engine="test")
+    sc, _ = transcription_to_score(tr, grid_from_tempo(120.0, 4.0))
+
+    render_svg(sc, tmp_path / "main.svg")  # bind Verovio to the main thread
+
+    errors: list[Exception] = []
+
+    def worker(i: int) -> None:
+        try:
+            render_svg(sc, tmp_path / f"w{i}.svg")
+            render_pdf(sc, tmp_path / f"w{i}.pdf")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"rendering failed off the main thread: {errors[0]}"
+    assert (tmp_path / "w0.pdf").read_bytes().startswith(b"%PDF")
+
+
 def test_verovio_has_no_pdf_renderer():
     """Guard the assumption the PDF path is built on. If a future Verovio
     adds renderToPDF, the svglib detour can be dropped."""

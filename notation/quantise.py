@@ -22,6 +22,7 @@ at Python <3.10 and cannot be installed here (see HANDOFF §7).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -60,6 +61,21 @@ class BeatGrid:
     bpm: float
     beats_per_bar: int = 4
     subdivision: float = DEFAULT_SUBDIVISION
+
+    def __post_init__(self) -> None:
+        # A time signature needs at least one beat per bar. Zero reached
+        # music21 as a raw MeterException; NEGATIVE values were worse, because
+        # they engraved "successfully" and wrote a MusicXML file with a -4/4
+        # meter. Validated on the grid rather than only in the CLI, because the
+        # HTTP API builds grids directly and would otherwise reintroduce it.
+        if self.beats_per_bar < 1:
+            raise ValueError(
+                f"beats_per_bar must be at least 1, got {self.beats_per_bar}"
+            )
+        if self.subdivision <= 0:
+            raise ValueError(
+                f"subdivision must be positive, got {self.subdivision}"
+            )
 
     @property
     def is_empty(self) -> bool:
@@ -128,8 +144,11 @@ def grid_from_tempo(
     subdivision: float = DEFAULT_SUBDIVISION,
 ) -> BeatGrid:
     """A perfectly regular grid. Used for `--tempo`, and as the fallback."""
-    if bpm <= 0:
-        raise ValueError(f"bpm must be positive, got {bpm}")
+    # `not (bpm > 0)` rather than `bpm <= 0` so that NaN is caught here too —
+    # every comparison against NaN is False, so `nan <= 0` passes and the value
+    # travelled on to fail deep in int() with "cannot convert float NaN".
+    if not (bpm > 0) or math.isinf(bpm):
+        raise ValueError(f"bpm must be a positive finite number, got {bpm}")
     period = 60.0 / bpm
     n = max(2, int(duration / period) + 1)
     return BeatGrid(

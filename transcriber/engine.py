@@ -52,9 +52,10 @@ class TranscriptionEngine(ABC):
     def load(self) -> None:
         """Load weights, downloading on first run.
 
-        May be slow (ByteDance takes ~10s and a 165MB download the first
-        time). Must be idempotent — calling it twice should not re-download
-        or re-initialise.
+        May be slow. ByteDance measured 50.6s on a cold filesystem cache and
+        17-19s warm (three fresh processes, checkpoint already on disk), plus a
+        165MB download the first time ever. Must be idempotent — calling it
+        twice should not re-download or re-initialise.
         """
 
     @abstractmethod

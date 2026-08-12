@@ -138,7 +138,12 @@ class BasicPitchEngine(TranscriptionEngine):
 
         def report(frac: float, msg: str) -> None:
             if progress:
-                progress(frac, msg)
+                # See ByteDanceEngine.transcribe_file: a raising callback used
+                # to kill the transcription it was only meant to describe.
+                try:
+                    progress(frac, msg)
+                except Exception:  # noqa: BLE001
+                    pass
 
         report(0.0, "loading model")
         self.load()

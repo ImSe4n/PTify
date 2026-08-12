@@ -816,6 +816,100 @@ torch 2.2 ABI pin survived.
 
 ---
 
+## 2026-08-12 — Phase 4: FastAPI backend + job queue
+
+The CLI became an HTTP service. No new transcription capability — every
+endpoint is a thin wrapper over `transcriber/` and `notation/`, and a
+cross-check confirms the API and the CLI produce **byte-identical MIDI** from
+the same input. Built as eight sub-phases, each tested and staged separately.
+
+**Shipped**
+- `api/` — `create_app()` factory, jobs/health routers, SSE progress
+- `JobQueue` seam (`get_queue()`, shaped like `get_engine()`): in-process
+  default, ARQ/Redis behind the same interface
+- `pyproject.toml` + editable install
+- Auth seam, API-key check, token-bucket rate limit, concurrency and size and
+  duration caps
+- 207 new tests (266 → 473), still no model, no network, ~45s
+
+**Verovio is not thread-safe, and says the opposite.**
+The worst bug of the phase, found because a route test passed alone and failed
+in the full suite. Verovio binds to whichever thread touches it first and fails
+on every thread afterwards: `loadData` returns False for MusicXML that is
+**perfectly valid** — the identical bytes load in a fresh process. The raised
+error therefore blames `makeNotation()` and the score. It is not a test
+artifact: the queue renders in worker threads, so **every SVG and PDF job would
+have failed in production**, with an error pointing at the notation code. A
+lock is not enough, because serialised calls still run on different threads;
+`render.py` now funnels all Verovio work onto one dedicated thread.
+
+**A setting that silently did nothing.**
+`JobStore.sweep()` and `LocalStorage.delete()` were written and tested in 4b,
+then never called. Every finished job stayed in memory and every rendered PDF
+stayed on disk for the life of the process, while `job_ttl_seconds` looked like
+it handled that. Found by grepping for callers rather than by any test — the
+unit tests passed precisely because they called `sweep()` directly. A janitor
+task on the app lifespan now runs it.
+
+**Other issues found**
+- **A raising progress callback killed the transcription.** Measured: a
+  `RuntimeError` in the callback propagated out of `transcribe_file` and lost
+  the result. Progress reporting is diagnostic and must never destroy the work
+  it describes; both engines now isolate it.
+- **`sse_starlette` caches a shutdown `Event` on a class attribute**, binding it
+  to the first asyncio loop. Any later loop dies with "bound to a different
+  event loop" — a 500 from inside anyio. Cleared at lifespan start.
+- **The SSE heartbeat setting was ignored.** A default argument binds at
+  definition time, so `PTIFY_SSE_HEARTBEAT_SECONDS` did nothing. Caught against
+  a live server: a job with a 3s silent span produced zero heartbeats.
+- **An unreadable upload took 7.8s to reject.** librosa's audioread fallback
+  *decodes* to measure duration, so 16 bytes of junk named `.wav` ground for
+  nearly eight seconds — a cheap way to tie up the server. Restricted to
+  compressed formats that need it: **7.8s → 17ms**.
+- **The ARQ task would never have been claimed.** arq keys a task on the
+  function's `__name__`; `TASK_NAME` differed, so jobs would sit in Redis
+  forever with no worker taking them. Only ever visible on a real deployment.
+- **`get_queue("arq")` stopped failing** once `arq_queue.py` was made
+  importable without arq. The factory succeeded and pushed the failure to
+  `start()` — after the app had been built and reported healthy.
+- **A test import broke the CWD gate.** `from tests.test_api_routes import ...`
+  resolves only from the repo root, reintroducing exactly the dependency
+  `pyproject.toml` was added to remove. Caught by re-running the 4a gate.
+
+**Measured, and corrections to this file**
+- ByteDance model load: **50.6s cold, 17-19s warm** (three fresh processes).
+  The `~10s` in `engine.py` and `bytedance.py` was wrong; the `~40s` elsewhere
+  is a fair cold-start figure and stands. An earlier "correction" to 15.3s in
+  this session was itself wrong — that was a warm-cache measurement.
+- **ByteDance reports no progress for the whole of inference.** On a
+  *five-second* clip: 13.9s silent during load, then 10.4s silent during
+  inference. On a real 12s recording the gap was **28.8s**, bridged by 22
+  heartbeats. Basic Pitch interpolates smoothly by contrast, so the two engines
+  behave very differently through one interface.
+
+**Decisions worth keeping**
+- The SSE stream does **not** interpolate a percentage across the silent span.
+  Audio duration and measured throughput would make it easy, and it would be a
+  guess presented as a measurement — the thing `Pedalled: N%` and "measured,
+  not guessed" exist to prevent. Clients get true coarse progress and honest
+  elapsed time.
+- `GET /jobs/{id}` returns **404, not 403**, for another principal's job. 403
+  confirms the id exists, turning job ids into an enumerable directory.
+- Worker pool defaults to **1**. `INFERENCE_THREADS` is already
+  `min(8, cpu_count)`, so concurrent transcriptions oversubscribe the cores and
+  make both slower.
+- ARQ ships **unused and honest about it**: an arq worker is a separate process
+  and cannot see the in-memory `JobStore`, so it would write artifacts nobody
+  could report. `job_store_factory` marks where Phase 5's Supabase store plugs
+  in, and the worker warns if it starts without one.
+
+**Not covered by the suite.** Heartbeat behaviour over real HTTP is proven only
+by manual runs against a live uvicorn server — `TestClient` runs on a single
+portal and cannot hold a stream open while a worker thread blocks. The SSE
+generator's timing is unit-tested directly instead.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

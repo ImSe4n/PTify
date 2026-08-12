@@ -66,6 +66,24 @@ def main(argv: list[str] | None = None) -> int:
         print("error: no output formats requested", file=sys.stderr)
         return 1
 
+    # `--beats-per-bar 0` reached music21 and surfaced as a raw MeterException
+    # traceback, and a NEGATIVE value was worse: it engraved successfully and
+    # wrote a MusicXML file carrying a nonsensical -4/4 time signature. Neither
+    # is recoverable, so both are rejected here where the message can name the
+    # flag the user actually typed.
+    if args.beats_per_bar < 1:
+        print(f"error: --beats-per-bar must be at least 1, got "
+              f"{args.beats_per_bar}", file=sys.stderr)
+        return 1
+
+    # grid_from_tempo() already rejects this, but it raises from inside the
+    # pipeline and printed a traceback rather than the one-line 'error:' this
+    # CLI uses everywhere else.
+    if args.tempo is not None and args.tempo <= 0:
+        print(f"error: --tempo must be positive, got {args.tempo:g}",
+              file=sys.stderr)
+        return 1
+
     suffix = args.input.suffix.lower()
     is_midi = suffix in MIDI_SUFFIXES
 

@@ -21,6 +21,65 @@ merge = BasicPitchEngine._merge
 drop_harmonics = BasicPitchEngine._drop_harmonics
 
 
+# --- progress callback isolation -----------------------------------------
+
+
+def test_a_raising_progress_callback_does_not_kill_the_transcription(monkeypatch):
+    """Progress reporting is diagnostic and must not destroy the work.
+
+    Measured before the fix: a RuntimeError raised inside the callback
+    propagated straight out of transcribe_file, losing a result at 90% complete
+    after minutes of inference and surfacing as an error that had nothing to do
+    with transcription. Callers report progress into job stores, sockets and
+    log files -- all of which can fail at any moment.
+
+    This stops at the first report() call: `load` is stubbed out, so no model
+    is constructed and no audio is read.
+    """
+    class _Stop(Exception):
+        """Marks that execution reached load(), i.e. got past the callback."""
+
+    engine = BasicPitchEngine()
+    calls = []
+
+    def exploding(frac, msg):
+        calls.append((frac, msg))
+        raise RuntimeError("callback exploded")
+
+    def _fake_load(self):
+        raise _Stop()
+
+    monkeypatch.setattr(BasicPitchEngine, "load", _fake_load)
+
+    # The callback raises first; if it were not caught, THAT is what escapes.
+    # _Stop escaping instead proves the callback's exception was swallowed and
+    # execution continued to self.load().
+    with pytest.raises(_Stop):
+        engine.transcribe_file("unused.wav", progress=exploding)
+
+    assert calls == [(0.0, "loading model")]
+
+
+def test_bytedance_also_isolates_a_raising_callback(monkeypatch):
+    """The same guard, in the default engine. Imported lazily: torch is heavy,
+    but no model is constructed because `load` is stubbed."""
+    from transcriber.bytedance import ByteDanceEngine
+
+    class _Stop(Exception):
+        pass
+
+    def _fake_load(self):
+        raise _Stop()
+
+    monkeypatch.setattr(ByteDanceEngine, "load", _fake_load)
+
+    def exploding(frac, msg):
+        raise RuntimeError("callback exploded")
+
+    with pytest.raises(_Stop):
+        ByteDanceEngine().transcribe_file("unused.wav", progress=exploding)
+
+
 # --- _merge ---------------------------------------------------------------
 
 def test_repeated_notes_from_one_chunk_survive():
