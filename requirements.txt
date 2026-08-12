@@ -59,11 +59,12 @@ mir_eval==0.8.2             # standard transcription metrics (note onset F1)
 # --- Tests ---
 pytest==8.3.4
 
-# --- Sheet music (Phase 3) — NOT YET INSTALLED ---
-# Verified to install and work on this Python; added when Phase 3 starts.
-# music21==10.5.0           # MusicXML export, key/meter inference
-# verovio==6.2.1            # MusicXML -> SVG engraving (no MuseScore needed)
-# svglib + reportlab        # SVG -> PDF, pure Python (Verovio has no PDF out)
+# --- Sheet music (Phase 3) ---
+# Beat tracking uses librosa.beat (already required above). madmom is the
+# better-known choice but caps at Python <3.10 and cannot be installed here.
+#
+# Engraving (music21 / verovio / svglib / reportlab) lands with the score and
+# render modules; nothing in this commit needs them.
 
 # --- UI (Phases 6-8) — NOT YET INSTALLED ---
 # The frontend is React, so PySide6 is no longer planned. pyinstaller only
