@@ -13,6 +13,7 @@ uvicorn's reloader does repeatedly) never pays the model load.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -23,6 +24,7 @@ from .jobs import JobStore
 from .models import ErrorOut
 from .pipeline import PipelineError
 from .queue import get_queue
+from .security import RateLimiter
 from .settings import Settings, load_settings
 from .storage import LocalStorage
 
@@ -52,10 +54,40 @@ def create_app(
         workers=settings.workers,
     )
 
+    async def _janitor() -> None:
+        """Expire finished jobs and delete their artifacts.
+
+        `JobStore.sweep()` and `LocalStorage.delete()` both existed and were
+        tested from 4b, but nothing invoked them -- so every finished job stayed
+        in memory and every rendered PDF stayed on disk for the life of the
+        process. `job_ttl_seconds` looked like it handled that and did nothing,
+        which is worse than not having the setting at all.
+        """
+        # Sweeping far more often than the TTL wastes wakeups; far less often
+        # lets a burst of jobs sit around for a whole extra period. A tenth of
+        # the TTL, clamped to something sane, tracks it without tuning.
+        interval = max(5.0, min(300.0, settings.job_ttl_seconds / 10))
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                for job_id in store.sweep():
+                    # Storage first: if the process dies between the two, an
+                    # orphaned directory is recoverable, but a job record
+                    # pointing at deleted files serves confusing 404s.
+                    storage.delete(job_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                # The janitor must outlive any single bad sweep; a dead janitor
+                # is exactly the leak it exists to prevent.
+                log.exception("job sweep failed")
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         _reset_sse_exit_event()
         await queue.start()
+        janitor = asyncio.create_task(_janitor(), name="ptify-janitor")
+        app.state.janitor = janitor
         if not settings.auth_enabled:
             # Silence is how something ships open by accident. Phase 5 replaces
             # the auth seam with Supabase; until then this is the only warning
@@ -67,6 +99,10 @@ def create_app(
         try:
             yield
         finally:
+            janitor.cancel()
+            # Swallow the CancelledError the task raises on shutdown; anything
+            # else it hit is worth surfacing rather than losing here.
+            await asyncio.gather(janitor, return_exceptions=True)
             await queue.shutdown()
 
     app = FastAPI(
@@ -82,6 +118,7 @@ def create_app(
     app.state.store = store
     app.state.storage = storage
     app.state.queue = queue
+    app.state.rate_limiter = RateLimiter(settings.rate_limit_per_minute)
 
     if settings.cors_origins:
         from fastapi.middleware.cors import CORSMiddleware

@@ -491,6 +491,47 @@ def test_delete_of_an_unknown_job_is_404(tmp_path):
         assert client.delete("/v1/jobs/nope").status_code == 404
 
 
+# --- the janitor ---------------------------------------------------------
+
+
+def test_expired_jobs_and_their_artifacts_are_swept(tmp_path):
+    """JobStore.sweep() existed and was tested from 4b -- but nothing called it.
+
+    So every finished job stayed in memory and every rendered PDF stayed on
+    disk for the life of the process, while `job_ttl_seconds` looked like it
+    was handling that. A setting that silently does nothing is worse than no
+    setting at all.
+    """
+    import time as _time
+
+    # TTL 0 makes anything already finished immediately expired, and the
+    # janitor interval is clamped to a 5s floor -- so this drives the sweep
+    # directly rather than waiting on the timer.
+    client, store, storage, _ = _client(tmp_path)
+    with client:
+        jid = client.post("/v1/jobs", files=_upload()).json()["job_id"]
+        assert storage.exists(jid, "transcription.mid")
+
+        store._ttl = 0.0
+        store.update(jid, finished_at=_time.time() - 10)
+
+        removed = store.sweep()
+        for job_id in removed:
+            storage.delete(job_id)
+
+    assert removed == [jid]
+    assert store.get(jid) is None
+    assert not (tmp_path / "jobs" / jid).exists(), "artifacts leaked"
+
+
+def test_the_janitor_task_runs_for_the_life_of_the_app(tmp_path):
+    client, *_ = _client(tmp_path)
+    with client:
+        janitor = client.app.state.janitor
+        assert not janitor.done(), "janitor should be running"
+    assert janitor.cancelled() or janitor.done(), "janitor should stop with the app"
+
+
 # --- app wiring ----------------------------------------------------------
 
 

@@ -11,13 +11,20 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from ..events import job_events
 from ..jobs import ALL_FORMATS, JobSpec, JobState
 from ..models import ErrorOut, JobAccepted, JobOut
+from ..security import (
+    Principal,
+    check_audio_duration,
+    enforce_job_concurrency,
+    enforce_rate_limit,
+    get_principal,
+)
 from ..storage import safe_suffix
 
 log = logging.getLogger(__name__)
@@ -70,10 +77,16 @@ async def create_job(
     beats_per_bar: int = Form(4),
     title: str = Form(""),
     composer: str = Form(""),
+    principal: Principal = Depends(get_principal),
 ) -> JSONResponse:
     settings = request.app.state.settings
     store = request.app.state.store
     storage = request.app.state.storage
+
+    # Rate first, then concurrency: both are cheap, and neither should be
+    # reached only after an upload has already been streamed to disk.
+    await enforce_rate_limit(request, principal)
+    await enforce_job_concurrency(request, principal)
 
     suffix = safe_suffix(file.filename or "")
     if not suffix:
@@ -117,7 +130,7 @@ async def create_job(
         composer=composer,
         original_name=file.filename or "",
     )
-    job = store.create(spec, principal_id="anonymous")
+    job = store.create(spec, principal_id=principal.id)
 
     dest = storage.input_path(job.id, suffix)
     written = 0
@@ -152,6 +165,16 @@ async def create_job(
         store.delete(job.id)
         raise _error(400, "bad_request", "the uploaded file is empty")
 
+    # Duration can only be measured once the bytes are on disk. A file that is
+    # small but long (a 60-minute 64kbps mp3 is ~29MB) passes the size cap and
+    # would still hold the single worker for hours.
+    try:
+        check_audio_duration(str(dest), settings.max_audio_seconds)
+    except HTTPException:
+        storage.delete(job.id)
+        store.delete(job.id)
+        raise
+
     store.update(job.id, spec=_with_input(spec, str(dest)))
     await request.app.state.queue.enqueue(job.id, store.get(job.id).spec)
 
@@ -168,17 +191,38 @@ def _with_input(spec: JobSpec, path: str) -> JobSpec:
     return replace(spec, input_path=path)
 
 
-@router.get("/jobs/{job_id}", response_model=JobOut, summary="Job status")
-async def get_job(request: Request, job_id: str) -> JobOut:
+def _owned(request: Request, job_id: str, principal: Principal):
+    """Fetch a job the principal is allowed to see, or 404.
+
+    A wrong owner gets 404 rather than 403: 403 confirms the id exists, which
+    turns job ids into an enumerable directory of other people's work. With
+    auth off every request is the same anonymous principal, so this is
+    permissive by design until Phase 5 supplies real identities.
+    """
     job = request.app.state.store.get(job_id)
-    if job is None:
+    if job is None or job.principal_id != principal.id:
         raise _error(404, "not_found", f"no such job: {job_id}")
-    return JobOut.from_job(job)
+    return job
+
+
+@router.get("/jobs/{job_id}", response_model=JobOut, summary="Job status")
+async def get_job(
+    request: Request,
+    job_id: str,
+    principal: Principal = Depends(get_principal),
+) -> JobOut:
+    return JobOut.from_job(_owned(request, job_id, principal))
 
 
 @router.get("/jobs", response_model=list[JobOut], summary="List jobs")
-async def list_jobs(request: Request) -> list[JobOut]:
-    return [JobOut.from_job(j) for j in request.app.state.store.list()]
+async def list_jobs(
+    request: Request, principal: Principal = Depends(get_principal)
+) -> list[JobOut]:
+    # Scoped to the caller. store.list() with no argument returns everything.
+    return [
+        JobOut.from_job(j)
+        for j in request.app.state.store.list(principal_id=principal.id)
+    ]
 
 
 @router.get(
@@ -186,7 +230,11 @@ async def list_jobs(request: Request) -> list[JobOut]:
     summary="Stream job progress (SSE)",
     response_class=EventSourceResponse,
 )
-async def stream_events(request: Request, job_id: str):
+async def stream_events(
+    request: Request,
+    job_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """Server-sent events for one job.
 
     The heartbeat is not decoration: the default engine reports nothing at all
@@ -195,8 +243,7 @@ async def stream_events(request: Request, job_id: str):
     hang and idle proxies drop the connection. See api/events.py.
     """
     store = request.app.state.store
-    if store.get(job_id) is None:
-        raise _error(404, "not_found", f"no such job: {job_id}")
+    _owned(request, job_id, principal)
 
     # Passed explicitly rather than left to the function default: a default
     # argument binds at definition time, so an operator setting
@@ -215,13 +262,16 @@ async def stream_events(request: Request, job_id: str):
     summary="Download an artifact",
     response_class=FileResponse,
 )
-async def get_result(request: Request, job_id: str, fmt: str, page: int = 1):
-    store = request.app.state.store
+async def get_result(
+    request: Request,
+    job_id: str,
+    fmt: str,
+    page: int = 1,
+    principal: Principal = Depends(get_principal),
+):
     storage = request.app.state.storage
 
-    job = store.get(job_id)
-    if job is None:
-        raise _error(404, "not_found", f"no such job: {job_id}")
+    job = _owned(request, job_id, principal)
     if job.state is not JobState.SUCCEEDED:
         raise _error(
             409,
@@ -264,11 +314,13 @@ async def get_result(request: Request, job_id: str, fmt: str, page: int = 1):
 
 
 @router.delete("/jobs/{job_id}", summary="Cancel a job and delete its artifacts")
-async def delete_job(request: Request, job_id: str) -> JobOut:
+async def delete_job(
+    request: Request,
+    job_id: str,
+    principal: Principal = Depends(get_principal),
+) -> JobOut:
     store = request.app.state.store
-    job = store.get(job_id)
-    if job is None:
-        raise _error(404, "not_found", f"no such job: {job_id}")
+    _owned(request, job_id, principal)
 
     # Cancelling a RUNNING job only requests it -- the model cannot be
     # interrupted mid-inference, so it stops at the next stage boundary.
