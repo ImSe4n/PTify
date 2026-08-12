@@ -19,7 +19,12 @@ from api.jobs import JobSpec, JobStore
 from api.security import ANONYMOUS, API_KEY_HEADER, Principal, RateLimiter
 from api.settings import load_settings
 from api.storage import LocalStorage
-from tests.test_api_routes import _SyncQueue, _upload
+
+# Plain module import, NOT `from tests.test_api_routes import ...`. The package
+# form only resolves when the repo root happens to be the working directory,
+# which reintroduced exactly the CWD dependency that adding pyproject.toml in
+# 4a existed to remove -- `pytest` from any other directory failed collection.
+from test_api_routes import _SyncQueue, _upload
 
 
 def _client(tmp_path, **env):

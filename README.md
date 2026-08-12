@@ -61,6 +61,70 @@ and its decay are acoustically indistinguishable, so the printed rhythms are
 interpolation rather than measurement — 16% on Scarlatti, 91% on a Schubert
 impromptu. Onsets stay reliable either way.
 
+## HTTP API
+
+```bash
+pip install -r requirements.txt
+pip install -e . --no-deps          # see pyproject.toml for why --no-deps
+python -m uvicorn api.app:create_app --factory
+```
+
+Transcription takes minutes, so the API is **asynchronous**: submitting returns
+a job id immediately and the work happens on a worker.
+
+```bash
+curl -F file=@recording.mp3 -F formats=midi,musicxml,pdf \
+     http://127.0.0.1:8000/v1/jobs          # -> 202 {"job_id": "...."}
+
+curl http://127.0.0.1:8000/v1/jobs/<id>              # status + progress
+curl -N http://127.0.0.1:8000/v1/jobs/<id>/events    # live progress (SSE)
+curl -o out.pdf http://127.0.0.1:8000/v1/jobs/<id>/result/pdf
+```
+
+| endpoint | |
+|---|---|
+| `POST /v1/jobs` | upload + options → `202` with a job id |
+| `GET /v1/jobs/{id}` | state, progress, result summary, warnings |
+| `GET /v1/jobs/{id}/events` | SSE progress stream |
+| `GET /v1/jobs/{id}/result/{fmt}` | `midi`, `json`, `musicxml`, `pdf`, `svg` |
+| `DELETE /v1/jobs/{id}` | cancel, and delete artifacts |
+| `GET /v1/engines` | capabilities |
+| `GET /healthz` | liveness, no auth |
+
+`result/json` is the piano-roll payload: notes as `{pitch, onset, offset,
+velocity}` with `pitch_range` and `duration`, plus `pedalled_fraction` when a
+score was engraved.
+
+**Progress is coarse on the default engine, and the API does not pretend
+otherwise.** ByteDance reports nothing at all while inference runs — measured
+at 28.8 seconds of silence on a 12-second recording, and it scales with length.
+The SSE stream therefore sends a **heartbeat** carrying real elapsed time, and
+leaves `progress` at its true value rather than interpolating a percentage
+nobody measured. Render an indeterminate state during the gap. Basic Pitch, by
+contrast, reports continuously.
+
+### Configuration
+
+Everything has a working default; a fresh checkout needs no environment at all.
+
+| variable | default | |
+|---|---|---|
+| `PTIFY_WORK_DIR` | `var/jobs` | uploads and artifacts |
+| `PTIFY_API_KEY` | *(unset)* | when set, requires `X-API-Key` |
+| `PTIFY_WORKERS` | `1` | see below |
+| `PTIFY_MAX_UPLOAD_BYTES` | `100MB` | enforced while streaming |
+| `PTIFY_MAX_AUDIO_SECONDS` | `900` | a cost limit, not a technical one |
+| `PTIFY_JOB_TTL_SECONDS` | `3600` | finished jobs and artifacts expire |
+| `PTIFY_QUEUE` | `inproc` | or `arq` (needs Redis; not installed) |
+
+**Auth is off unless a key is set**, and the server logs a warning at startup
+when it is — silence is how something ships open by accident. Phase 5 replaces
+`get_principal()` with Supabase JWT verification; nothing else changes.
+
+**One worker is the deliberate default.** `INFERENCE_THREADS` is already
+`min(8, cpu_count)`, so two concurrent transcriptions oversubscribe the cores
+and make both slower rather than raising throughput.
+
 ## Engines
 
 | | ByteDance *(default)* | Basic Pitch |
@@ -123,6 +187,12 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `evaluation/corpus.py` | Real-audio corpus: fetch MAESTRO, build a manifest |
 | `evaluation/benchmark.py` | Runner + report formats |
 | `evaluation/report.py` | JSON baselines with environment provenance |
+| `api/app.py` | `create_app()` factory, error mapping, TTL janitor |
+| `api/queue.py` | `JobQueue` ABC + `get_queue()` factory |
+| `api/inproc.py` | Default backend: thread pool + per-worker engine cache |
+| `api/pipeline.py` | The work: audio → `Transcription` → artifacts |
+| `api/events.py` | SSE progress, and the heartbeat that makes it usable |
+| `api/security.py` | `get_principal()` seam, rate limit, caps |
 | `notation/quantise.py` | Beat grid, snapping, pedal-confidence flag |
 | `notation/score.py` | Hand splitting, chord grouping, `music21` score |
 | `notation/render.py` | MusicXML / SVG / PDF writers |
@@ -200,7 +270,7 @@ under sustain pedal.
 **App**
 - [x] **Phase 2** — core library + CLI (audio → MIDI)
 - [x] **Phase 3** — notation: beats → quantize → hand separation → MusicXML → PDF
-- [ ] **Phase 4** — FastAPI backend + ARQ job queue
+- [x] **Phase 4** — FastAPI backend + job queue
 - [ ] **Phase 5** — Supabase auth and persistence
 - [ ] **Phase 6–8** — React frontend, piano roll, sheet music view
 - [ ] **Phase 9–11** — error handling, deploy, YouTube input
