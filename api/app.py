@@ -54,6 +54,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        _reset_sse_exit_event()
         await queue.start()
         if not settings.auth_enabled:
             # Silence is how something ships open by accident. Phase 5 replaces
@@ -110,6 +111,29 @@ def create_app(
     app.include_router(jobs_routes.router, prefix=API_PREFIX)
 
     return app
+
+
+def _reset_sse_exit_event() -> None:
+    """Clear sse_starlette's module-global shutdown event.
+
+    `AppStatus.should_exit_event` is created lazily and then CACHED ON THE
+    CLASS, so it binds to whichever asyncio loop first used it. Any later loop
+    raises "Event object is bound to a different event loop" from inside the
+    SSE response, killing the stream with a 500 that points at anyio rather
+    than at anything in this codebase.
+
+    That is not only a test concern: it breaks any process that runs more than
+    one event loop over its lifetime. Clearing it at lifespan start means each
+    application run creates its own.
+    """
+    try:
+        from sse_starlette.sse import AppStatus
+
+        AppStatus.should_exit_event = None
+    except Exception:  # noqa: BLE001
+        # A future sse_starlette may drop the global entirely, which is the
+        # fix rather than a problem. Never let this stop the app starting.
+        log.debug("could not reset sse_starlette exit event", exc_info=True)
 
 
 #: Codes the pipeline raises, mapped to HTTP status. Anything unlisted is a

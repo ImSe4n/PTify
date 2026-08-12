@@ -13,7 +13,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from sse_starlette.sse import EventSourceResponse
 
+from ..events import job_events
 from ..jobs import ALL_FORMATS, JobSpec, JobState
 from ..models import ErrorOut, JobAccepted, JobOut
 from ..storage import safe_suffix
@@ -177,6 +179,35 @@ async def get_job(request: Request, job_id: str) -> JobOut:
 @router.get("/jobs", response_model=list[JobOut], summary="List jobs")
 async def list_jobs(request: Request) -> list[JobOut]:
     return [JobOut.from_job(j) for j in request.app.state.store.list()]
+
+
+@router.get(
+    "/jobs/{job_id}/events",
+    summary="Stream job progress (SSE)",
+    response_class=EventSourceResponse,
+)
+async def stream_events(request: Request, job_id: str):
+    """Server-sent events for one job.
+
+    The heartbeat is not decoration: the default engine reports nothing at all
+    during inference (measured: 10.4s of silence on a FIVE-second clip, scaling
+    with audio length), so without it the stream is indistinguishable from a
+    hang and idle proxies drop the connection. See api/events.py.
+    """
+    store = request.app.state.store
+    if store.get(job_id) is None:
+        raise _error(404, "not_found", f"no such job: {job_id}")
+
+    # Passed explicitly rather than left to the function default: a default
+    # argument binds at definition time, so an operator setting
+    # PTIFY_SSE_HEARTBEAT_SECONDS would have been silently ignored.
+    return EventSourceResponse(
+        job_events(
+            store,
+            job_id,
+            heartbeat=request.app.state.settings.sse_heartbeat_seconds,
+        )
+    )
 
 
 @router.get(

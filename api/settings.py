@@ -34,6 +34,14 @@ DEFAULT_MAX_AUDIO_SECONDS = 900.0
 #: a dev machine does not silently accumulate rendered PDFs.
 DEFAULT_JOB_TTL_SECONDS = 3600.0
 
+#: Seconds between SSE heartbeats. Configurable because it has to sit under the
+#: idle timeout of whatever proxy is in front of the app (nginx and most cloud
+#: load balancers default to 60s), and because the silent span it covers is a
+#: property of the ENGINE: ByteDance reports nothing for the whole of inference
+#: -- measured at 10.4s of silence on a five-second clip, scaling with audio
+#: length -- while Basic Pitch reports continuously.
+DEFAULT_SSE_HEARTBEAT_SECONDS = 10.0
+
 #: Requests per minute per principal, and simultaneous jobs per principal.
 #: The concurrency cap is the one that bites: a job is minutes of CPU, not
 #: milliseconds, so one client queueing ten files would starve everyone else.
@@ -107,6 +115,7 @@ class Settings:
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     max_audio_seconds: float = DEFAULT_MAX_AUDIO_SECONDS
     job_ttl_seconds: float = DEFAULT_JOB_TTL_SECONDS
+    sse_heartbeat_seconds: float = DEFAULT_SSE_HEARTBEAT_SECONDS
     rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE
     max_concurrent_jobs_per_principal: int = DEFAULT_MAX_CONCURRENT_JOBS_PER_PRINCIPAL
 
@@ -201,6 +210,11 @@ def _load() -> Settings:
         ),
         job_ttl_seconds=_env_float(
             "PTIFY_JOB_TTL_SECONDS", DEFAULT_JOB_TTL_SECONDS, minimum=0.0
+        ),
+        sse_heartbeat_seconds=_env_float(
+            "PTIFY_SSE_HEARTBEAT_SECONDS",
+            DEFAULT_SSE_HEARTBEAT_SECONDS,
+            minimum=0.1,
         ),
         rate_limit_per_minute=_env_int(
             "PTIFY_RATE_LIMIT_PER_MINUTE", DEFAULT_RATE_LIMIT_PER_MINUTE, minimum=1

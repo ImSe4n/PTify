@@ -379,6 +379,89 @@ def test_artifact_of_an_unfinished_job_is_409(tmp_path):
     assert r.json()["detail"]["code"] == "not_ready"
 
 
+# --- SSE -----------------------------------------------------------------
+
+
+def test_events_endpoint_streams_to_a_terminal_state(tmp_path):
+    client, *_ = _client(tmp_path)
+    with client:
+        jid = client.post("/v1/jobs", files=_upload()).json()["job_id"]
+        with client.stream("GET", f"/v1/jobs/{jid}/events") as r:
+            assert r.status_code == 200
+            assert r.headers["content-type"].startswith("text/event-stream")
+            body = "".join(r.iter_text())
+
+    # The job is already finished (_SyncQueue runs inline), so the stream is
+    # the opening snapshot plus the close.
+    assert "event: state" in body
+    assert "event: end" in body
+    assert '"state":"succeeded"' in body.replace(" ", "")
+
+
+def test_heartbeat_interval_reaches_the_event_generator(tmp_path, monkeypatch):
+    """The route must PASS the setting, not rely on the function default.
+
+    A default argument binds at definition time, so an earlier revision
+    silently ignored PTIFY_SSE_HEARTBEAT_SECONDS. That was caught against a
+    LIVE uvicorn server: a job with a 3s silent span produced no heartbeats,
+    then produced two once the setting was threaded through.
+
+    The live behaviour is not reproduced here -- TestClient runs the app on a
+    single portal and cannot hold a streaming response open while a worker
+    thread blocks. So this asserts the wiring (the configured value reaches
+    job_events), and tests/test_api_events.py covers heartbeat timing directly
+    against the generator.
+    """
+    from api.routes import jobs as jobs_module
+
+    seen = {}
+    real = jobs_module.job_events
+
+    def _spy(store, job_id, **kwargs):
+        seen.update(kwargs)
+        return real(store, job_id, **kwargs)
+
+    monkeypatch.setattr(jobs_module, "job_events", _spy)
+
+    client, store, *_ = _client(tmp_path, PTIFY_SSE_HEARTBEAT_SECONDS="2.5")
+    assert client.app.state.settings.sse_heartbeat_seconds == pytest.approx(2.5)
+
+    with client:
+        jid = client.post("/v1/jobs", files=_upload()).json()["job_id"]
+        with client.stream("GET", f"/v1/jobs/{jid}/events") as r:
+            "".join(r.iter_text())
+
+    assert seen.get("heartbeat") == pytest.approx(2.5), (
+        f"the configured heartbeat never reached job_events: {seen}"
+    )
+
+
+def test_two_sse_streams_in_one_process_both_work(tmp_path):
+    """sse_starlette caches a shutdown Event on a CLASS attribute.
+
+    It binds to whichever asyncio loop touches it first, so the second app in a
+    process died with "Event object is bound to a different event loop" -- a
+    500 from inside anyio, pointing nowhere near this codebase. It breaks any
+    process that runs more than one event loop, not just tests; create_app()
+    clears it at lifespan start.
+    """
+    for i in range(2):
+        client, *_ = _client(tmp_path / f"run{i}")
+        with client:
+            jid = client.post("/v1/jobs", files=_upload()).json()["job_id"]
+            with client.stream("GET", f"/v1/jobs/{jid}/events") as r:
+                body = "".join(r.iter_text())
+        assert "event: end" in body, f"stream {i} failed: {body[:200]}"
+
+
+def test_events_endpoint_is_404_for_an_unknown_job(tmp_path):
+    client, *_ = _client(tmp_path)
+    with client:
+        r = client.get("/v1/jobs/nope/events")
+    assert r.status_code == 404
+    assert r.json()["detail"]["code"] == "not_found"
+
+
 # --- cancellation --------------------------------------------------------
 
 
