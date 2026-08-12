@@ -304,9 +304,57 @@ MAESTRO answers "how well does this engine do on studio Disklavier audio." It
 cannot answer "how well does it do on **your** piano in **your** room," which is
 the actual product goal. That needs recordings of the user's own instrument with
 ground truth, and HANDOFF §7 records why that is blocked: no MIDI capture on the
-piano. Options remain hand-correcting a transcription, or playing along to a
-known MIDI file and aligning. **Do this before investing heavily in 14–17** —
-otherwise the training target is a proxy.
+piano. **Do this before investing heavily in 14–17** — otherwise the training
+target is a proxy.
+
+#### Existing datasets close most of the gap without playing a note
+
+A benchmark needs an answer key. Two dead ends, stated plainly so they are not
+re-attempted:
+
+- **Random audio (any mp3, YouTube) cannot be scored.** `metrics.py` compares
+  estimated notes against *reference* notes. With no reference there is no
+  score, and transcribing the audio to make one measures the engine against
+  itself — it returns ~1.0 and means nothing.
+- **Playing along to a known MIDI by hand introduces the errors it is meant to
+  measure.** A wrong or late note makes the "ground truth" wrong in a way that
+  reads as engine error.
+
+The field solved this with **Disklaviers** — computer-controlled acoustic
+pianos. A MIDI file drives the physical keys; real hammers, real strings, real
+room, real microphones. Ground truth is exact *because the MIDI caused the
+performance*. No alignment step and no human error.
+
+| dataset | what | ground truth | licence |
+|---|---|---|---|
+| **MAPS** (`ENSTDkCl`/`ENSTDkAm`) | 60 real Disklavier recordings, **two mic distances** | exact (MIDI drove the piano) | CC BY-NC-SA |
+| **SMD** | 50 performances, Yamaha DCFIIISM4PRO, Hochschule für Musik Saar | synchronised MIDI | CC BY-NC-SA 3.0 |
+| **Vienna 4x22** | 4 pieces × 22 pianists, Bösendorfer SE290 | match files; **needs alignment** | open |
+| **ACPAS** | alignment layer over MAPS + MAESTRO | inherits | — |
+
+**Start with MAPS.** `ENSTDkCl` is close-miked at 50cm and `ENSTDkAm` is
+ambient at 3–4m — *the same performances, same piano, two mic distances*. That
+is a controlled room-acoustics experiment already recorded, and it measures
+directly what Phase 13 identified as the enemy (reverb hurts nonlinearly:
+rt60 0.6 ≈ 1 point, 1.4 = 9.3 points). MAPS is also the standard cross-dataset
+test in the AMT literature, so numbers from it are comparable to published work.
+
+**MAPS is 31GB but only 2 of its 9 settings are real recordings** — the other
+seven are software synths, i.e. the synthetic case `evaluation/synth.py`
+already covers. Fetch only the `ENSTDk*` subsets; §7's disk budget applies.
+
+**What this still does not give you.** These are all Disklaviers in studios,
+nearer to MAESTRO's distribution than to a living room. They broaden acoustic
+variety honestly, but the "your piano, your room" question still needs your
+instrument. ByteDance also retains a home-field advantage here, though less
+than on MAESTRO itself — `ENSTDkAm` (ambient) is the most honest read.
+
+`evaluation/corpus.py` already does seeded selection, sha256 manifests and
+audio-never-committed discipline; adding MAPS is a fetcher variant, not new
+architecture. Sources: [MAPS on Zenodo](https://zenodo.org/records/18160555),
+[SMD](https://www.audiolabs-erlangen.de/resources/MIR/SMD/midi),
+[Vienna 4x22](https://github.com/CPJKU/vienna4x22),
+[ACPAS](https://github.com/cheriell/ACPAS-dataset).
 
 ### Phase 3 (notation) — DONE, and what it found
 

@@ -2,10 +2,11 @@
 
 Turn a piano recording into **MIDI**, an interactive **piano roll**, and **sheet music**.
 
-> **Status: Phases 2, 12 and 13 complete.** A working command-line transcriber
-> (audio → MIDI) and an evaluation harness that scores it against both synthetic
-> cases and real MAESTRO recordings. Notation, the web app, and a custom-trained
-> model are later phases — see the roadmap.
+> **Status: Phases 2, 3, 12 and 13 complete.** A working command-line
+> transcriber (audio → MIDI), sheet-music engraving (MIDI → MusicXML/PDF), and
+> an evaluation harness that scores transcription against both synthetic cases
+> and real MAESTRO recordings. The web app and a custom-trained model are later
+> phases — see the roadmap.
 
 ```bash
 python -m transcriber recording.mp3
@@ -215,6 +216,26 @@ MAESTRO benchmark. Models overfit badly to their training audio — a
 [20-point note-F1 drop](https://arxiv.org/abs/2402.01424) from sound conditions
 alone — so ByteDance's 96.72% is on studio Disklavier recordings, not your piano
 in your room. That gap is real, measurable, and beatable on free-tier compute.
+
+### Measuring that gap needs an answer key
+
+Transcribing works on any mp3 — that is the product. *Scoring* a transcription
+does not: accuracy is measured by comparing detected notes against reference
+notes, so a recording with no known notes cannot be scored, and transcribing it
+to make a reference just measures the engine against itself.
+
+The way out is **Disklavier** datasets — computer-controlled acoustic pianos
+where a MIDI file drives the physical keys, so real hammers, strings, room and
+microphones are captured while the ground truth stays exact. Useful ones, all
+freely licensed for research: [MAPS](https://zenodo.org/records/18160555)
+(60 recordings at **two mic distances**, 50cm and 3–4m — a controlled
+room-acoustics experiment, and the standard cross-dataset test),
+[SMD](https://www.audiolabs-erlangen.de/resources/MIR/SMD/midi) (50
+performances, different hall and piano),
+[Vienna 4x22](https://github.com/CPJKU/vienna4x22) (22 pianists on a
+Bösendorfer; needs alignment). See HANDOFF §9 before using them — they are
+studio Disklaviers, so they broaden acoustic variety without answering "your
+piano, your room."
 
 ## Notes on accuracy
 
