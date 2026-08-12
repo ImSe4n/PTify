@@ -54,12 +54,18 @@ def get_queue(name: str = "inproc", **kwargs) -> JobQueue:
 
         return InProcessQueue(**kwargs)
     if key == "arq":
-        try:
-            from .arq_queue import ArqQueue
-        except ImportError as exc:
+        # `api.arq_queue` imports fine WITHOUT arq installed -- it defers the
+        # real import so the module can be read and unit-tested on a machine
+        # with no Redis. So the availability check has to be explicit here;
+        # relying on an ImportError from the module import would let
+        # get_queue("arq") succeed and push the failure to start(), after the
+        # app had already been built and reported healthy.
+        from .arq_queue import ArqQueue, arq_available
+
+        if not arq_available():
             raise ValueError(
                 "The arq queue backend needs 'arq' and a reachable Redis. "
                 "Install arq, or use PTIFY_QUEUE=inproc."
-            ) from exc
+            )
         return ArqQueue(**kwargs)
     raise ValueError(f"Unknown queue {name!r}. Options: inproc, arq")
