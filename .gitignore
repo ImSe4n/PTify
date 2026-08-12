@@ -87,3 +87,12 @@ benchmarks/.maestro-metadata.csv
 # Console logs from benchmark runs. The JSON beside them is the artifact;
 # these are just progress spam (ByteDance prints a line per segment).
 benchmarks/real/*-stdout.txt
+
+# Backend job working directory (Phase 4). Uploads and rendered artifacts, keyed
+# by job id. *.wav / *.mp3 are already ignored above, but the artifacts this
+# produces (.mid, .musicxml, .pdf, .svg) are NOT, and uploaded audio must never
+# reach a commit for the same licensing reason the corpus must not.
+var/
+
+# Local backend configuration. Holds PTIFY_API_KEY when auth is enabled.
+.env

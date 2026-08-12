@@ -72,6 +72,36 @@ verovio==6.2.1              # MusicXML -> SVG engraving (no MuseScore needed)
 svglib==2.1.0
 reportlab==5.0.0
 
+# --- Backend (Phase 4) ---
+# Verified not to disturb the numpy<2 pin above: none of these depend on numpy
+# at all, and installing them left numpy at 1.26.4 / torch at 2.2.2+cpu with
+# `--doctor` still reporting the ABI OK. Pydantic v2 arrives with FastAPI and is
+# the project's first use of it — nothing before Phase 4 needed a schema layer.
+#
+# INSTALL THE PROJECT ITSELF TOO. pyproject.toml explains why in full, but in
+# short: notation/ imports from transcriber/, which until Phase 4 worked only
+# because the repo root happened to be on sys.path. A uvicorn worker does not
+# start in the repo root.
+#
+#     pip install -e . --no-deps
+#
+# --no-deps matters — it keeps a resolver away from the pins above.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0   # ASGI server; [standard] adds the reload watcher
+python-multipart==0.0.20    # multipart/form-data — FastAPI needs it for uploads
+sse-starlette==2.2.1        # SSE with built-in heartbeats. The heartbeat is not
+                            # cosmetic: ByteDance reports NO progress during its
+                            # multi-minute inference (bytedance.py:97), so the
+                            # stream would otherwise go silent and look hung.
+httpx==0.28.1               # required by fastapi.testclient; tests only
+
+# arq + redis are NOT installed. The job queue ships with an in-process backend
+# that needs no infrastructure, and `api/arq_queue.py` sits behind the same
+# JobQueue interface for when there is somewhere to deploy it (Phase 10). Redis
+# does not run natively on Windows, so making it mandatory now would mean no
+# backend at all on this machine.
+#   arq==0.26.3
+
 # --- UI (Phases 6-8) — NOT YET INSTALLED ---
 # The frontend is React, so PySide6 is no longer planned. pyinstaller only
 # becomes relevant if a desktop build is ever revived.

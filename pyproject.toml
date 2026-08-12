@@ -1,0 +1,55 @@
+# PTify — packaging metadata.
+#
+# WHY THIS FILE EXISTS (added in Phase 4)
+#
+# Until now the packages resolved only because the repo root happened to be on
+# sys.path — running `python -m transcriber` from the project directory put it
+# there implicitly. HISTORY.md recorded that during the Phase 12 audit as a
+# structural problem: "The package was not installable or relocatable — a hard
+# blocker for the planned FastAPI backend."
+#
+# It is a blocker because notation/__main__.py does `from transcriber.midi
+# import ...` — a cross-package absolute import. A uvicorn worker process does
+# not necessarily start in the repo root, and an ASGI app that only imports
+# when launched from one specific directory is not deployable. Installing the
+# project (`pip install -e . --no-deps`) puts the packages on sys.path properly
+# and makes CWD irrelevant.
+#
+# INSTALL IT WITH --no-deps. This is load-bearing, not a shortcut:
+#
+#     .venv\Scripts\python.exe -m pip install -e . --no-deps
+#
+# requirements.txt documents at length why numpy==1.26.4 / torch==2.2.2 is a
+# fragile pairing (torch 2.2 is compiled against the numpy 1.x ABI). Letting a
+# dependency resolver loose on this venv risks moving numpy and breaking every
+# transcription. requirements.txt remains the authoritative install path; the
+# [project.dependencies] list below is deliberately EMPTY so that an editable
+# install can never rewrite the pins.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ptify"
+version = "0.4.0"          # phase number as minor; there is no release process yet
+description = "Turn a piano recording into MIDI, a piano roll, and sheet music."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+
+# EMPTY ON PURPOSE — see the --no-deps note above. Dependencies live in
+# requirements.txt, which carries the rationale for every pin.
+dependencies = []
+
+[project.scripts]
+# The module CLIs, exposed as console entry points. `python -m transcriber`
+# keeps working exactly as before; these are an addition, not a replacement.
+ptify = "transcriber.__main__:main"
+ptify-notation = "notation.__main__:main"
+
+[tool.setuptools]
+packages = ["transcriber", "notation", "evaluation", "api", "api.routes"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
