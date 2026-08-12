@@ -12,7 +12,7 @@ State of the codebase, the traps in it, and what the next phase needs.
 | | |
 |---|---|
 | **Last completed** | Phase 3 (notation) — quantise, score, render, CLI |
-| **Branch** | `phase-3-notation`, based on `phase-13-real-audio` |
+| **Branch** | `master` — Phases 2, 12, 13 and 3 all merged |
 | **Tests** | 266 passing, ~32s, no model or network needed |
 | **Next** | Backend (4) or training (14–17) |
 
@@ -28,10 +28,11 @@ State of the codebase, the traps in it, and what the next phase needs.
 **Not started:** backend (4), auth (5), frontend (6–8), deploy (10),
 training (14–17).
 
-**Branch note:** `master` is 13 commits behind and does NOT contain Phases 12
-or 13. `phase-3-notation` is branched off `phase-13-real-audio`, not `master`,
-because the evaluation harness Phase 3 was validated against lives there.
-Merge 12 → 13 → 3 in order.
+**Branch note:** resolved. `master` had been 13 commits behind and was missing
+Phases 12 and 13; Phase 3 was therefore branched off `phase-13-real-audio`
+rather than `master`. All four phase branches are now merged into `master`
+(PR #6), the suite passes there, and `git branch --merged master` lists every
+one. Branch the next phase off `master`.
 
 **Deferred from Phase 13:** the full 8-preset × 2-engine degradation matrix.
 The `clean` baseline for both engines exists; the augmented cells do not. See
