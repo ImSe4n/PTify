@@ -37,6 +37,29 @@ python -m transcriber --doctor                    # check the environment
 
 Accepts mp3, wav, m4a, flac, ogg, aiff.
 
+### Sheet music
+
+```bash
+python -m notation song.mid                       # -> song.musicxml + song.pdf
+python -m notation song.wav --engine basicpitch   # transcribe, then engrave
+python -m notation song.mid --tempo 96            # fixed grid, skip beat tracking
+python -m notation song.mid --formats musicxml,pdf,svg,midi
+```
+
+Audio input is beat-tracked with librosa to build the rhythmic grid; MIDI input
+has no audio to track and uses a constant tempo unless `--tempo` is given.
+
+Each run reports what share of the notes were released under sustain pedal:
+
+```
+Pedalled : 91% of notes released under sustain - their durations are estimates
+```
+
+That number is the score's health metric. Under heavy pedalling a note's release
+and its decay are acoustically indistinguishable, so the printed rhythms are
+interpolation rather than measurement — 16% on Scarlatti, 91% on a Schubert
+impromptu. Onsets stay reliable either way.
+
 ## Engines
 
 | | ByteDance *(default)* | Basic Pitch |
@@ -99,6 +122,9 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `evaluation/corpus.py` | Real-audio corpus: fetch MAESTRO, build a manifest |
 | `evaluation/benchmark.py` | Runner + report formats |
 | `evaluation/report.py` | JSON baselines with environment provenance |
+| `notation/quantise.py` | Beat grid, snapping, pedal-confidence flag |
+| `notation/score.py` | Hand splitting, chord grouping, `music21` score |
+| `notation/render.py` | MusicXML / SVG / PDF writers |
 | `benchmarks/` | Committed manifests and baseline scores (no audio) |
 | `tests/` | `python -m pytest tests/` |
 | `HISTORY.md` | Development log: what broke and why |
@@ -164,14 +190,15 @@ Basic Pitch's real-audio errors are mostly **octave confusions**: 95.9% of onset
 land within 50ms (median error 4.4ms), but only 74.3% match on time *and* pitch.
 
 `+offset` is the weak spot for both (0.381 and 0.176). Note durations are far
-less accurate than note starts — which matters for Phase 3, where durations
-become note values on the page.
+less accurate than note starts — which is why `notation/` quantises against a
+beat grid instead of printing raw durations, and flags every note released
+under sustain pedal.
 
 ## Roadmap
 
 **App**
 - [x] **Phase 2** — core library + CLI (audio → MIDI)
-- [ ] **Phase 3** — notation: beats → quantize → hand separation → MusicXML → PDF
+- [x] **Phase 3** — notation: beats → quantize → hand separation → MusicXML → PDF
 - [ ] **Phase 4** — FastAPI backend + ARQ job queue
 - [ ] **Phase 5** — Supabase auth and persistence
 - [ ] **Phase 6–8** — React frontend, piano roll, sheet music view

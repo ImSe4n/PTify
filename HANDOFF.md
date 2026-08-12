@@ -11,21 +11,27 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 13 (real-audio benchmark) — 13a–13f |
-| **Branch** | `phase-13-real-audio`, based on `master` |
-| **Tests** | 243 passing, ~25s, no model or network needed |
-| **Next** | Phase 3 (notation) or training (14–17) |
+| **Last completed** | Phase 3 (notation) — quantise, score, render, CLI |
+| **Branch** | `phase-3-notation`, based on `phase-13-real-audio` |
+| **Tests** | 266 passing, ~32s, no model or network needed |
+| **Next** | Backend (4) or training (14–17) |
 
 **Shipped and working**
 - `transcriber/` — audio file → MIDI, two engines, CLI
 - `evaluation/` — metrics, piano synthesis, augmentation, benchmark CLI
 - `evaluation/corpus.py` — fetches a real MAESTRO corpus, writes a manifest
 - `evaluation/report.py` — JSON baselines with environment provenance
+- `notation/` — beat grid → quantised rhythm → MusicXML / SVG / PDF / MIDI
 - `benchmarks/` — corpus manifest + real-audio baselines (no audio committed)
-- `tests/` — 243 tests, all pure functions
+- `tests/` — 266 tests, all pure functions
 
-**Not started:** notation (Phase 3), backend (4), auth (5), frontend (6–8),
-deploy (10), training (14–17).
+**Not started:** backend (4), auth (5), frontend (6–8), deploy (10),
+training (14–17).
+
+**Branch note:** `master` is 13 commits behind and does NOT contain Phases 12
+or 13. `phase-3-notation` is branched off `phase-13-real-audio`, not `master`,
+because the evaluation harness Phase 3 was validated against lives there.
+Merge 12 → 13 → 3 in order.
 
 **Deferred from Phase 13:** the full 8-preset × 2-engine degradation matrix.
 The `clean` baseline for both engines exists; the augmented cells do not. See
@@ -39,6 +45,11 @@ The `clean` baseline for both engines exists; the augmented cells do not. See
 .venv\Scripts\python.exe -m evaluation --compare
 .venv\Scripts\python.exe -m evaluation --all-presets
 .venv\Scripts\python.exe -m pytest tests/ -q
+
+# sheet music (Phase 3)
+.venv\Scripts\python.exe -m notation song.mid --formats musicxml,pdf
+.venv\Scripts\python.exe -m notation song.wav --engine basicpitch --formats pdf
+.venv\Scripts\python.exe -m notation song.mid --tempo 96 --beats-per-bar 3
 
 # real-audio corpus (12 MAESTRO tracks, ~867MB, not committed)
 .venv\Scripts\python.exe -m evaluation.corpus --list      # preview, no download
@@ -82,6 +93,12 @@ evaluation/             measure before improving
   benchmark.py          runner + 3 report formats
   corpus.py             MAESTRO fetch + seeded stratified selection + manifest
   report.py             JSON baselines, provenance, key-joined baseline diff
+
+notation/               transcription -> sheet music
+  quantise.py           beat grid, snapping, pedal-confidence flag
+  score.py              hand splitting, chord grouping, music21 score
+  render.py             MusicXML / SVG / PDF writers
+  __main__.py           CLI
 
 benchmarks/             committed artifacts, NEVER audio
   maestro_test12.json   corpus manifest: tracks, seed, sha256 per file
@@ -290,32 +307,59 @@ piano. Options remain hand-correcting a transcription, or playing along to a
 known MIDI file and aligning. **Do this before investing heavily in 14–17** —
 otherwise the training target is a proxy.
 
-### If Phase 3 (notation)
-The riskiest phase. Already verified as installable and working on this
-machine: `music21` 10.5.0 → MusicXML, `verovio` 6.2.1 → SVG, `svglib` +
-`reportlab` → PDF. **Verovio does not output PDF** despite appearances.
-The full chain was tested end to end. None are installed yet — they are
-commented out in `requirements.txt` awaiting this phase. `madmom` is unusable
-(capped at Python <3.10); use `librosa.beat` or `beat_this`.
+### Phase 3 (notation) — DONE, and what it found
 
-**The core risk, now measured.** Note durations become note *values* on the
-page, and durations are the weakest part of transcription: ByteDance scores
-0.969 onset but only **0.381 +offset** on real audio.
+The chain is `Transcription` → beat grid → quantised rhythm → `music21` →
+MusicXML → Verovio SVG → PDF. `python -m notation` drives it for audio or MIDI
+input and writes any of musicxml / pdf / svg / midi.
 
-**Offset accuracy tracks PEDAL DENSITY, not onset accuracy** — correlation
-**−0.794** across the 12 corpus tracks. Schubert: 0.977 onset, **0.117** offset,
-51.7 pedals/min. Scarlatti: 0.967 onset, **0.757** offset, 21.8 pedals/min.
-Heavy pedalling makes release and decay acoustically indistinguishable.
+**The repertoire prediction was correct, and is now measured.** Notation
+quality varies by how heavily the music is pedalled, not by detection quality.
+Share of notes whose release falls under sustain, on ground-truth corpus MIDI:
 
-So notation quality will vary by **repertoire**, not by how well notes were
-detected. Two implications:
-- **Quantise against a beat grid; do not trust raw durations.** A pedalled
-  Romantic piece can have near-perfect onsets and still produce unusable rhythms.
-- **Use pedal spans as a confidence signal.** ByteDance already models them
-  (`supports_pedal = True`), so a note whose offset falls inside a pedal span
-  should be treated as having an unreliable duration.
-- Test on sparse Baroque/Classical first — that is where the chain will look
-  best — but validate on a pedalled Romantic piece before believing it works.
+| piece | pedals/min | durations uncertain |
+|---|---|---|
+| Haydn Sonata in C minor | 13.4 | 16.3% |
+| Scarlatti K.525 | 21.7 | 16.6% |
+| Chopin Op.10 No.12 | 58.8 | 69.3% |
+| Schubert Impromptu Op.90/4 | 51.5 | **91.0%** |
+
+On the Schubert, **91% of printed durations are interpolation rather than
+measurement**. The CLI reports this per run (`Pedalled : N%`) and warns above
+50%. Treat that number as the score's health metric — it is the honest answer
+to "can I trust these rhythms."
+
+**Correction to a previously published figure.** The pedal-density/offset
+correlation was recorded as −0.794 in earlier revisions of this file and in
+`HISTORY.md`. Recomputing it from `benchmarks/real/bytedance-clean.json` and
+the corpus manifest gives **−0.768** (pedals per minute vs `offset_f1`, n=12).
+No variant of the calculation reproduces −0.794, and no script in the repo
+computed it. The conclusion is unchanged — a strong negative correlation — but
+use −0.768, and note the per-track figures quoted below are exact.
+Schubert: 0.977 onset, **0.117** offset, 51.7 ped/min. Scarlatti: 0.967 onset,
+**0.757** offset, 21.8 ped/min.
+
+**Quantisation limits, measured.** On a 1/16 grid at 120 BPM (one subdivision
+= 125ms), synthetic notes with ±40ms of jitter snap to the intended beat
+16/16 times. At ±120ms — beyond half a subdivision — only 7/16 land correctly.
+So the grid absorbs realistic detector jitter but cannot rescue genuinely
+ambiguous timing; that is a property of quantisation, not a bug to fix.
+
+**Traps found in this phase:**
+- **`librosa.beat_track` returns tempo as a 1-element ARRAY, not a float.**
+  Formatting it into a MusicXML tempo mark yields `[117.45]`.
+- **librosa places beats ~11ms late** (measured: true 0.500s beats reported at
+  0.511s) because the onset envelope peaks after the transient. Systematic, so
+  `BEAT_LAG_SEC` corrects it rather than widening the snap tolerance.
+- **Verovio's `loadData` returns False instead of raising.** Unchecked, a parse
+  failure renders a blank page rather than an error. `_toolkit()` checks it.
+- **Verovio logs a warning per measure to C-level stderr**, which
+  `redirect_stderr` cannot capture — hundreds of lines on a real score. Use
+  `verovio.enableLog(verovio.LOG_OFF)`.
+- **Verovio paginates**, so rendering only page 1 silently truncates the score.
+- **The Windows console is cp1252**; an em-dash in CLI output prints as `?`.
+- `music21.makeNotation()` is required before Verovio sees the file, or bars
+  that do not add up cause material to be dropped silently.
 
 ### If training (Phases 14–17)
 A real-audio baseline now exists (§6), so the precondition is met — but read it

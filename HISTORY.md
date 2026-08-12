@@ -674,7 +674,13 @@ compound rather than add.
 ### Offset accuracy is governed by PEDAL DENSITY, not by onset accuracy
 
 Correlation between `+offset` F1 and sustain-pedal events per minute across the
-12 tracks: **−0.794**.
+12 tracks: **−0.768**.
+
+> **Corrected in Phase 3.** This was originally recorded as −0.794. Recomputing
+> from `benchmarks/real/bytedance-clean.json` joined to the corpus manifest
+> gives −0.768 (pedals/min vs `offset_f1`, n=12); no variant of the calculation
+> reproduces −0.794 and no script in the repo computed it. The per-track figures
+> below are exact and unchanged, as is the conclusion.
 
 | composer | +offset | pedals/min |
 |---|---|---|
@@ -748,6 +754,65 @@ of audio). Basic Pitch is negligible — its full sweep takes minutes.
   robustness measure, not a prediction of home accuracy.
 - **12 tracks is a modest sample.** Differences under ~0.03 in the mean are not
   meaningful. Phase 14+ must not chase noise.
+
+---
+
+# Phase 3 — Notation
+
+`Transcription` → beat grid → quantised rhythm → `music21` → MusicXML →
+Verovio SVG → PDF. New package `notation/` (quantise, score, render, CLI),
+23 new tests, 266 passing in ~32s.
+
+Branched off `phase-13-real-audio` rather than `master`: `master` is 13 commits
+behind and lacks Phases 12–13, including the evaluation harness this phase was
+validated against.
+
+## What the phase was designed around
+
+Phase 13 measured that durations are the weak half of transcription — ByteDance
+scores 0.969 onset but 0.381 with offsets — and that offset error tracks pedal
+density rather than onset accuracy. So the module never trusts a raw duration:
+onsets are snapped to a beat grid and lengths derived from the snapped
+endpoints, and any note released under sustain is flagged.
+
+## The repertoire prediction held
+
+Share of notes whose release falls inside a pedal span, on ground-truth MIDI:
+
+| piece | pedals/min | durations uncertain |
+|---|---|---|
+| Haydn Sonata in C minor | 13.4 | 16.3% |
+| Scarlatti K.525 | 21.7 | 16.6% |
+| Chopin Op.10 No.12 | 58.8 | 69.3% |
+| Schubert Impromptu Op.90/4 | 51.5 | **91.0%** |
+
+Sparse Baroque/Classical engraves with ~1 note in 6 uncertain; heavily pedalled
+Romantic writing with 9 in 10. The CLI prints this per run and warns above 50%.
+It is the score's health metric, not a diagnostic detail.
+
+## Quantisation limits
+
+On a 1/16 grid at 120 BPM (subdivision = 125ms): ±40ms of jitter snaps to the
+intended beat 16/16 times; ±120ms — past half a subdivision — only 7/16. The
+grid absorbs realistic detector jitter and cannot rescue ambiguous timing.
+
+## Traps found
+
+- `librosa.beat_track` returns tempo as a **1-element array**, not a float.
+- librosa places beats **~11ms late** (0.500s beats reported at 0.511s); the
+  onset envelope peaks after the transient. Corrected by `BEAT_LAG_SEC`.
+- Verovio's `loadData` **returns False rather than raising** — unchecked, a
+  parse failure is a blank page, not an error.
+- Verovio logs a warning per measure to **C-level stderr**, which
+  `redirect_stderr` cannot capture. `verovio.enableLog(verovio.LOG_OFF)`.
+- Verovio **paginates**; rendering only page 1 truncates the score.
+- The Windows console is **cp1252** — an em-dash in CLI output prints as `?`.
+- `makeNotation()` is mandatory before Verovio, or bars that do not add up
+  cause material to be dropped silently.
+- Confirmed again: **Verovio has no PDF output.** A test now guards it.
+
+Installing music21/verovio/svglib/reportlab left numpy at 1.26.4, so the
+torch 2.2 ABI pin survived.
 
 ---
 
