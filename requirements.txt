@@ -63,8 +63,14 @@ pytest==8.3.4
 # Beat tracking uses librosa.beat (already required above). madmom is the
 # better-known choice but caps at Python <3.10 and cannot be installed here.
 #
-# Engraving (music21 / verovio / svglib / reportlab) lands with the score and
-# render modules; nothing in this commit needs them.
+# Verified not to disturb the numpy<2 pin above: installing these leaves
+# numpy at 1.26.4, so the torch 2.2 ABI is intact.
+music21==10.5.0             # MusicXML export, key/meter inference
+verovio==6.2.1              # MusicXML -> SVG engraving (no MuseScore needed)
+# Verovio has NO PDF output (`renderToPDF` does not exist), so PDF goes
+# SVG -> svglib -> reportlab. test_verovio_has_no_pdf_renderer guards this.
+svglib==2.1.0
+reportlab==5.0.0
 
 # --- UI (Phases 6-8) — NOT YET INSTALLED ---
 # The frontend is React, so PySide6 is no longer planned. pyinstaller only

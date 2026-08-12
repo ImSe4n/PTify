@@ -1,8 +1,7 @@
 """Transcription -> engraved sheet music.
 
 The chain is `Transcription` -> beat grid -> quantised rhythm -> `music21`
-score -> MusicXML -> Verovio SVG -> PDF. This package currently implements the
-first half; scoring and rendering land next.
+score -> MusicXML -> Verovio SVG -> PDF.
 
 Why quantisation is not optional here: note durations are the weakest part of
 transcription. On the real-audio corpus ByteDance scores 0.969 onset F1 but
@@ -22,6 +21,8 @@ from .quantise import (
     quantised_to_transcription,
     uncertain_fraction,
 )
+from .score import build_score, transcription_to_score
+from .render import render_musicxml, render_pdf, render_svg
 
 __all__ = [
     "BeatGrid",
@@ -31,4 +32,9 @@ __all__ = [
     "quantise_notes",
     "quantised_to_transcription",
     "uncertain_fraction",
+    "build_score",
+    "transcription_to_score",
+    "render_musicxml",
+    "render_svg",
+    "render_pdf",
 ]
