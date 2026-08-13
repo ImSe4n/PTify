@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 13b (MAPS) — cross-dataset benchmark, room-acoustics number |
-| **Branch** | `phase-13-maps` — branch the next phase off it once merged |
-| **Tests** | 500 passing, ~64s, no model or network needed |
-| **Next** | Training (14–17) — the precondition is now MET, see §9 |
+| **Last completed** | Phase 14 — the training data pipeline (14a targets, 14b index, 14c dataset) |
+| **Branch** | `phase-14-training` — branch the next phase off `master` once merged |
+| **Tests** | 582 passing, ~61s, no model or network needed |
+| **Next** | **Phase 14.5** — the 1–2 GPU-hour smoke run that proves the chain before 15 |
 
 **The headline number this project was missing.** ByteDance scores **0.969 on
 MAESTRO and 0.787 on MAPS** — an **18.3-point drop** onto an unfamiliar piano
@@ -24,6 +24,7 @@ load-bearing for the entire training track and is now **measured on this
 hardware**, not cited. Room acoustics alone cost **12.9 points** (§6).
 
 **Shipped and working**
+- `training/` — targets, labels, segment index, dataset (Phase 14; no model yet)
 - `transcriber/` — audio file → MIDI, two engines, CLI
 - `evaluation/` — metrics, piano synthesis, augmentation, benchmark CLI
 - `evaluation/corpus.py` — fetches a real MAESTRO corpus, writes a manifest
@@ -35,7 +36,7 @@ hardware**, not cited. Room acoustics alone cost **12.9 points** (§6).
 - `tests/` — 500 tests, all pure functions
 
 **Not started:** auth/persistence (5), frontend (6–8), deploy (10),
-training (14–17).
+training runs (14.5–17 — the *data pipeline* for them is done).
 
 **Phase 4 in one paragraph.** `POST /v1/jobs` uploads audio and returns a job
 id; the work runs on a worker and the client polls `GET /v1/jobs/{id}` or
@@ -148,8 +149,19 @@ api/                    HTTP over the library. Adds NO transcription logic
 
 benchmarks/             committed artifacts, NEVER audio
   maestro_test12.json   corpus manifest: tracks, seed, sha256 per file
+  maestro_segments.json training segment index (443KB, 1099 tracks)
   real/*.json           per-(engine,preset) baselines with environment
+
+training/               inputs to a training run. No model, no torch at import
+  targets.py            notes -> regression ramps the CRNN is trained against
+  labels.py             ground-truth MIDI -> notes/pedals (wraps read_midi)
+  index.py              deterministic segment index + CLI
+  dataset.py            seek-decode a segment, augment hook, render targets
 ```
+
+**`training/` is a build-time dependency of a checkpoint, not a runtime
+dependency of the app.** Nothing in `transcriber/`, `api/` or `notation/`
+imports it, so a missing torch there can never break transcription.
 
 **`api/settings.py` is separate from `transcriber/config.py` on purpose.** §5
 governs the latter: every constant there carries the measurement that produced
@@ -612,7 +624,44 @@ ambiguous timing; that is a property of quantisation, not a bug to fix.
 - `music21.makeNotation()` is required before Verovio sees the file, or bars
   that do not add up cause material to be dropped silently.
 
-### If training (Phases 14–17) — THE PRECONDITION IS NOW MET
+### Phase 14 is DONE. Next is 14.5, the smoke run.
+
+**Do not start Phase 15 first.** Phase 14.5 spends 1–2 GPU-hours proving the
+whole chain end to end on 20 tracks — targets decode, a checkpoint round-trips
+Kaggle→local, `torchlibrosa` works on Kaggle's torch/numpy 2.x, resume works,
+the engine seam is real. **The score is expected to be terrible; that is not
+what it measures.** Every one of those is a chain-breaker that otherwise costs
+a full training run to discover.
+
+What Phase 14 leaves ready:
+
+- **`training.dataset.SegmentDataset`** yields `waveform (160000,)` plus five
+  `(1001, 88)` targets, all float32. `collate()` stacks them into torch
+  tensors matching the model's `(batch, samples)` input and
+  `(batch, 1001, 88)` outputs — **verified against a real forward pass of the
+  pretrained CRNN.** 1001 frames, not 1000: the STFT runs `center=True`.
+- **`benchmarks/maestro_segments.json`** — 962 train / 137 validation tracks,
+  632,783 segments, 443KB. Regenerate with `python -m training.index`;
+  `--max-tracks-per-split 20` produces exactly the 14.5 smoke subset.
+- **Targets are exact.** Real MAESTRO ground truth → targets → the real
+  post-processor recovers **37/37 notes at 0.000ms**.
+- **Throughput is 38.9 segments/sec/worker**, 2.6x the ≥15/s budget.
+- **The augmentation hook exists and is unused.** `SegmentDataset(augment=...)`
+  takes `(audio, labels) -> (audio, labels)` and runs BEFORE target rendering,
+  because a pitch shift changes the labels and a resample-based detune changes
+  the time axis. Phase 16 fills it in.
+
+Three things Phase 15 must not get wrong, all recorded in §4 and in
+`training/targets.py`:
+1. Save checkpoints as `{'model': {'note_model': ..., 'pedal_model': ...}}`
+   and **>160MB**, or `PianoTranscription` silently swaps in ByteDance's
+   weights and you benchmark the baseline believing it is your model.
+2. **Mask the velocity loss to onset frames** (`targets['mask']`). The decoder
+   reads velocity only at the onset frame; unmasked, the term trains toward
+   silence and dominates.
+3. Checkpoint the **RNG state**, or resume silently redraws augmentations.
+
+---
 
 Phase 13b answered the question this section used to say was still open. The
 target is no longer a proxy:

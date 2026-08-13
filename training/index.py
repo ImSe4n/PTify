@@ -55,10 +55,10 @@ SCHEMA = 1
 #: model from only ever learning notes that fall mid-segment.
 HOP_SECONDS = 1.0
 
-#: A segment must be fully covered by audio. A shorter tail would need
-#: padding, and padded silence with no labels teaches nothing while still
-#: costing a full forward pass.
-MIN_TRACK_SECONDS = SEGMENT_SECONDS
+#: NOTE: there is deliberately no MIN_TRACK_SECONDS constant. A segment must
+#: be fully covered by audio, and `segment_starts` enforces that directly with
+#: `duration < seconds` — a second constant would be a place for the rule to
+#: drift out of agreement with the code that applies it.
 
 #: Splits taken verbatim from MAESTRO's metadata. Never re-derived here:
 #: MAESTRO assigns them per composition, so re-splitting by track would put

@@ -197,6 +197,9 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `notation/quantise.py` | Beat grid, snapping, pedal-confidence flag |
 | `notation/score.py` | Hand splitting, chord grouping, `music21` score |
 | `notation/render.py` | MusicXML / SVG / PDF writers |
+| `training/targets.py` | Notes → the regression targets the CRNN is trained against |
+| `training/index.py` | Deterministic MAESTRO segment index (+ CLI) |
+| `training/dataset.py` | Seek-decode a segment, augment, render targets |
 | `benchmarks/` | Committed manifests and baseline scores (no audio) |
 | `tests/` | `python -m pytest tests/` |
 | `HISTORY.md` | Development log: what broke and why |
@@ -289,7 +292,8 @@ under sustain pedal.
 - [x] **Phase 12** — evaluation harness (no GPU needed)
 - [x] **Phase 13** — real-audio benchmark + baseline numbers
 - [x] **Phase 13b** — MAPS cross-dataset benchmark; the generalisation gap **measured**
-- [ ] **Phase 14–16** — data pipeline, model, augmentation-focused training
+- [x] **Phase 14** — training data pipeline: regression targets, segment index, dataset
+- [ ] **Phase 15–16** — fine-tune the CRNN, augmentation-focused training
 - [ ] **Phase 17** — ship the custom model behind `TranscriptionEngine`
 
 The training goal is **beating ByteDance on your own recordings**, not on the
