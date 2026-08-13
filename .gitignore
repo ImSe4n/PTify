@@ -79,6 +79,15 @@ desktop.ini
 # records the track list and a sha256 per file. *.wav is already ignored
 # above; *.midi is NOT, and the fetcher writes .midi deliberately.
 *.midi
+
+# MAPS reference annotations (Phase 13b). The MAPS fetcher converts each piece's
+# .txt annotation to .mid so `benchmark._find_pairs` can pair it with the audio.
+# Those files are DERIVED FROM a CC BY-NC-SA dataset and must not be committed
+# any more than the audio is. `recordings/` covers the default location, but
+# `--out` can point anywhere, so the extension is ignored globally. Sample songs
+# meant for the repo belong in assets/ and can be force-added.
+*.mid
+!assets/**/*.mid
 recordings/
 # Cached MAESTRO metadata (~300KB, re-fetched on demand). The manifest records
 # its sha256, so the cache itself does not need to be committed.

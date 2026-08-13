@@ -11,10 +11,17 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 4 (backend) — FastAPI, job queue, SSE, auth seam |
-| **Branch** | `phase-4-backend` — branch the next phase off it once merged |
-| **Tests** | 473 passing, ~45s, no model or network needed |
-| **Next** | Auth/persistence (5) or training (14–17) |
+| **Last completed** | Phase 13b (MAPS) — cross-dataset benchmark, room-acoustics number |
+| **Branch** | `phase-13-maps` — branch the next phase off it once merged |
+| **Tests** | 500 passing, ~64s, no model or network needed |
+| **Next** | Training (14–17) — the precondition is now MET, see §9 |
+
+**The headline number this project was missing.** ByteDance scores **0.969 on
+MAESTRO and 0.787 on MAPS** — an **18.3-point drop** onto an unfamiliar piano
+and room. README predicted "~20 points" from
+[a published result](https://arxiv.org/abs/2402.01424); that prediction was
+load-bearing for the entire training track and is now **measured on this
+hardware**, not cited. Room acoustics alone cost **12.9 points** (§6).
 
 **Shipped and working**
 - `transcriber/` — audio file → MIDI, two engines, CLI
@@ -23,8 +30,9 @@ State of the codebase, the traps in it, and what the next phase needs.
 - `evaluation/report.py` — JSON baselines with environment provenance
 - `notation/` — beat grid → quantised rhythm → MusicXML / SVG / PDF / MIDI
 - `api/` — HTTP job API, SSE progress, queue seam, auth seam, limits
-- `benchmarks/` — corpus manifest + real-audio baselines (no audio committed)
-- `tests/` — 473 tests, all pure functions
+- `evaluation/maps.py` — MAPS Disklavier corpus, fetched by range request
+- `benchmarks/` — corpus manifests + real-audio baselines (no audio committed)
+- `tests/` — 500 tests, all pure functions
 
 **Not started:** auth/persistence (5), frontend (6–8), deploy (10),
 training (14–17).
@@ -67,6 +75,15 @@ curl -F file=@song.mp3 -F formats=midi,pdf http://127.0.0.1:8000/v1/jobs
 .venv\Scripts\python.exe -m notation song.mid --formats musicxml,pdf
 .venv\Scripts\python.exe -m notation song.wav --engine basicpitch --formats pdf
 .venv\Scripts\python.exe -m notation song.mid --tempo 96 --beats-per-bar 3
+
+# MAPS Disklavier corpus (Phase 13b) — 60 tracks, 2.6GB, not committed.
+# Selective extraction over HTTP range requests: only the 30 MUS pieces per
+# subset are pulled, not the 2.6GB zip. --list is a dry run and fetches nothing.
+.venv\Scripts\python.exe -m evaluation.maps --list
+.venv\Scripts\python.exe -m evaluation.maps --out recordings/maps_disklavier
+.venv\Scripts\python.exe -m evaluation --audio-dir recordings/maps_disklavier ^
+    --engine bytedance --preset clean ^
+    --json benchmarks/real/maps-bytedance-clean.json
 
 # real-audio corpus (12 MAESTRO tracks, ~867MB, not committed)
 .venv\Scripts\python.exe -m evaluation.corpus --list      # preview, no download
@@ -150,6 +167,20 @@ custom-trained model drops in the same way.
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**MAPS `.mid` files are rejected by `pretty_midi` as corrupt.** Every MUS piece
+ships both `.mid` and `.txt`, and `read_midi` raises on the MIDI ("largest tick
+of 18526002, it is likely corrupt"). The `.txt`
+(`OnsetTime<TAB>OffsetTime<TAB>MidiPitch`, seconds) is MAPS's canonical
+annotation and the one the literature scores against — parsing it is the
+supported path, not a workaround. `maps.py` converts it to `.mid` on the way
+out so `benchmark._find_pairs` can pair it.
+
+**MAPS annotations carry NO velocity, so the velocity F1 from that corpus is
+meaningless.** Every reference note is given the same velocity, and `mir_eval`
+rescales velocities to best-fit the reference — so the metric returns the onset
+figure rather than failing visibly. `velocity_metric_valid: false` in the
+manifest says so; use onset and offset only.
 
 **Verovio is NOT thread-safe, and its error message blames the wrong thing.**
 It binds to whichever thread touches it first and fails on every thread after
@@ -290,6 +321,43 @@ because MAESTRO is its training distribution; Basic Pitch falls 13 points
 because it is a general-purpose multi-instrument model. There is no single
 "real-audio accuracy" number.
 
+**MAPS — the cross-dataset number (Phase 13b).** A different piano, a different
+room, different microphones. 60 tracks / 260 min / 154,352 reference notes
+fetched; the 14 paired tracks (58 min, 30,356 notes) carry the ByteDance run.
+
+| engine | MAESTRO | MAPS | drop |
+|---|---|---|---|
+| ByteDance | 0.969 | **0.787** | **−0.183** |
+| Basic Pitch | 0.730 | **0.727** | −0.003 |
+
+**This is the measurement the whole training track was waiting for.** README
+predicted a ~20-point loss on unfamiliar acoustics from published work; the
+measured drop here is **18.3 points**, on this hardware, on a corpus ByteDance
+never trained on. Basic Pitch barely moves (−0.003) because it is a
+general-purpose model that was never fitted to MAESTRO in the first place —
+it has no home-field advantage to lose.
+
+**Room acoustics cost 12.9 points, measured cleanly.** The 7 paired pieces are
+the *same performances* captured at two mic distances, so everything except the
+room is held constant:
+
+| ByteDance, n=7 paired | onset | +offset |
+|---|---|---|
+| `ENSTDkCl` close (~50cm) | 0.851 | 0.659 |
+| `ENSTDkAm` ambient (3–4m) | 0.722 | 0.555 |
+| **penalty** | **−0.129** | −0.104 |
+
+**7 of 7 pieces move the same direction** (sd 0.064, range −0.034 to −0.197),
+so this is an effect and not noise. Durations degrade with distance too.
+
+**Basic Pitch shows almost no mic-distance effect (−0.015, 3 up / 4 down) — do
+not read that as robustness.** It is already so degraded at 0.724 that added
+reverb has little left to take. ByteDance has further to fall, which is why it
+falls further.
+
+**The engine ranking narrows off MAESTRO.** On identical MAPS audio ByteDance
+leads Basic Pitch by 6.3 points (0.787 vs 0.724), against 24 points on MAESTRO.
+
 Reassuring check: ByteDance's published MAESTRO note F1 is 0.9677 and this
 corpus measures 0.9693 — agreement to within 0.002, which independently
 validates the whole chain (selection, fetch, pairing, alignment, scoring).
@@ -401,12 +469,26 @@ performance*. No alignment step and no human error.
 | **Vienna 4x22** | 4 pieces × 22 pianists, Bösendorfer SE290 | match files; **needs alignment** | open |
 | **ACPAS** | alignment layer over MAPS + MAESTRO | inherits | — |
 
-**Start with MAPS.** `ENSTDkCl` is close-miked at 50cm and `ENSTDkAm` is
-ambient at 3–4m — *the same performances, same piano, two mic distances*. That
-is a controlled room-acoustics experiment already recorded, and it measures
-directly what Phase 13 identified as the enemy (reverb hurts nonlinearly:
-rt60 0.6 ≈ 1 point, 1.4 = 9.3 points). MAPS is also the standard cross-dataset
-test in the AMT literature, so numbers from it are comparable to published work.
+**MAPS is DONE (Phase 13b).** `evaluation/maps.py` fetches it; see §6 for the
+numbers. Two corrections to what this section used to claim:
+
+**Only 7 of 30 pieces are shared between the two subsets, not all of them.**
+This section previously described `ENSTDkCl` and `ENSTDkAm` as "*the same
+performances, same piano, two mic distances*". Measured from the archives: each
+subset holds 30 `MUS` pieces and the intersection is **7**. The other 23 per
+subset are different repertoire, so an unpaired Cl-vs-Am comparison confounds
+mic distance with how hard the music is. The manifest marks `paired: true`, and
+the room-acoustics number in §6 uses only those 7. The claim was right in
+spirit — the paired subset *is* a controlled experiment — but wrong about how
+much of the corpus qualifies.
+
+**The `MUS` pieces are Disklavier replays, not live human takes.** A MIDI file
+drives the physical keys, so hammers, strings, room and mics are real while the
+ground truth stays exact. The MIDI itself usually originates from a human
+performance, so phrasing and dynamics are genuine; the *reproduction* is
+mechanical. Confirmed from the data: paired pieces have identical note counts
+and onsets agreeing to ~2.3ms median, which is the author's stated ~10ms
+annotation accuracy, not two different takes.
 
 **MAPS is 31GB but only 2 of its 9 settings are real recordings** — the other
 seven are software synths, i.e. the synthetic case `evaluation/synth.py`
@@ -508,9 +590,31 @@ ambiguous timing; that is a property of quantisation, not a bug to fix.
 - `music21.makeNotation()` is required before Verovio sees the file, or bars
   that do not add up cause material to be dropped silently.
 
-### If training (Phases 14–17)
-A real-audio baseline now exists (§6), so the precondition is met — but read it
-correctly. **ByteDance scores 0.969 on this corpus because MAESTRO is its
+### If training (Phases 14–17) — THE PRECONDITION IS NOW MET
+
+Phase 13b answered the question this section used to say was still open. The
+target is no longer a proxy:
+
+- **The gap is real and measured: 18.3 points** (0.969 MAESTRO → 0.787 MAPS).
+  Not cited from a paper; measured here.
+- **Room acoustics are 12.9 of it**, isolated on identical performances at two
+  mic distances, consistent across 7 of 7 pieces.
+- **`benchmarks/real/maps-*.json` is the scoreboard.** A custom model is
+  scored by the same harness on the same corpus, joined by
+  `report.compare_reports()` on (engine, case, preset) — never by position.
+
+**Beat ByteDance's 0.787 on MAPS, not its 0.969 on MAESTRO.** The second number
+is its training distribution and beating it is open research; the first is the
+honest target and it has 18 points of headroom that augmentation is designed to
+close. Phase 13's degradation curve already says where to aim: a quarter-
+semitone detune costs 14.1 points, a hall costs 9.3, and noise costs almost
+nothing — so pitch and reverb augmentation, not noise injection.
+
+Still true, and still the limit of what any of this proves: MAPS is a studio
+Disklavier. It is much closer to your room than MAESTRO is, and still not your
+room.
+
+**ByteDance scores 0.969 on MAESTRO because MAESTRO is its
 training distribution.** Beating that number is not the goal and would not mean
 what it appears to mean.
 
