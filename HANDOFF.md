@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 14.5 — training loop written and **rehearsed end to end on CPU** |
+| **Last completed** | Phase 14.5 — **smoke run PASSED on Kaggle GPU**, checkpoint verified locally |
 | **Branch** | `phase-14-training` — branch the next phase off `master` once merged |
-| **Tests** | 614 passing, ~61s, no model or network needed |
-| **Next** | **Run `training/kaggle/smoke_run.ipynb` on Kaggle GPU**, then Phase 15 |
+| **Tests** | 623 passing, ~62s, no model or network needed |
+| **Next** | **Phase 16a** — `detune_resample()` + the augmentation sampler (see §9) |
 
 **The headline number this project was missing.** ByteDance scores **0.969 on
 MAESTRO and 0.787 on MAPS** — an **18.3-point drop** onto an unfamiliar piano
@@ -695,24 +695,39 @@ ambiguous timing; that is a property of quantisation, not a bug to fix.
 - `music21.makeNotation()` is required before Verovio sees the file, or bars
   that do not add up cause material to be dropped silently.
 
-### Phase 14.5 is written and REHEARSED. What remains is the Kaggle run.
+### Phase 14.5 is DONE. The whole chain is proven end to end.
 
-The training loop exists and has been driven end to end on CPU. Run
-`training/kaggle/smoke_run.ipynb` (GPU + Internet on, MAESTRO attached as a
-public dataset, `COMMIT` set). Budget 1–2 GPU-hours.
+500 steps ran on a Kaggle T4, an interrupted run resumed **across sessions**,
+and the resulting checkpoint loads on this machine (torch 2.2, CPU) and
+transcribes. Scored on a 20s MAESTRO window it matches the pretrained model
+exactly (onset F1 0.9643 both), which is the correct outcome — 500 steps at
+lr 5e-5 on the model's own distribution should not move accuracy.
 
-**The score is expected to be terrible; that is not what it measures.** The
-gate is: 500 steps complete, an interrupted run resumes at the right step, and
-the downloaded checkpoint loads locally through
-`PianoTranscription(checkpoint_path=...)` and produces notes.
+**The working configuration**, arrived at after five failures (all recorded
+in §4 — read them before changing any of this):
 
-Already proven locally, so a failure there is Kaggle-specific:
-gradients flow (loss 0.947 → 0.667), kill/resume restores weights + optimiser
-+ RNG exactly, the deployable checkpoint is 172.0 MB, and it loads through the
-real inference library producing 83 notes and 16 pedal events.
+```
+python -m training.train --index benchmarks/maestro_segments_smoke.json \
+    --audio-root <kaggle mount> --out /kaggle/working/checkpoints \
+    --device cuda --no-amp --batch-size 2 --accum-steps 4 --workers 2 \
+    --save-every-seconds 660 --resume auto
+```
 
-Genuinely unknown until Kaggle runs: whether `torchlibrosa` works on its
-torch/numpy 2.x, and the real steps/sec.
+- **`--no-amp` and `--batch-size 2 --accum-steps 4` are load-bearing on a T4.**
+  Batch 8 OOMs; with AMP it nearly fits and emits NaN instead of failing.
+- **Measured throughput: 0.27 steps/s** (fp32, 4 micro-batches of 2). 500
+  steps ≈ 31 min. Phase 15 can revisit AMP with this as a known-good baseline.
+- The Kaggle MAESTRO mount that worked:
+  `/kaggle/input/datasets/alonhaviv/the-maestro-dataset-v3-0-0/maestro-v3.0.0`.
+- `pip install --no-deps` needs `mido pretty_midi librosa soundfile resampy
+  audioread soxr lazy_loader msgpack` naming explicitly; the notebook does it.
+
+**Next is 16a, not 15.** The training loop, checkpointing and resume all work;
+what does not exist yet is the augmentation that the whole track depends on,
+and it is pure-CPU work that needs no GPU quota. `evaluation.augment.pitch_shift`
+costs 19.7s per 10s segment and cannot be used in a dataloader — build
+`detune_resample()` (~8ms) and the continuous sampler first, then spend GPU
+time on a run that can actually improve something.
 
 What Phase 14 leaves ready:
 
