@@ -197,6 +197,17 @@ patches it at runtime (not by editing the installed package, so the fix
 travels to Kaggle and survives a reinstall) and `load_pretrained` calls it.
 Weights are unaffected — it changes an activation's memory behaviour only.
 
+**torch 2.6+ refuses to load our own checkpoints; the local pin (2.2) cannot
+catch it.** PyTorch 2.6 flipped `torch.load`'s `weights_only` default from
+False to True, and these checkpoints are deliberately not weights-only — they
+carry the **numpy RNG state** so a resumed run draws the same augmentations.
+numpy's array reconstructor is not on the default allowlist, so resume died on
+Kaggle with `UnpicklingError: Weights only load failed ... Unsupported global:
+GLOBAL numpy._core.multiarray._reconstruct`. `checkpoint.torch_load()` passes
+`weights_only=False` (correct for files this loop wrote itself minutes
+earlier) with a `TypeError` fallback for torch 2.2, which has no such
+parameter. **Every `torch.load` in `training/` must go through it.**
+
 **The model needs ~4x the GPU memory its parameter count suggests, and on a
 T4 that OOMs at batch 8.** `Regress_onset_offset_frame_velocity_CRNN` runs
 **four parallel `AcousticModelCRnn8Dropout` branches** (frame, onset, offset,

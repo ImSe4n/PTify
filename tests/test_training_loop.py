@@ -358,6 +358,41 @@ def test_python_random_state_round_trips(tmp_path):
     assert [random.random() for _ in range(3)] == pytest.approx(expected)
 
 
+def test_checkpoint_loads_despite_the_weights_only_default(tmp_path):
+    """REGRESSION (Phase 14.5, Kaggle): resume failed on torch 2.10.
+
+    PyTorch 2.6 flipped `torch.load`'s `weights_only` default from False to
+    True. Our checkpoints are deliberately NOT weights-only — they carry the
+    numpy RNG state so a resumed run draws the same augmentations — and
+    numpy's array reconstructor is not on the default allowlist:
+
+        UnpicklingError: Weights only load failed ... Unsupported global:
+        GLOBAL numpy._core.multiarray._reconstruct
+
+    The local pin is torch 2.2, whose default is False, so this could only
+    ever fail on the GPU box. `torch_load` passes weights_only=False
+    explicitly, which is correct for files this loop wrote itself minutes
+    earlier.
+
+    This asserts the RNG state genuinely survives a round-trip — the thing
+    that made the file unloadable in the first place.
+    """
+    from training.checkpoint import torch_load
+
+    model = Tiny()
+    np.random.seed(5)
+    save_training_state(tmp_path / "step_9.pt", note_model=model,
+                        optimizer=_optimizer(model), step=9,
+                        rng_state=capture_rng_state())
+
+    state = torch_load(tmp_path / "step_9.pt")
+
+    assert state["step"] == 9
+    # A numpy RNG state is exactly what the 2.6 allowlist rejects.
+    assert "numpy" in state["rng"]
+    assert state["rng"]["numpy"][0] == "MT19937"
+
+
 def test_mismatched_schema_is_rejected(tmp_path):
     path = tmp_path / "step_1.pt"
     torch.save({"schema": 99, "step": 1}, path)

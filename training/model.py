@@ -42,6 +42,7 @@ from pathlib import Path
 
 from transcriber.weights import ensure_checkpoint
 
+from .checkpoint import torch_load
 from .targets import CLASSES_NUM, FRAMES_PER_SECOND
 
 
@@ -131,7 +132,9 @@ def load_pretrained(device: str = "cpu"):
     )
 
     path = ensure_checkpoint()
-    checkpoint = torch.load(str(path), map_location=device)
+    # See `checkpoint.torch_load`: torch 2.6+ defaults to weights_only=True,
+    # which rejects the pretrained file as well as our own.
+    checkpoint = torch_load(path, device)
 
     if "model" not in checkpoint:
         raise ValueError(
@@ -211,7 +214,7 @@ def assert_deployable(path: str | Path) -> None:
             f"pedal weights alongside the note weights."
         )
 
-    state = torch.load(str(path), map_location="cpu")
+    state = torch_load(path, "cpu")
     if "model" not in state:
         raise ValueError(f"{path} has no 'model' key; found {sorted(state)}.")
     for key in REQUIRED_SUBMODELS:
