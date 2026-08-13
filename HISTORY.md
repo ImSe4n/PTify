@@ -1107,6 +1107,100 @@ Phase 14.5's smoke run and Phase 15's loop.
 
 ---
 
+## 2026-08-12 — Phase 14.5: the smoke run, and a model that could not train
+
+The plan's smallest end-to-end slice: prove the chain before spending 30
+GPU-hours on it. It found a blocker that would have cost a full run to
+discover, and it found it on CPU, for free.
+
+**Delivered:** `training/{model,losses,checkpoint,train}.py`,
+`training/kaggle/smoke_run.ipynb`, `benchmarks/maestro_segments_smoke.json`,
+and 34 tests (582 → 614).
+
+### The model is untrainable as shipped
+
+The first attempt at a single training step died:
+
+    one of the variables needed for gradient computation has been modified
+    by an inplace operation: [torch.FloatTensor [2, 1001, 768]], which is
+    output 0 of ReluBackward0
+
+`AcousticModelCRnn8Dropout.forward` (models.py:146-147) does
+`x = F.relu(...)` followed by `F.dropout(..., inplace=True)`, and the
+in-place dropout overwrites the ReLU output that autograd needs.
+
+**It has never bitten anyone because `piano_transcription_inference` is an
+inference package.** `self.training` is always False there, so the in-place
+branch never executes and dropout is a no-op. It fires the instant the model
+is put in train mode — i.e. the instant this project tries to fine-tune.
+Four lines later the identical pattern uses `inplace=False`, so it is an
+upstream inconsistency rather than a deliberate memory optimisation.
+
+Patched at runtime in `training.model.enable_training_mode()` rather than by
+editing the installed package, so the fix travels with the repo to Kaggle and
+survives a reinstall. `load_pretrained` calls it, so no caller can forget.
+The regression test was verified to fail without the patch.
+
+**This is exactly what Phase 14.5 was for.** Discovered on CPU in minutes;
+on Kaggle it would have killed the first real run after the session had
+already been booked.
+
+### CPU training costs 110 seconds per step
+
+Measured: 62s forward + 48s backward at batch 1 with 8 threads. Two early
+attempts at the overfit-one-batch check were killed by a 2-minute timeout
+*mid-first-step*, which read as a hang. The rehearsal was rerun on 1-second
+segments (~2.5s/step) — same code path, ~10x cheaper.
+
+That number is not a tuning problem to solve. It is the quantified reason
+Kaggle is mandatory rather than convenient, and it belongs alongside HANDOFF
+§7's "no usable GPU".
+
+### What the rehearsal proved, on this machine, with no GPU
+
+- **Gradients flow and the loss falls**: 0.947 → 0.667 over 6 steps, with
+  onset dropping 0.0101 → 0.0009 and frame 0.0497 → 0.0015. Velocity
+  plateaus near 0.66, which is the *entropy floor* of a soft target
+  (80/128 = 0.625), not a stall — worth knowing before someone reads it as
+  a broken head.
+- **Kill/resume is exact**: weights identical, optimiser state restored, and
+  the RNG stream restored so a resumed run draws the same augmentations. All
+  three were checked independently, because a resume that silently changes
+  the training distribution reports nothing.
+- **The deployable checkpoint is 172.0 MB** and clears the 160MB floor.
+- **It loads through the real inference library** and produces **83 notes and
+  16 pedal events** — the pedals confirming the frozen pedal model was
+  re-attached correctly rather than lost.
+- **`--resume auto` works through the CLI**: interrupted at step 2, resumed at
+  step 3, with the JSONL log appending cleanly across the boundary.
+
+### Design decisions worth recording
+
+- **The velocity loss is masked to onset frames.** The decoder reads velocity
+  at exactly one frame per note (`velocity_output[bgn]`); everywhere else it
+  is *undefined*, not zero. Unmasked, ~99.96% of the target is zeros, the term
+  dominates the total, and the model learns to predict silence.
+- **Saves fire on a wall clock as well as a step count.** Kaggle kills at a
+  fixed hour regardless of how many steps have run, so a step-only trigger on
+  a slow dataloader can miss the deadline entirely.
+- **Resume is the same code path as start.** `--resume auto` finds the newest
+  checkpoint or begins fresh; there is no separate resume script, because a
+  path exercised only after a crash is untested at the moment it matters.
+- **`find_latest` orders by the step in the filename, not mtime** — a file
+  copied back from Kaggle carries a fresh mtime and would otherwise look
+  newest.
+- **The notebook contains no logic.** Every cell installs, invokes, or
+  downloads, and the repo is pinned to a commit, so what ran is recoverable
+  from `git_commit` — the same provenance discipline `report.py` applies to
+  scores.
+
+**Still outstanding:** the actual Kaggle GPU run. Everything it depends on has
+been rehearsed locally, so what remains to be discovered there is genuinely
+Kaggle-specific — whether `torchlibrosa` works on its torch/numpy 2.x, and
+what the real steps/sec is.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

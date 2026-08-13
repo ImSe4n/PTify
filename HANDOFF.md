@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 14 — the training data pipeline (14a targets, 14b index, 14c dataset) |
+| **Last completed** | Phase 14.5 — training loop written and **rehearsed end to end on CPU** |
 | **Branch** | `phase-14-training` — branch the next phase off `master` once merged |
-| **Tests** | 582 passing, ~61s, no model or network needed |
-| **Next** | **Phase 14.5** — the 1–2 GPU-hour smoke run that proves the chain before 15 |
+| **Tests** | 614 passing, ~61s, no model or network needed |
+| **Next** | **Run `training/kaggle/smoke_run.ipynb` on Kaggle GPU**, then Phase 15 |
 
 **The headline number this project was missing.** ByteDance scores **0.969 on
 MAESTRO and 0.787 on MAPS** — an **18.3-point drop** onto an unfamiliar piano
@@ -179,6 +179,28 @@ custom-trained model drops in the same way.
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**The ByteDance model is UNTRAINABLE as shipped — an in-place dropout breaks
+the backward pass.** `AcousticModelCRnn8Dropout.forward` (models.py:146-147)
+does `x = F.relu(...)` then `F.dropout(..., inplace=True)`, which overwrites
+the tensor autograd needs:
+
+    one of the variables needed for gradient computation has been modified
+    by an inplace operation ... output 0 of ReluBackward0
+
+It has never bitten anyone because `piano_transcription_inference` is an
+*inference* package: `self.training` is always False, so the branch never
+runs. It fires the instant the model is put in train mode. Four lines later
+the identical pattern uses `inplace=False`, so this is an upstream
+inconsistency, not a memory optimisation. `training.model.enable_training_mode()`
+patches it at runtime (not by editing the installed package, so the fix
+travels to Kaggle and survives a reinstall) and `load_pretrained` calls it.
+Weights are unaffected — it changes an activation's memory behaviour only.
+
+**CPU training is ~110 seconds per step** (62s forward + 48s backward, batch 1,
+8 threads, measured). That is not a tuning problem; it is why Kaggle is
+mandatory rather than convenient. Local rehearsal must use short segments
+(a 1s segment costs ~2.5s/step) or it will look like a hang.
 
 **MAPS `.mid` files are rejected by `pretty_midi` as corrupt.** Every MUS piece
 ships both `.mid` and `.txt`, and `read_midi` raises on the MIDI ("largest tick
@@ -624,14 +646,24 @@ ambiguous timing; that is a property of quantisation, not a bug to fix.
 - `music21.makeNotation()` is required before Verovio sees the file, or bars
   that do not add up cause material to be dropped silently.
 
-### Phase 14 is DONE. Next is 14.5, the smoke run.
+### Phase 14.5 is written and REHEARSED. What remains is the Kaggle run.
 
-**Do not start Phase 15 first.** Phase 14.5 spends 1–2 GPU-hours proving the
-whole chain end to end on 20 tracks — targets decode, a checkpoint round-trips
-Kaggle→local, `torchlibrosa` works on Kaggle's torch/numpy 2.x, resume works,
-the engine seam is real. **The score is expected to be terrible; that is not
-what it measures.** Every one of those is a chain-breaker that otherwise costs
-a full training run to discover.
+The training loop exists and has been driven end to end on CPU. Run
+`training/kaggle/smoke_run.ipynb` (GPU + Internet on, MAESTRO attached as a
+public dataset, `COMMIT` set). Budget 1–2 GPU-hours.
+
+**The score is expected to be terrible; that is not what it measures.** The
+gate is: 500 steps complete, an interrupted run resumes at the right step, and
+the downloaded checkpoint loads locally through
+`PianoTranscription(checkpoint_path=...)` and produces notes.
+
+Already proven locally, so a failure there is Kaggle-specific:
+gradients flow (loss 0.947 → 0.667), kill/resume restores weights + optimiser
++ RNG exactly, the deployable checkpoint is 172.0 MB, and it loads through the
+real inference library producing 83 notes and 16 pedal events.
+
+Genuinely unknown until Kaggle runs: whether `torchlibrosa` works on its
+torch/numpy 2.x, and the real steps/sec.
 
 What Phase 14 leaves ready:
 

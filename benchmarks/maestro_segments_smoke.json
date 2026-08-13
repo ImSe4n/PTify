@@ -1,0 +1,346 @@
+{
+  "schema": 1,
+  "dataset": "maestro-v3.0.0",
+  "license": "CC BY-NC-SA 4.0",
+  "segment_seconds": 10.0,
+  "hop_seconds": 1.0,
+  "splits": [
+    "train",
+    "validation"
+  ],
+  "csv_sha256": "cb88a64a12971a995dd41852aa3a33879501cf70d01b9a6feb637f4ad8d8ddff",
+  "summary": {
+    "train": {
+      "tracks": 20,
+      "segments": 13117,
+      "segment_hours": 36.44
+    },
+    "validation": {
+      "tracks": 20,
+      "segments": 9848,
+      "segment_hours": 27.36
+    }
+  },
+  "tracks": [
+    {
+      "track": "Alban_Berg-2008-Sonata_Op._1-MIDI-Unprocessed-54892a24",
+      "audio_filename": "2008/MIDI-Unprocessed_03_R2_2008_01-03_ORIG_MID--AUDIO_03_R2_2008_wav--2.wav",
+      "midi_filename": "2008/MIDI-Unprocessed_03_R2_2008_01-03_ORIG_MID--AUDIO_03_R2_2008_wav--2.midi",
+      "split": "train",
+      "duration": 759.51847125,
+      "n_segments": 750
+    },
+    {
+      "track": "Alban_Berg-2017-Sonata_Op._1-MIDI-Unprocessed-a4161414",
+      "audio_filename": "2017/MIDI-Unprocessed_066_PIANO066_MID--AUDIO-split_07-07-17_Piano-e_3-02_wav--3.wav",
+      "midi_filename": "2017/MIDI-Unprocessed_066_PIANO066_MID--AUDIO-split_07-07-17_Piano-e_3-02_wav--3.midi",
+      "split": "train",
+      "duration": 464.649432608,
+      "n_segments": 455
+    },
+    {
+      "track": "Alban_Berg-2018-Sonata_Op._1-MIDI-Unprocessed-df46fbe9",
+      "audio_filename": "2018/MIDI-Unprocessed_Chamber3_MID--AUDIO_10_R3_2018_wav--1.wav",
+      "midi_filename": "2018/MIDI-Unprocessed_Chamber3_MID--AUDIO_10_R3_2018_wav--1.midi",
+      "split": "train",
+      "duration": 698.661160312,
+      "n_segments": 689
+    },
+    {
+      "track": "Alexander_Scriabin-2004-24_Preludes_Op._11,_No._13-24-MIDI-Unprocessed-88bcb662",
+      "audio_filename": "2004/MIDI-Unprocessed_XP_21_R1_2004_01_ORIG_MID--AUDIO_21_R1_2004_01_Track01_wav.wav",
+      "midi_filename": "2004/MIDI-Unprocessed_XP_21_R1_2004_01_ORIG_MID--AUDIO_21_R1_2004_01_Track01_wav.midi",
+      "split": "train",
+      "duration": 872.640588096,
+      "n_segments": 863
+    },
+    {
+      "track": "Alexander_Scriabin-2013-Etude_Op._2_No.1;__Etudes_Op._8,_Nos._5,_11_and_12-ORIG-MIDI_03_7_-f4dd7a33",
+      "audio_filename": "2013/ORIG-MIDI_03_7_8_13_Group__MID--AUDIO_19_R2_2013_wav--3.wav",
+      "midi_filename": "2013/ORIG-MIDI_03_7_8_13_Group__MID--AUDIO_19_R2_2013_wav--3.midi",
+      "split": "train",
+      "duration": 563.904350625,
+      "n_segments": 554
+    },
+    {
+      "track": "Alexander_Scriabin-2011-Etude_in_D-flat_Major,_Op._8_No._10-MIDI-Unprocessed-6e8a91c8",
+      "audio_filename": "2011/MIDI-Unprocessed_15_R1_2011_MID--AUDIO_R1-D6_09_Track09_wav.wav",
+      "midi_filename": "2011/MIDI-Unprocessed_15_R1_2011_MID--AUDIO_R1-D6_09_Track09_wav.midi",
+      "split": "train",
+      "duration": 102.007109531,
+      "n_segments": 93
+    },
+    {
+      "track": "Alexander_Scriabin-2006-Etudes_from_Op.8-MIDI-Unprocessed-2d8a236a",
+      "audio_filename": "2006/MIDI-Unprocessed_19_R1_2006_01-07_ORIG_MID--AUDIO_19_R1_2006_04_Track04_wav.wav",
+      "midi_filename": "2006/MIDI-Unprocessed_19_R1_2006_01-07_ORIG_MID--AUDIO_19_R1_2006_04_Track04_wav.midi",
+      "split": "train",
+      "duration": 550.997045156,
+      "n_segments": 541
+    },
+    {
+      "track": "Alexander_Scriabin-2013-Fantasy_Op._28_in_B_Minor-ORIG-MIDI_02_7_1-a5cc329e",
+      "audio_filename": "2013/ORIG-MIDI_02_7_10_13_Group_MID--AUDIO_11_R3_2013_wav--3.wav",
+      "midi_filename": "2013/ORIG-MIDI_02_7_10_13_Group_MID--AUDIO_11_R3_2013_wav--3.midi",
+      "split": "train",
+      "duration": 512.164284844,
+      "n_segments": 503
+    },
+    {
+      "track": "Alexander_Scriabin-2011-Fantasy_in_B_Minor,_Op._28-MIDI-Unprocessed-36a3388f",
+      "audio_filename": "2011/MIDI-Unprocessed_09_R1_2011_MID--AUDIO_R1-D3_15_Track15_wav.wav",
+      "midi_filename": "2011/MIDI-Unprocessed_09_R1_2011_MID--AUDIO_R1-D3_15_Track15_wav.midi",
+      "split": "train",
+      "duration": 476.806414219,
+      "n_segments": 467
+    },
+    {
+      "track": "Alexander_Scriabin-2014-Fantasy,_Op._28-MIDI-UNPROCESSED-55227b0a",
+      "audio_filename": "2014/MIDI-UNPROCESSED_14-15_R1_2014_MID--AUDIO_15_R1_2014_wav--5.wav",
+      "midi_filename": "2014/MIDI-UNPROCESSED_14-15_R1_2014_MID--AUDIO_15_R1_2014_wav--5.midi",
+      "split": "train",
+      "duration": 486.857152031,
+      "n_segments": 477
+    },
+    {
+      "track": "Alexander_Scriabin-2008-Prelude_and_Nocturne_for_Left_Hand,_Op._9-MIDI-Unprocessed-10a2eb68",
+      "audio_filename": "2008/MIDI-Unprocessed_01_R1_2008_01-04_ORIG_MID--AUDIO_01_R1_2008_wav--3.wav",
+      "midi_filename": "2008/MIDI-Unprocessed_01_R1_2008_01-04_ORIG_MID--AUDIO_01_R1_2008_wav--3.midi",
+      "split": "train",
+      "duration": 463.605305625,
+      "n_segments": 454
+    },
+    {
+      "track": "Alexander_Scriabin-2006-Sonata_No._2-MIDI-Unprocessed-1acd846d",
+      "audio_filename": "2006/MIDI-Unprocessed_12_R1_2006_01-08_ORIG_MID--AUDIO_12_R1_2006_02_Track02_wav.wav",
+      "midi_filename": "2006/MIDI-Unprocessed_12_R1_2006_01-08_ORIG_MID--AUDIO_12_R1_2006_02_Track02_wav.midi",
+      "split": "train",
+      "duration": 613.737367031,
+      "n_segments": 604
+    },
+    {
+      "track": "Alexander_Scriabin-2018-Sonata_No._2_in_G-sharp_Minor,_Op._19-MIDI-Unprocessed-8a0c3b3f",
+      "audio_filename": "2018/MIDI-Unprocessed_Recital1-3_MID--AUDIO_01_R1_2018_wav--4.wav",
+      "midi_filename": "2018/MIDI-Unprocessed_Recital1-3_MID--AUDIO_01_R1_2018_wav--4.midi",
+      "split": "train",
+      "duration": 701.147803125,
+      "n_segments": 692
+    },
+    {
+      "track": "Alexander_Scriabin-2018-Sonata_No._2_in_G-sharp_Minor,_Op._19-MIDI-Unprocessed-118a7567",
+      "audio_filename": "2018/MIDI-Unprocessed_Recital17-19_MID--AUDIO_18_R1_2018_wav--2.wav",
+      "midi_filename": "2018/MIDI-Unprocessed_Recital17-19_MID--AUDIO_18_R1_2018_wav--2.midi",
+      "split": "train",
+      "duration": 685.005992344,
+      "n_segments": 676
+    },
+    {
+      "track": "Alexander_Scriabin-2017-Sonata_No._2_in_G-sharp_Minor,_Op._19_(Complete)-MIDI-Unprocessed-4acb1a4f",
+      "audio_filename": "2017/MIDI-Unprocessed_079_PIANO079_MID--AUDIO-split_07-09-17_Piano-e_1-04_wav--4.wav",
+      "midi_filename": "2017/MIDI-Unprocessed_079_PIANO079_MID--AUDIO-split_07-09-17_Piano-e_1-04_wav--4.midi",
+      "split": "train",
+      "duration": 661.909149792,
+      "n_segments": 652
+    },
+    {
+      "track": "Alexander_Scriabin-2018-Sonata_No._3_in_F-sharp_Minor,_Op._23-MIDI-Unprocessed-cac155db",
+      "audio_filename": "2018/MIDI-Unprocessed_Chamber6_MID--AUDIO_20_R3_2018_wav--2.wav",
+      "midi_filename": "2018/MIDI-Unprocessed_Chamber6_MID--AUDIO_20_R3_2018_wav--2.midi",
+      "split": "train",
+      "duration": 1117.95828375,
+      "n_segments": 1108
+    },
+    {
+      "track": "Alexander_Scriabin-2018-Sonata_No._3_in_F-sharp_Minor,_Op._23-MIDI-Unprocessed-007abd09",
+      "audio_filename": "2018/MIDI-Unprocessed_Recital5-7_MID--AUDIO_07_R1_2018_wav--2.wav",
+      "midi_filename": "2018/MIDI-Unprocessed_Recital5-7_MID--AUDIO_07_R1_2018_wav--2.midi",
+      "split": "train",
+      "duration": 1120.09102734,
+      "n_segments": 1111
+    },
+    {
+      "track": "Alexander_Scriabin-2018-Sonata_No._3_in_F-sharp_Minor,_Op._23-MIDI-Unprocessed-2a2cbe4e",
+      "audio_filename": "2018/MIDI-Unprocessed_Recital9-11_MID--AUDIO_11_R1_2018_wav--2.wav",
+      "midi_filename": "2018/MIDI-Unprocessed_Recital9-11_MID--AUDIO_11_R1_2018_wav--2.midi",
+      "split": "train",
+      "duration": 1195.01082422,
+      "n_segments": 1186
+    },
+    {
+      "track": "Alexander_Scriabin-2004-Sonata_No._5_in_F-sharp_Minor,_Op._53-MIDI-Unprocessed-0e8ca7c8",
+      "audio_filename": "2004/MIDI-Unprocessed_SMF_07_R1_2004_01_ORIG_MID--AUDIO_07_R1_2004_12_Track12_wav.wav",
+      "midi_filename": "2004/MIDI-Unprocessed_SMF_07_R1_2004_01_ORIG_MID--AUDIO_07_R1_2004_12_Track12_wav.midi",
+      "split": "train",
+      "duration": 659.835660317,
+      "n_segments": 650
+    },
+    {
+      "track": "Alexander_Scriabin-2008-Sonata_No._5,_Op._53-MIDI-Unprocessed-b721b3fb",
+      "audio_filename": "2008/MIDI-Unprocessed_07_R1_2008_01-04_ORIG_MID--AUDIO_07_R1_2008_wav--4.wav",
+      "midi_filename": "2008/MIDI-Unprocessed_07_R1_2008_01-04_ORIG_MID--AUDIO_07_R1_2008_wav--4.midi",
+      "split": "train",
+      "duration": 601.648703906,
+      "n_segments": 592
+    },
+    {
+      "track": "Alexander_Scriabin-2006-3_Etudes,_Op._65-MIDI-Unprocessed-29b6060a",
+      "audio_filename": "2006/MIDI-Unprocessed_17_R1_2006_01-06_ORIG_MID--AUDIO_17_R1_2006_04_Track04_wav.wav",
+      "midi_filename": "2006/MIDI-Unprocessed_17_R1_2006_01-06_ORIG_MID--AUDIO_17_R1_2006_04_Track04_wav.midi",
+      "split": "validation",
+      "duration": 397.857508125,
+      "n_segments": 388
+    },
+    {
+      "track": "Alexander_Scriabin-2009-5_Preludes,_Op.15-MIDI-Unprocessed-8be7e58b",
+      "audio_filename": "2009/MIDI-Unprocessed_07_R1_2009_04-05_ORIG_MID--AUDIO_07_R1_2009_07_R1_2009_04_WAV.wav",
+      "midi_filename": "2009/MIDI-Unprocessed_07_R1_2009_04-05_ORIG_MID--AUDIO_07_R1_2009_07_R1_2009_04_WAV.midi",
+      "split": "validation",
+      "duration": 400.557825938,
+      "n_segments": 391
+    },
+    {
+      "track": "Alexander_Scriabin-2009-Etude_Op._8,_No._13-MIDI-Unprocessed-e254d229",
+      "audio_filename": "2009/MIDI-Unprocessed_02_R1_2009_03-06_ORIG_MID--AUDIO_02_R1_2009_02_R1_2009_05_WAV.wav",
+      "midi_filename": "2009/MIDI-Unprocessed_02_R1_2009_03-06_ORIG_MID--AUDIO_02_R1_2009_02_R1_2009_05_WAV.midi",
+      "split": "validation",
+      "duration": 167.085837188,
+      "n_segments": 158
+    },
+    {
+      "track": "Alexander_Scriabin-2009-Fragilite,_Op.51-MIDI-Unprocessed-fe3f7634",
+      "audio_filename": "2009/MIDI-Unprocessed_11_R1_2009_06-09_ORIG_MID--AUDIO_11_R1_2009_11_R1_2009_06_WAV.wav",
+      "midi_filename": "2009/MIDI-Unprocessed_11_R1_2009_06-09_ORIG_MID--AUDIO_11_R1_2009_11_R1_2009_06_WAV.midi",
+      "split": "validation",
+      "duration": 138.421335938,
+      "n_segments": 129
+    },
+    {
+      "track": "Alexander_Scriabin-2013-Sonata_No._4_in_F-sharp_Major_,Op.30-ORIG-MIDI_01_7_6-7e30b682",
+      "audio_filename": "2013/ORIG-MIDI_01_7_6_13_Group__MID--AUDIO_03_R1_2013_wav--4.wav",
+      "midi_filename": "2013/ORIG-MIDI_01_7_6_13_Group__MID--AUDIO_03_R1_2013_wav--4.midi",
+      "split": "validation",
+      "duration": 440.110403906,
+      "n_segments": 431
+    },
+    {
+      "track": "Alexander_Scriabin-2014-Two_Impromptus,_Op._14_(Complete)-MIDI-UNPROCESSED-df8a516b",
+      "audio_filename": "2014/MIDI-UNPROCESSED_14-15_R1_2014_MID--AUDIO_15_R1_2014_wav--3.wav",
+      "midi_filename": "2014/MIDI-UNPROCESSED_14-15_R1_2014_MID--AUDIO_15_R1_2014_wav--3.midi",
+      "split": "validation",
+      "duration": 365.655350156,
+      "n_segments": 356
+    },
+    {
+      "track": "Alexander_Scriabin-2014-Waltz,_Op._38-MIDI-UNPROCESSED-5f40fed0",
+      "audio_filename": "2014/MIDI-UNPROCESSED_14-15_R1_2014_MID--AUDIO_15_R1_2014_wav--4.wav",
+      "midi_filename": "2014/MIDI-UNPROCESSED_14-15_R1_2014_MID--AUDIO_15_R1_2014_wav--4.midi",
+      "split": "validation",
+      "duration": 319.910203594,
+      "n_segments": 310
+    },
+    {
+      "track": "C\u00e9sar_Franck-2006-Prel._Chor._Fug.-MIDI-Unprocessed-92c4be15",
+      "audio_filename": "2006/MIDI-Unprocessed_22_R1_2006_01-04_ORIG_MID--AUDIO_22_R1_2006_02_Track02_wav.wav",
+      "midi_filename": "2006/MIDI-Unprocessed_22_R1_2006_01-04_ORIG_MID--AUDIO_22_R1_2006_02_Track02_wav.midi",
+      "split": "validation",
+      "duration": 1188.161205,
+      "n_segments": 1179
+    },
+    {
+      "track": "C\u00e9sar_Franck-2018-Prelude,_Choral_et_Fugue-MIDI-Unprocessed-1dee9cf3",
+      "audio_filename": "2018/MIDI-Unprocessed_Recital8_MID--AUDIO_08_R1_2018_wav--2.wav",
+      "midi_filename": "2018/MIDI-Unprocessed_Recital8_MID--AUDIO_08_R1_2018_wav--2.midi",
+      "split": "validation",
+      "duration": 1054.57827234,
+      "n_segments": 1045
+    },
+    {
+      "track": "C\u00e9sar_Franck-2018-Prelude,_Choral_et_Fugue-MIDI-Unprocessed-d53e5eb4",
+      "audio_filename": "2018/MIDI-Unprocessed_Recital9-11_MID--AUDIO_10_R1_2018_wav--5.wav",
+      "midi_filename": "2018/MIDI-Unprocessed_Recital9-11_MID--AUDIO_10_R1_2018_wav--5.midi",
+      "split": "validation",
+      "duration": 1021.9006875,
+      "n_segments": 1012
+    },
+    {
+      "track": "Felix_Mendelssohn-2008-Etude_in_A_Minor-MIDI-Unprocessed-27a4e11d",
+      "audio_filename": "2008/MIDI-Unprocessed_02_R1_2008_01-05_ORIG_MID--AUDIO_02_R1_2008_wav--3.wav",
+      "midi_filename": "2008/MIDI-Unprocessed_02_R1_2008_01-05_ORIG_MID--AUDIO_02_R1_2008_wav--3.midi",
+      "split": "validation",
+      "duration": 76.0442615625,
+      "n_segments": 67
+    },
+    {
+      "track": "Felix_Mendelssohn-2011-Rondo_Capriccioso_in_E_Minor,_Op._14-MIDI-Unprocessed-a2d7cd83",
+      "audio_filename": "2011/MIDI-Unprocessed_16_R1_2011_MID--AUDIO_R1-D6_15_Track15_wav.wav",
+      "midi_filename": "2011/MIDI-Unprocessed_16_R1_2011_MID--AUDIO_R1-D6_15_Track15_wav.midi",
+      "split": "validation",
+      "duration": 359.457439688,
+      "n_segments": 350
+    },
+    {
+      "track": "Felix_Mendelssohn-2013-Rondo_Capriccioso_in_E_Minor,_Op._14-ORIG-MIDI_02_7_6-f26f83aa",
+      "audio_filename": "2013/ORIG-MIDI_02_7_6_13_Group__MID--AUDIO_06_R1_2013_wav--4.wav",
+      "midi_filename": "2013/ORIG-MIDI_02_7_6_13_Group__MID--AUDIO_06_R1_2013_wav--4.midi",
+      "split": "validation",
+      "duration": 362.836175625,
+      "n_segments": 353
+    },
+    {
+      "track": "Franz_Liszt-2006-Funerailles-MIDI-Unprocessed-ffb2bfa9",
+      "audio_filename": "2006/MIDI-Unprocessed_09_R1_2006_01-04_ORIG_MID--AUDIO_09_R1_2006_01_Track01_wav.wav",
+      "midi_filename": "2006/MIDI-Unprocessed_09_R1_2006_01-04_ORIG_MID--AUDIO_09_R1_2006_01_Track01_wav.midi",
+      "split": "validation",
+      "duration": 697.635520313,
+      "n_segments": 688
+    },
+    {
+      "track": "Franz_Liszt-2008-Funerailles-MIDI-Unprocessed-ddaf2e07",
+      "audio_filename": "2008/MIDI-Unprocessed_15_R2_2008_01-04_ORIG_MID--AUDIO_15_R2_2008_wav--4.wav",
+      "midi_filename": "2008/MIDI-Unprocessed_15_R2_2008_01-04_ORIG_MID--AUDIO_15_R2_2008_wav--4.midi",
+      "split": "validation",
+      "duration": 630.147607031,
+      "n_segments": 621
+    },
+    {
+      "track": "Franz_Liszt-2009-Hungarian_Rhapsody-MIDI-Unprocessed-2846c1e3",
+      "audio_filename": "2009/MIDI-Unprocessed_12_R1_2009_03-05_ORIG_MID--AUDIO_12_R1_2009_12_R1_2009_05_WAV.wav",
+      "midi_filename": "2009/MIDI-Unprocessed_12_R1_2009_03-05_ORIG_MID--AUDIO_12_R1_2009_12_R1_2009_05_WAV.midi",
+      "split": "validation",
+      "duration": 608.523697031,
+      "n_segments": 599
+    },
+    {
+      "track": "Franz_Liszt-2011-Hungarian_Rhapsody_No._12,_S._244_12-MIDI-Unprocessed-03bb4d4e",
+      "audio_filename": "2011/MIDI-Unprocessed_03_R1_2011_MID--AUDIO_R1-D1_19_Track19_wav.wav",
+      "midi_filename": "2011/MIDI-Unprocessed_03_R1_2011_MID--AUDIO_R1-D1_19_Track19_wav.midi",
+      "split": "validation",
+      "duration": 566.314871719,
+      "n_segments": 557
+    },
+    {
+      "track": "Franz_Liszt-2013-Hungarian_Rhapsody_No._13_(arr._Volodos)-ORIG-MIDI_02_7_8-86b1eb0c",
+      "audio_filename": "2013/ORIG-MIDI_02_7_8_13_Group__MID--AUDIO_14_R2_2013_wav--4.wav",
+      "midi_filename": "2013/ORIG-MIDI_02_7_8_13_Group__MID--AUDIO_14_R2_2013_wav--4.midi",
+      "split": "validation",
+      "duration": 421.862558906,
+      "n_segments": 412
+    },
+    {
+      "track": "Franz_Liszt-2011-Hungarian_Rhapsody_No._13,_S._244_13-MIDI-Unprocessed-28d5d60d",
+      "audio_filename": "2011/MIDI-Unprocessed_10_R1_2011_MID--AUDIO_R1-D4_05_Track05_wav.wav",
+      "midi_filename": "2011/MIDI-Unprocessed_10_R1_2011_MID--AUDIO_R1-D4_05_Track05_wav.midi",
+      "split": "validation",
+      "duration": 507.396661406,
+      "n_segments": 498
+    },
+    {
+      "track": "Franz_Liszt-2013-Hungarian_Rhapsody_No._15_in_A_Minor-ORIG-MIDI_01_7_8-d3bef048",
+      "audio_filename": "2013/ORIG-MIDI_01_7_8_13_Group__MID--AUDIO_02_R2_2013_wav--5.wav",
+      "midi_filename": "2013/ORIG-MIDI_01_7_8_13_Group__MID--AUDIO_02_R2_2013_wav--5.midi",
+      "split": "validation",
+      "duration": 313.966032187,
+      "n_segments": 304
+    }
+  ]
+}
