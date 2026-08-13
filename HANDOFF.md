@@ -197,6 +197,18 @@ patches it at runtime (not by editing the installed package, so the fix
 travels to Kaggle and survives a reinstall) and `load_pretrained` calls it.
 Weights are unaffected — it changes an activation's memory behaviour only.
 
+**A loss that is safe in fp32 can be NaN under AMP, from step 1, silently.**
+The first Kaggle run produced `loss nan` at every step and raised nothing.
+Cause: BCE clamped its sigmoid input at `1e-7`, but fp16's smallest normal is
+6.1e-5 and it carries ~3 decimal digits near 1.0, so **`1 - 1e-7` rounds to
+exactly 1.0** and `log(1 - output)` becomes `log(0) = -inf`. The NaN then
+reaches every weight through the backward pass and the run continues forever.
+Measured: `1 - 2e-4` already collapses to 1.0; 5e-4 is the smallest bound that
+round-trips at both ends. Fixed by casting to fp32 **inside** the loss (so the
+clamp and the ~88,000-cell reduction both happen in fp32) and by raising on a
+non-finite loss at the first occurrence rather than training on garbage.
+**A CPU rehearsal cannot catch this** — it never runs the fp16 path.
+
 **CPU training is ~110 seconds per step** (62s forward + 48s backward, batch 1,
 8 threads, measured). That is not a tuning problem; it is why Kaggle is
 mandatory rather than convenient. Local rehearsal must use short segments

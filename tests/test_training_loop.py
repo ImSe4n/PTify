@@ -77,6 +77,61 @@ def test_bce_handles_saturated_outputs():
     assert torch.isfinite(loss)
 
 
+def test_bce_is_finite_in_half_precision():
+    """REGRESSION (Phase 14.5, first Kaggle run): NaN loss from step 1.
+
+    Under AMP the model's sigmoid output is fp16, whose smallest normal is
+    6.1e-5. The original clamp bound of 1e-7 meant `1 - 1e-7` rounded to
+    **exactly 1.0**, so `log(1 - output)` was log(0) = -inf and the NaN
+    reached every weight through the backward pass. The run then produced NaN
+    forever with no error raised.
+
+    Anything that makes the loss compute in fp16 again — a tighter clamp, a
+    dropped `.float()` — reintroduces it, and only a GPU run would notice.
+    """
+    output = torch.tensor([[0.0, 1.0, 0.5]], dtype=torch.float16)
+    target = torch.tensor([[1.0, 0.0, 0.5]], dtype=torch.float16)
+
+    assert torch.isfinite(bce(output, target))
+    assert torch.isfinite(
+        masked_bce(output, target, torch.ones_like(output))
+    )
+
+
+def test_bce_reduces_in_float32():
+    """The reduction must not accumulate in fp16: summing ~88,000 cells per
+    sample in half precision loses low-order bits even when nothing
+    overflows."""
+    output = torch.full((1, 1001, 88), 0.5, dtype=torch.float16)
+    target = torch.zeros((1, 1001, 88), dtype=torch.float16)
+
+    loss = bce(output, target)
+
+    assert loss.dtype == torch.float32
+    assert float(loss) == pytest.approx(0.6931, abs=1e-3)
+
+
+def test_clamp_bound_survives_a_half_precision_round_trip():
+    """The canary for the exact arithmetic that failed.
+
+    The `.float()` cast means the clamp is applied in fp32, where any small
+    bound is exact. This asserts the *defence in depth*: a saturated fp16
+    output that reaches the clamp still yields a finite log on both ends, so
+    the loss holds up even if the cast is ever refactored away.
+
+    Measured on this machine: `1 - 2e-4` already rounds to exactly 1.0 in
+    fp16, so a bound tighter than ~5e-4 provides no fp16 protection on its
+    own — which is precisely why the cast is the primary fix.
+    """
+    saturated = torch.tensor([[0.0, 1.0]], dtype=torch.float16)
+    target = torch.tensor([[1.0, 0.0]], dtype=torch.float16)
+
+    loss = bce(saturated, target)
+
+    assert torch.isfinite(loss)
+    assert loss.dtype == torch.float32
+
+
 def test_bce_accepts_soft_regression_targets():
     """Onset targets are ramps, not 0/1 labels."""
     loss = bce(torch.tensor([[0.5, 0.25]]), torch.tensor([[0.5, 0.25]]))

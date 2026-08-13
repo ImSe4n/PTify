@@ -135,7 +135,12 @@ def train(args) -> int:
     # AMP only helps on CUDA; on CPU it is a no-op wrapper that costs nothing
     # but must still exist so the save/resume shape is identical either way.
     use_amp = device.startswith("cuda") and not args.no_amp
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    # torch.amp.GradScaler on >=2.4; torch.cuda.amp.GradScaler on 2.2 (the
+    # local pin). Kaggle ships 2.10, where the old spelling warns.
+    try:
+        scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    except (AttributeError, TypeError):
+        scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
     start_step = 0
     if args.resume:
@@ -180,6 +185,19 @@ def train(args) -> int:
                                 enabled=use_amp):
                 losses = compute_losses(note_model(batch["waveform"]), batch)
 
+            if not torch.isfinite(losses["total"]):
+                # A NaN loss poisons every weight through the backward pass,
+                # and the run continues producing NaN forever with no error.
+                # The first Kaggle run did exactly that for 500 steps. Fail at
+                # the first occurrence instead, naming the head responsible.
+                raise RuntimeError(
+                    f"Non-finite loss at step {step}: "
+                    + ", ".join(f"{k}={float(v.detach()):.4g}"
+                                for k, v in losses.items())
+                    + ". Under AMP this is usually the loss underflowing in "
+                      "fp16 — check training/losses.py:_CLAMP."
+                )
+
             scaler.scale(losses["total"]).backward()
             # Unscale before clipping, or the clip threshold is applied to
             # scaled gradients and does nothing at fp16's scale factors.
@@ -201,15 +219,17 @@ def train(args) -> int:
                     "steps_per_s": round(
                         (step - start_step) / max(elapsed, 1e-6), 3),
                     "grad_norm": float(grad_norm),
-                    **{k: float(v) for k, v in losses.items()},
+                    # .detach() before float(): torch warns that converting a
+                    # grad-tracking tensor to a scalar can behave unexpectedly.
+                    **{k: float(v.detach()) for k, v in losses.items()},
                 }
                 if device.startswith("cuda"):
                     record["gpu_mem_gb"] = round(
                         torch.cuda.max_memory_allocated() / 1e9, 2)
                 logger.log(record)
-                print(f"  step {step:>6} loss {float(losses['total']):.4f} "
-                      f"(onset {float(losses['onset']):.4f} "
-                      f"frame {float(losses['frame']):.4f}) "
+                print(f"  step {step:>6} loss {record['total']:.4f} "
+                      f"(onset {record['onset']:.4f} "
+                      f"frame {record['frame']:.4f}) "
                       f"{record['steps_per_s']:.2f} steps/s")
 
             if val_loader is not None and step % args.validate_every == 0:
