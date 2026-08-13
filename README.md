@@ -185,6 +185,7 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `evaluation/augment.py` | Reverb / pitch / noise / EQ presets |
 | `evaluation/cases.py` | The 8 synthetic benchmark cases |
 | `evaluation/corpus.py` | Real-audio corpus: fetch MAESTRO, build a manifest |
+| `evaluation/maps.py` | MAPS Disklavier corpus: cross-dataset + mic-distance A/B |
 | `evaluation/benchmark.py` | Runner + report formats |
 | `evaluation/report.py` | JSON baselines with environment provenance |
 | `api/app.py` | `create_app()` factory, error mapping, TTL janitor |
@@ -253,6 +254,15 @@ accuracy" number would be meaningless. ByteDance goes *up* because MAESTRO is it
 training distribution. Basic Pitch goes *down* 13 points because it is a
 general-purpose multi-instrument model meeting real piano acoustics.
 
+On **MAPS**, which neither engine trained on, the picture changes again:
+
+| engine | MAESTRO | MAPS | |
+|---|---|---|---|
+| ByteDance | 0.969 | **0.787** | −0.183 — loses its home-field advantage |
+| Basic Pitch | 0.730 | **0.727** | −0.003 — it never had one |
+
+The 24-point gap on MAESTRO narrows to **6.3 points** on unfamiliar audio.
+
 A useful check on the harness itself: ByteDance's published MAESTRO note F1 is
 0.9677, and this corpus measures **0.9693** — agreement to within 0.002,
 independently reproducing a published benchmark.
@@ -278,14 +288,26 @@ under sustain pedal.
 **Training** (can run in parallel)
 - [x] **Phase 12** — evaluation harness (no GPU needed)
 - [x] **Phase 13** — real-audio benchmark + baseline numbers
+- [x] **Phase 13b** — MAPS cross-dataset benchmark; the generalisation gap **measured**
 - [ ] **Phase 14–16** — data pipeline, model, augmentation-focused training
 - [ ] **Phase 17** — ship the custom model behind `TranscriptionEngine`
 
 The training goal is **beating ByteDance on your own recordings**, not on the
-MAESTRO benchmark. Models overfit badly to their training audio — a
-[20-point note-F1 drop](https://arxiv.org/abs/2402.01424) from sound conditions
-alone — so ByteDance's 96.72% is on studio Disklavier recordings, not your piano
-in your room. That gap is real, measurable, and beatable on free-tier compute.
+MAESTRO benchmark. Models overfit badly to their training audio — published work
+reports a [~20-point note-F1 drop](https://arxiv.org/abs/2402.01424) from sound
+conditions alone.
+
+**That drop is no longer a citation. It is measured here: 18.3 points.**
+
+| ByteDance | onset F1 | |
+|---|---|---|
+| MAESTRO | 0.969 | its own training distribution |
+| MAPS | **0.787** | a different piano, room and microphones |
+
+And 12.9 of those points are **room acoustics alone**, isolated on the same
+performances recorded at two mic distances (0.851 close → 0.722 ambient,
+consistent across 7 of 7 pieces). That is the gap the training track exists to
+close, and it is now a number rather than a prediction.
 
 ### Measuring that gap needs an answer key
 
@@ -296,10 +318,28 @@ to make a reference just measures the engine against itself.
 
 The way out is **Disklavier** datasets — computer-controlled acoustic pianos
 where a MIDI file drives the physical keys, so real hammers, strings, room and
-microphones are captured while the ground truth stays exact. Useful ones, all
-freely licensed for research: [MAPS](https://zenodo.org/records/18160555)
-(60 recordings at **two mic distances**, 50cm and 3–4m — a controlled
-room-acoustics experiment, and the standard cross-dataset test),
+microphones are captured while the ground truth stays exact. The performance is
+a replay rather than a live take, but the MIDI usually comes from a human
+performance, so the phrasing is real and only the reproduction is mechanical.
+
+```bash
+python -m evaluation.maps --list                        # dry run, no download
+python -m evaluation.maps --out recordings/maps_disklavier
+```
+
+`evaluation/maps.py` fetches the two Disklavier subsets of
+[MAPS](https://zenodo.org/records/18160555) — 60 real recordings, 260 minutes,
+154,352 reference notes. The other seven MAPS subsets are software synths, which
+`evaluation/synth.py` already covers, so they are never fetched. Zenodo serves
+HTTP range requests, so only the 30 music pieces per subset come down (~2.7GB)
+rather than the full 5.3GB of zips.
+
+**7 of the 30 pieces appear in both subsets** — the same performance at 50cm and
+at 3–4m. Those 7 are the controlled room-acoustics experiment; the manifest
+marks them `paired`. The other 23 per subset are different repertoire, so a
+whole-subset comparison would confound mic distance with how hard the music is.
+
+Two other Disklavier datasets remain unused:
 [SMD](https://www.audiolabs-erlangen.de/resources/MIR/SMD/midi) (50
 performances, different hall and piano),
 [Vienna 4x22](https://github.com/CPJKU/vienna4x22) (22 pianists on a

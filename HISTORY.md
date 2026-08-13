@@ -910,6 +910,77 @@ generator's timing is unit-tested directly instead.
 
 ---
 
+## 2026-08-12 — Phase 13b: MAPS, and the number the project was built on
+
+Phase 13 ended with a stated gap: MAESTRO measures "how well does this engine do
+on studio Disklavier audio", not "how well does it generalise". HANDOFF said to
+close that before investing in training, because otherwise the training target
+is a proxy. This closed it.
+
+**The result**
+
+| engine | MAESTRO | MAPS | drop |
+|---|---|---|---|
+| ByteDance | 0.969 | **0.787** | **−0.183** |
+| Basic Pitch | 0.730 | **0.727** | −0.003 |
+
+README predicted a ~20-point loss on unfamiliar acoustics, citing
+[Robust AMT (2024)](https://arxiv.org/abs/2402.01424). **Measured here: 18.3.**
+That prediction was load-bearing for Phases 14–17 and had never been tested on
+this hardware. Basic Pitch barely moves because it was never fitted to MAESTRO
+— it has no home-field advantage to lose.
+
+**Room acoustics cost 12.9 points, isolated cleanly.** The 7 paired pieces are
+the same performances at two mic distances, so only the room differs:
+`ENSTDkCl` (close, ~50cm) 0.851 → `ENSTDkAm` (ambient, 3–4m) 0.722, with **7 of
+7 pieces moving the same direction** (sd 0.064). Offset F1 drops too, 0.659 →
+0.555.
+
+Basic Pitch shows almost no mic-distance effect (−0.015, 3 up / 4 down). That
+is not robustness: at 0.724 it is already degraded enough that reverb has little
+left to take.
+
+**A claim in HANDOFF was wrong.** §9 described the two subsets as "the same
+performances, same piano, two mic distances". Each holds 30 MUS pieces and only
+**7 are shared**. The other 23 per subset are different repertoire, so comparing
+Cl against Am across all 30 confounds mic distance with repertoire difficulty —
+a weaker experiment than the text promised. The corrected numbers use the 7.
+Found by listing the archives before trusting the description.
+
+**Fetching 2.7GB out of 5.3GB of zips.** Zenodo serves HTTP range requests
+(verified: 206 with a correct `Content-Range`), so `maps.py` reads each zip's
+central directory remotely and pulls only the 30 `MUS` members per subset. The
+other ~12,200 entries per archive are ISOL/RAND/UCHO — isolated notes and chords
+for multi-F0 work, which `evaluation/synth.py` already covers. Seven of MAPS's
+nine subsets are software synths and are never fetched for the same reason.
+
+**Traps found**
+- **MAPS `.mid` files are rejected by `pretty_midi`** ("largest tick of
+  18526002, it is likely corrupt"), so `read_midi` raises on every one. The
+  `.txt` annotation is MAPS's canonical format and what the literature scores
+  against; parsing it is the supported path, not a workaround.
+- **MAPS annotations carry no velocity.** `mir_eval` rescales velocities to
+  best-fit the reference, so a constant reference makes the velocity F1 silently
+  echo the onset figure rather than fail visibly. The manifest carries
+  `velocity_metric_valid: false`.
+- **`*.mid` was not gitignored.** `*.midi` was, because the MAESTRO fetcher
+  writes that extension — but `maps.py` writes `.mid`, and `--out` can point
+  anywhere. MAPS is CC BY-NC-SA, so a stray reference file outside
+  `recordings/` would have been committable. Now ignored globally.
+- **An empty background log is not a hung process.** Reported the ByteDance run
+  as dead because `powershell.exe` is not on PATH inside the Bash tool and the
+  "command not found" read as "no processes". It had 2,277 CPU-seconds at the
+  time. HANDOFF §4 already warned that Python block-buffers a redirected stdout;
+  the lesson generalises to trusting a tool that silently failed.
+
+**Cost.** The paired ByteDance run was ~1.9h for 58 min of audio. The full
+60-track run (~8h) was deliberately skipped: on Basic Pitch, where both exist,
+the 14 paired tracks predicted the 60-track mean to within 0.003, so the extra
+6 hours would only have narrowed the CI from ±0.043 to ±0.021 — no decision in
+this project turns on that.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on
