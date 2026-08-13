@@ -634,3 +634,94 @@ def test_jsonl_serialises_numpy_and_tensor_scalars(tmp_path):
     logger.log({"step": 1, "loss": np.float32(0.5), "g": torch.tensor(1.5)})
 
     assert logger.read()[0]["loss"] == pytest.approx(0.5)
+
+
+# --- augmentation wiring (Phase 16a) --------------------------------------
+
+def _augment_args(**kw):
+    from training.train import build_parser
+
+    argv = ["--audio-root", "/nonexistent"]
+    for key, value in kw.items():
+        flag = "--" + key.replace("_", "-")
+        argv += [flag] if value is True else [flag, str(value)]
+    return build_parser().parse_args(argv)
+
+
+def test_augmentation_is_off_by_default():
+    """Phase 14.5's known-good configuration must stay reproducible."""
+    from training.train import build_augmenter
+
+    assert build_augmenter(_augment_args()) is None
+
+
+def test_augment_flag_builds_a_sampler():
+    from training.augment import AugmentationSampler
+    from training.train import build_augmenter
+
+    assert isinstance(build_augmenter(_augment_args(augment=True)),
+                      AugmentationSampler)
+
+
+def test_augment_flags_reach_the_sampler():
+    from training.train import build_augmenter
+
+    sampler = build_augmenter(_augment_args(
+        augment=True, augment_seed=7, augment_clean_prob=0.4,
+        augment_max_cents=30.0,
+    ))
+    assert sampler.seed == 7
+    assert sampler.clean_prob == 0.4
+    assert sampler.max_cents == 30.0
+
+
+def test_eq_is_off_unless_asked_for():
+    from training.train import build_augmenter
+
+    assert build_augmenter(_augment_args(augment=True)).eq_prob == 0.0
+    assert build_augmenter(
+        _augment_args(augment=True, augment_eq_prob=0.5)).eq_prob == 0.5
+
+
+def test_augmentation_settings_land_in_the_checkpoint_config():
+    """`vars(args)` flows into save_training_state, so a run's augmentation
+    is recoverable from the checkpoint rather than from memory."""
+    config = vars(_augment_args(augment=True, augment_seed=3))
+    assert config["augment"] is True
+    assert config["augment_seed"] == 3
+
+
+def test_epoch_variety_comes_from_the_index_not_a_mutation():
+    """`train.py` rebuilds the loader with a new `epoch_offset` rather than
+    calling `set_epoch`, because a persistent worker holds a COPY of the
+    sampler. Measured: turning persistence off to make a mutation propagate
+    cost 8.3 seg/s/worker against 14.8, breaking the >=15 budget."""
+    from training.train import build_augmenter
+
+    sampler = build_augmenter(_augment_args(augment=True,
+                                            augment_clean_prob=0.0))
+    assert sampler.plan(5) != sampler.plan(5 + 10_000)
+
+
+def test_set_epoch_still_works_for_offline_use():
+    from training.train import build_augmenter
+
+    sampler = build_augmenter(_augment_args(augment=True,
+                                            augment_clean_prob=0.0))
+    first = sampler.plan(5)
+    sampler.set_epoch(1)
+    assert sampler.plan(5) != first
+
+
+def test_validation_augmenter_is_pinned_to_epoch_zero():
+    """A val condition that moved with the training epoch would make the
+    curve uninterpretable: it would shift because the augmentation shifted."""
+    from training.train import build_augmenter
+
+    args = _augment_args(augment=True, augment_clean_prob=0.0)
+    val = build_augmenter(args, epoch=0)
+    train_sampler = build_augmenter(args)
+    train_sampler.set_epoch(4)
+
+    assert val.plan(5) == build_augmenter(args, epoch=0).plan(5)
+    assert val.plan(5) != train_sampler.plan(5)

@@ -183,6 +183,222 @@ def pitch_shift(
     return _normalise(shifted), new
 
 
+# --- detune by resampling (the training-time pitch shift) ------------------
+
+def detune_ratio(cents: float) -> float:
+    """Playback-rate ratio for a detune of `cents`. 100 cents = a semitone."""
+    return 2.0 ** (float(cents) / 1200.0)
+
+
+def detune_source_seconds(seconds: float, cents: float) -> float:
+    """How much SOURCE audio a `seconds`-long detuned output consumes.
+
+    An upshift plays faster, so it eats MORE source than it produces:
+    +50 cents over 10s needs 10.2930s; -50 cents needs 9.7153s. The caller
+    must read this much or the result is short, and a short result is padded
+    with silence that teaches the model notes stop there.
+    """
+    return float(seconds) * detune_ratio(cents)
+
+
+def _rescale_times(
+    labels: Transcription, factor: float, duration: float
+) -> Transcription:
+    """Multiply every event time by `factor`.
+
+    `clamp=False` throughout. `NoteEvent.__post_init__` lengthens any offset
+    within MIN_NOTE_SEC of its onset, so a 10ms grace note scaled by 0.97
+    would be silently stretched to 20ms — rewriting ground truth rather than
+    transforming it. `_rebase` in training/dataset.py documents the same trap.
+    """
+    out = Transcription(
+        duration=duration, engine=labels.engine, source_path=labels.source_path
+    )
+    out.notes = [
+        replace(n, onset=n.onset * factor, offset=n.offset * factor,
+                clamp=False)
+        for n in labels.notes
+    ]
+    out.pedals = [
+        replace(p, onset=p.onset * factor, offset=p.offset * factor)
+        for p in labels.pedals
+    ]
+    return out
+
+
+def detune_resample(
+    audio: np.ndarray,
+    labels: Transcription,
+    sr: int,
+    cents: float = 0.0,
+    *,
+    out_samples: int | None = None,
+    quality: str = "HQ",
+) -> AudioLabels:
+    """Detune by changing playback rate. ~5ms, against `pitch_shift`'s 19.7s.
+
+    WHY NOT `pitch_shift`
+    ---------------------
+    That is a phase vocoder plus a resample and costs **19.7 seconds per 10s
+    segment** — ~300x over the >=15 segments/sec/worker dataloader budget. A
+    rate change is one resample: measured 5.3ms at 25 cents and 5.4ms at 50,
+    on 160000 samples at 16kHz.
+
+    The trade is that a rate change moves TIME as well as pitch, which is not
+    what an out-of-tune piano does. Over a 10s training segment a 50-cent
+    shift is a 2.9% tempo change — inaudible as tempo, and the labels are
+    corrected exactly — so it buys 300x for nothing that matters here. It is
+    NOT a substitute for `pitch_shift` in the benchmark, where absolute tempo
+    fidelity is part of the claim.
+
+    LABELS ARE RESCALED, NOT MERELY CARRIED
+    ---------------------------------------
+    A label at source time t lands at output time t / ratio. The error from
+    skipping this GROWS WITH t — it is `t * |1 - 1/ratio|` — so the segment
+    END is the worst case, not some average:
+
+        cents   error at t=1s   error at t=10s
+            5          2.9 ms          28.8 ms
+           10          5.8 ms          57.6 ms
+           25         14.3 ms         143.4 ms
+           50         28.5 ms         284.7 ms
+
+    Against mir_eval's 50ms onset tolerance, **even a 10-cent detune breaks
+    tolerance before the segment ends**. There is no detune small enough to
+    skip the rescale. Uncorrected this is not a scoring error but silent
+    label corruption: it trains a systematic time offset into the model, the
+    loss still falls, and nothing raises.
+
+    Pitches are UNCHANGED. A fractional detune is an out-of-tune instrument,
+    not a transposition — the same contract `pitch_shift` applies to
+    fractional input.
+    """
+    if cents == 0 or len(audio) == 0:
+        return audio, labels
+
+    import soxr
+
+    ratio = detune_ratio(cents)
+    # Reading the source at `sr * ratio` and writing at `sr` is what shifts
+    # the pitch: the samples are reinterpreted as having been captured faster.
+    shifted = soxr.resample(
+        np.ascontiguousarray(audio, dtype=np.float32),
+        sr * ratio, sr, quality=quality,
+    )
+
+    if out_samples is None:
+        out_samples = int(round(len(audio) / ratio))
+    if len(shifted) != out_samples:
+        # Sub-millisecond rounding only, when the caller over-read correctly.
+        shifted = _fit(shifted, out_samples)
+
+    return shifted.astype(np.float32), _rescale_times(
+        labels, 1.0 / ratio, out_samples / float(sr)
+    )
+
+
+def _fit(audio: np.ndarray, samples: int) -> np.ndarray:
+    """Trim or zero-pad to exactly `samples`."""
+    if len(audio) >= samples:
+        return audio[:samples]
+    out = np.zeros(samples, dtype=np.float32)
+    out[: len(audio)] = audio
+    return out
+
+
+# --- a bank of pre-transformed impulse responses --------------------------
+
+class ImpulseBank:
+    """Pre-FFT'd room impulse responses, for reverb inside a dataloader.
+
+    WHY CACHE
+    ---------
+    Not to save generating them — `make_impulse_response` is 1.2ms and
+    irrelevant. To save the CONVOLUTION. `fftconvolve` re-transforms the
+    impulse response on every call, measured at 15.7ms per 10s segment at
+    16kHz. Holding `rfft(ir)` at a fixed FFT length and computing
+    `irfft(rfft(x) * IR)` costs **8.7ms** — a 7ms saving against a ~20ms
+    per-segment budget, i.e. the difference between 17 and 22 segments per
+    second per worker.
+
+    MEMORY: one spectrum is 0.74MB at complex64, so the default 24 IRs cost
+    ~17.8MB PER WORKER. At `--workers 2` that is ~36MB, which is fine; do not
+    grow this to hundreds without rechecking, because dataloader workers are
+    separate processes and each pays it in full.
+
+    VARIETY: 24 impulse responses across ~564,000 training segments means each
+    is reused ~23,500 times per epoch. That is acceptable because the IR is
+    only one of the drawn parameters — `wet` and the detune vary continuously
+    per segment, so two segments sharing an IR still do not share a condition.
+
+    `rt60` is drawn LOG-uniformly because the damage is nonlinear: rt60 0.6
+    costs about 1 F1 point and rt60 1.4 costs 9.3 (HANDOFF §6). Uniform
+    sampling would put most of the mass in the region that barely matters.
+    """
+
+    def __init__(
+        self,
+        sr: int,
+        *,
+        size: int = 24,
+        rt60_range: tuple[float, float] = (0.2, 1.6),
+        pre_delay_range: tuple[float, float] = (0.005, 0.03),
+        seed: int = 0,
+        max_samples: int = 160000,
+    ) -> None:
+        from scipy.fft import next_fast_len, rfft
+
+        rng = np.random.default_rng(seed)
+        lo, hi = rt60_range
+        self.sr = sr
+        self.max_samples = max_samples
+        # Log-uniform over rt60; see the class docstring.
+        self.rt60s = np.exp(
+            rng.uniform(np.log(lo), np.log(hi), size)
+        ).astype(float)
+        pre_delays = rng.uniform(*pre_delay_range, size)
+
+        # ONE FFT length shared by every IR, so a single plan is reused and
+        # every spectrum has the same shape. Sized for the longest IR the
+        # range can produce, or a short IR would alias a long segment.
+        longest = int(hi * sr) + int(pre_delay_range[1] * sr) + 1
+        self.fft_length = int(next_fast_len(max_samples + longest))
+
+        self.spectra = []
+        for rt60, pre_delay in zip(self.rt60s, pre_delays):
+            ir = make_impulse_response(
+                sr, rt60=float(rt60), pre_delay=float(pre_delay),
+                seed=int(rng.integers(0, 2 ** 31)),
+            )
+            # complex64, not the default complex128: half the memory for
+            # precision far beyond what a reverb tail needs.
+            self.spectra.append(
+                rfft(ir, n=self.fft_length).astype(np.complex64)
+            )
+
+    def __len__(self) -> int:
+        return len(self.spectra)
+
+    def convolve(self, audio: np.ndarray, index: int) -> np.ndarray:
+        """Convolve with IR `index`, returning `len(audio)` samples.
+
+        TRUNCATES the tail, unlike `reverb()`, which deliberately keeps it.
+        A training segment has a fixed 160000-sample contract, and the tail
+        belongs to the next segment's audio — which the 1s hop already
+        supplies, since neighbouring segments overlap by 90%. Keeping it here
+        only to have `fit_length` trim it later would be identical work.
+        """
+        from scipy.fft import irfft, rfft
+
+        spectrum = self.spectra[index % len(self.spectra)]
+        wet = irfft(
+            rfft(np.ascontiguousarray(audio, dtype=np.float32),
+                 n=self.fft_length) * spectrum,
+            n=self.fft_length,
+        )
+        return wet[: len(audio)].astype(np.float32)
+
+
 # --- noise, EQ, level -----------------------------------------------------
 
 def add_noise(

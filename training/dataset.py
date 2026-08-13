@@ -36,12 +36,26 @@ tests below run with no audio at all: the 500-test discipline is that tests
 need no model, no network and no corpus, and a Dataset that could only be
 tested against 103GB of MAESTRO would simply not be tested.
 
-WHAT THIS DELIBERATELY DOES NOT DO
-----------------------------------
-No shuffling (the DataLoader owns that, and Phase 15 checkpoints its RNG
-state) and no augmentation yet — `augment=` is a hook that Phase 16 fills in.
-Keeping augmentation out of Phase 14 means the target-rendering path is
-proven before a second source of randomness is layered onto it.
+AUGMENTATION OVER-READS THE SOURCE (Phase 16a)
+----------------------------------------------
+`augment=` accepts either a plain `(audio, labels) -> (audio, labels)`
+callable or an object exposing `plan(index)` / `apply(audio, labels, plan)` —
+`training.augment.AugmentationSampler` is the latter.
+
+The second form exists because a **resample-based detune moves the time axis
+along with the pitch**, so producing 10s of output consumes `10 * ratio`
+seconds of input (10.293s at +50 cents). Only the augmenter knows the ratio,
+and it must be known before decoding. So the plan is drawn first, the decoder
+is asked for `plan.source_seconds`, and labels are rebased over that same
+wider window.
+
+The alternative — decode 10s, resample, then pad the shortfall — would append
+285ms of silence at +50 cents, and `fit_length` below explains why inventing
+silence is not acceptable: it teaches the model that notes stop there.
+
+No shuffling, though: the DataLoader owns that, and `train.py` checkpoints its
+RNG state. Augmentation deliberately does NOT use that stream — see
+`training.augment.segment_seed` for the three reasons.
 """
 
 from __future__ import annotations
@@ -149,10 +163,16 @@ class SegmentDataset:
       midi_root: where the reference MIDI lives; defaults to `audio_root`,
         which is how MAESTRO ships.
       seconds: segment length.
-      augment: `(audio, labels) -> (audio, labels)`, applied before targets
-        are rendered. Phase 16 fills this in; a pitch-shifting augmentation
+      augment: either `(audio, labels) -> (audio, labels)`, or an object with
+        `plan(index)` and `apply(audio, labels, plan)` — the latter can also
+        change how much source audio is decoded (see the module docstring).
+        Applied before targets are rendered; a pitch-shifting augmentation
         MUST return updated labels, which is why it takes and returns both.
       decoder / label_loader: injected for testing.
+      epoch_offset: added to the segment index before the augmenter draws, so
+        a new epoch draws fresh conditions WITHOUT mutating the sampler —
+        which a persistent worker would never see. `train.py` rebuilds the
+        loader per epoch with `epoch * len(segments)`.
     """
 
     def __init__(
@@ -166,12 +186,14 @@ class SegmentDataset:
                           tuple[np.ndarray, Transcription]] | None = None,
         decoder: Decoder | None = None,
         label_loader: Callable[[Path], Transcription] | None = None,
+        epoch_offset: int = 0,
     ) -> None:
         self.segments = list(segments)
         self.audio_root = Path(audio_root)
         self.midi_root = Path(midi_root) if midi_root else self.audio_root
         self.seconds = seconds
         self.augment = augment
+        self.epoch_offset = int(epoch_offset)
         self._decode = decoder or decode_segment
         self._load_labels = label_loader or load_labels_cached
 
@@ -181,8 +203,26 @@ class SegmentDataset:
     def __getitem__(self, i: int) -> dict[str, np.ndarray]:
         segment = self.segments[i]
 
+        # A detune changes the time axis, so it consumes MORE source audio
+        # than it produces (+50 cents over 10s eats 10.293s). The augmenter
+        # therefore draws its parameters BEFORE anything is decoded, and the
+        # decoder is asked for `plan.source_seconds`. Reading only 10s and
+        # padding the shortfall would teach the model that notes stop early.
+        plan = None
+        seconds = self.seconds
+        if self.augment is not None and hasattr(self.augment, "plan"):
+            # `epoch_offset` rather than a mutated sampler: dataloader workers
+            # are separate processes holding a COPY of the augmenter, so an
+            # epoch advanced in the parent never reaches them. Folding the
+            # epoch into the index keeps the sampler immutable, which is what
+            # lets `persistent_workers` stay True — worth 6.5 seg/s/worker,
+            # measured, because soxr's lazy init is otherwise repaid on every
+            # epoch boundary.
+            plan = self.augment.plan(i + self.epoch_offset)
+            seconds = plan.source_seconds
+
         audio = self._decode(
-            self.audio_root / segment.audio_filename, segment.start, self.seconds
+            self.audio_root / segment.audio_filename, segment.start, seconds
         )
         labels = self._load_labels(self.midi_root / segment.midi_filename)
 
@@ -190,11 +230,16 @@ class SegmentDataset:
         # the labels, and a resample-based detune changes the time axis too,
         # so targets rendered first would describe audio that no longer
         # exists. Labels are rebased to the segment so an augmenter sees
-        # times relative to the audio it is handed.
+        # times relative to the audio it is handed — over the OVER-READ
+        # window, or notes between 10s and 10s*ratio would be dropped even
+        # though they are audible in the audio that was decoded.
         start = segment.start
         if self.augment is not None:
-            labels = _rebase(labels, start, self.seconds)
-            audio, labels = self.augment(audio, labels)
+            labels = _rebase(labels, start, seconds)
+            if plan is not None:
+                audio, labels = self.augment.apply(audio, labels, plan)
+            else:
+                audio, labels = self.augment(audio, labels)
             start = 0.0
 
         targets = render_targets(

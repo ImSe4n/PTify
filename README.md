@@ -200,6 +200,8 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `training/targets.py` | Notes → the regression targets the CRNN is trained against |
 | `training/index.py` | Deterministic MAESTRO segment index (+ CLI) |
 | `training/dataset.py` | Seek-decode a segment, augment, render targets |
+| `training/augment.py` | Continuous room/detune sampler, hash-seeded per segment |
+| `training/train.py` | The fine-tuning loop: `--resume auto`, `--augment` |
 | `benchmarks/` | Committed manifests and baseline scores (no audio) |
 | `tests/` | `python -m pytest tests/` |
 | `HISTORY.md` | Development log: what broke and why |
@@ -293,7 +295,9 @@ under sustain pedal.
 - [x] **Phase 13** — real-audio benchmark + baseline numbers
 - [x] **Phase 13b** — MAPS cross-dataset benchmark; the generalisation gap **measured**
 - [x] **Phase 14** — training data pipeline: regression targets, segment index, dataset
-- [ ] **Phase 15–16** — fine-tune the CRNN, augmentation-focused training
+- [x] **Phase 14.5** — smoke run on Kaggle GPU: loop, checkpointing, cross-session resume
+- [x] **Phase 16a** — augmentation that fits in a dataloader (20.6 seg/s/worker)
+- [ ] **Phase 15–16b** — fine-tune the CRNN with augmentation on
 - [ ] **Phase 17** — ship the custom model behind `TranscriptionEngine`
 
 The training goal is **beating ByteDance on your own recordings**, not on the

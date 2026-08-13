@@ -1263,6 +1263,150 @@ would have meant something was broken.
 
 ---
 
+## 2026-08-13 — Phase 16a: augmentation that fits in a dataloader
+
+The training loop worked after 14.5; what did not exist was the augmentation
+the whole track depends on. `evaluation.augment.pitch_shift` costs **19.7
+seconds per 10s segment** — a phase vocoder plus a resample — against a
+dataloader budget of ≥15 segments/sec/worker. Roughly 300x too slow. This
+phase built the replacement, and it is pure CPU: no GPU quota spent.
+
+**Delivered:** `detune_resample()` + `ImpulseBank` in `evaluation/augment.py`,
+`training/augment.py` (the continuous sampler), the plan/apply protocol in
+`training/dataset.py`, `--augment*` flags in `training/train.py`, and 78 tests
+(623 → 701, ~95s, still no model/network/GPU).
+
+### The handoff's error figure was 10x too small, and it mattered
+
+HANDOFF said to build `detune_resample()` and treated the label drift as a
+detail. A resample moves pitch and time together, so a label at time `t` is
+wrong by `t * |1 - 1/ratio|` — **the error grows with t, and the segment end
+is the worst case**:
+
+| detune | error at t=1s | error at t=10s |
+|---|---|---|
+| 5 c | 2.9 ms | 28.8 ms |
+| 10 c | 5.8 ms | **57.6 ms** |
+| 25 c | 14.3 ms | **143.4 ms** |
+| 50 c | 28.5 ms | **284.7 ms** |
+
+The figure the plan started from — ~29ms at 50 cents — is the error at
+**t=1s**. At the segment end it is 284.7ms, **5.7x mir_eval's 50ms onset
+tolerance**, and even a 10-cent detune breaks tolerance before the segment
+ends. There is no detune small enough to skip the correction.
+
+Uncorrected this is not a scoring error. It is **silent label corruption**
+that trains a systematic time offset into the model: the loss still falls, the
+targets still decode, nothing raises. Exactly the failure class Phase 14 built
+the target round-trip test for, which is why the same test now guards this —
+augmented segment → `render_targets` → the real `RegressionPostProcessor` →
+onsets within 3ms of the shifted truth. A counterfactual test pins the
+uncorrected drift at >100ms so nobody removes the rescale as over-engineering.
+
+### Over-reading the source, and what it forced
+
+Correcting the labels is not enough on its own: a +50-cent upshift compresses
+10s into 9.715s, so *something* must fill 285ms. Padding it would teach the
+model that notes stop there (`fit_length`'s docstring already says so).
+
+So the decoder reads `10 * ratio` seconds instead — and that forces an API
+change, because the ratio is chosen by the augmenter, which used to run
+*after* decoding. `SegmentDataset` now asks the augmenter for a `plan(i)`
+first, decodes `plan.source_seconds`, and rebases labels over that same wider
+window. A plain two-argument augmenter still works unchanged.
+
+**315 of the 1099 indexed tracks have under 300ms of tail** — less than a
++50-cent over-read needs. Rather than let `decode_segment` clamp silently and
+pad the shortfall, the sampler reduces the detune to what the tail supports.
+A downshift is always safe, since it consumes less than 10s.
+
+### Seeding could not use the global RNG, and that turned out to be a gift
+
+`capture_rng_state()` claimed "numpy backs augmentation". It does not, and
+could not: dataloader workers are separate processes that each inherit a
+**copy** of the global state, so N workers would draw byte-identical
+augmentations. `shuffle=True` also visits segment *i* at a different stream
+position every epoch, and prefetch draws ahead of the step boundary a
+checkpoint restores.
+
+`segment_seed` hashes `(base_seed, epoch, index)` with blake2b instead — 0.05ms,
+and resume becomes exact **for free**, because a hash has no position to
+restore. `blake2b` rather than `hash()`, which is salted per process; a test
+runs a subprocess to pin that. The stale docstring is corrected.
+
+### A design decision that cost 44% of throughput, caught by measuring
+
+Epoch variety originally came from `sampler.set_epoch(epoch)`. But a
+persistent worker holds a copy of the sampler, so that call never reaches it —
+so `persistent_workers` was set to False when augmenting, and the soxr lazy
+init (1.9–6.9s) got repaid on every epoch boundary.
+
+The isolated augmentation cost 14ms/segment, so the first end-to-end
+dataloader measurement — **7.7 seg/s/worker, failing the ≥15 budget at
+74.9ms/segment** — did not fit. Profiling single-process showed augmentation
+added only 3.0ms over clean; the gap was entirely the worker respawn:
+
+| | seg/s/worker |
+|---|---|
+| augmented, `persistent_workers=False` | 8.3 |
+| augmented, `persistent_workers=True` | 14.8 |
+| clean, `persistent_workers=True` | 23.3 |
+
+Fixed by folding the epoch into the **index** (`epoch_offset`) rather than
+mutating the sampler, so nothing needs to propagate and persistence stays on.
+Final: **20.6 seg/s/worker, 17.3ms per segment** — inside budget.
+
+The lesson is the one this project keeps relearning: the isolated number and
+the end-to-end number were 5x apart, and only the second one was real.
+
+### Does it actually degrade anything?
+
+The check that must not be skipped — an augmentation that changes nothing
+looks exactly like one that works, and would void every downstream
+conclusion. Scored through the real ByteDance engine on 60s windows of two
+real MAESTRO tracks:
+
+| | onset F1 |
+|---|---|
+| clean | 0.9733 |
+| augmented | **0.8920** |
+| | **−8.1 points** |
+
+**Run on real audio, never on `evaluation/synth.py` output** — that module's
+docstring records that `room` on dry synthesis *raises* Basic Pitch by +9.4
+F1, so a synth-based check would have "confirmed" a broken augmentation.
+
+Worth being straight about: the plan predicted a 10–25 point drop and got 8.1.
+The drawn condition was rt60 **0.35** — a small treated room, well below the
+hall that cost 9.3 points alone. 8.1 points from a mild draw is the strong
+reading, not the weak one. Across the distribution 24.9% of segments draw
+rt60 > 1.0 and 25.7% draw past 25 cents, so the hard tail is genuinely there.
+
+### Ranges are from the measured curve, not from taste
+
+Detune is drawn **triangular** on ±50 cents rather than uniform: most pianos
+are close to in tune, and uniform would make a half-semitone detune exactly as
+common as a well-tuned instrument. rt60 is drawn **log-uniform** over 0.2–1.6
+because the damage is nonlinear (0.6 ≈ 1 point, 1.4 = 9.3). A 20% clean
+passthrough keeps clean-audio accuracy from being traded away.
+
+`eq` is plumbed but **defaults to probability 0**: at 22.6ms it is more
+expensive than the entire rest of the chain combined, for a factor that does
+not appear in the measured degradation curve at all.
+
+Caching **IR spectra** rather than IRs is what makes reverb affordable —
+`fftconvolve` re-transforms the impulse response every call (15.7ms), while
+`irfft(rfft(x) * IR)` at a fixed FFT length costs 8.7ms.
+
+### What 16a deliberately did not do
+
+No GPU run and no accuracy claim: that is 16b/15. No change to any benchmark
+number — `PRESETS`, `apply_preset` and `pitch_shift` are untouched, and
+`pitch_shift` stays the benchmark's slow-but-faithful transposer, since
+`detune_resample` changes tempo and is honest about it in its docstring.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on
