@@ -92,6 +92,47 @@ def build_dataloader(args, split: str, *, shuffle: bool):
     )
 
 
+def diagnose_nan(note_model, batch, use_amp: bool) -> str:
+    """Locate a non-finite loss: the input, the forward pass, or the loss.
+
+    These three fail identically from the outside — `loss = nan` — but need
+    completely different fixes, and on free-tier compute a wrong guess costs a
+    whole session. So the failure path reports which one it was rather than
+    leaving the next person to bisect it by hand.
+    """
+    import torch
+
+    lines = []
+    finite_in = bool(torch.isfinite(batch["waveform"]).all())
+    lines.append(f"  input waveform finite: {finite_in}")
+    if not finite_in:
+        return "\n".join(lines + ["  -> the AUDIO is corrupt, not the model."])
+
+    with torch.no_grad():
+        fp32 = note_model(batch["waveform"].float())
+        fp32_ok = all(bool(torch.isfinite(v).all()) for v in fp32.values())
+        lines.append(f"  forward in fp32 finite: {fp32_ok}")
+
+        if use_amp:
+            with torch.autocast(device_type="cuda", enabled=True):
+                amp = note_model(batch["waveform"])
+            amp_ok = all(bool(torch.isfinite(v).all()) for v in amp.values())
+            lines.append(f"  forward under AMP finite: {amp_ok}")
+            for key, value in amp.items():
+                if not torch.isfinite(value).all():
+                    share = float((~torch.isfinite(value)).float().mean())
+                    lines.append(f"    {key}: {share:.1%} non-finite, "
+                                 f"dtype={value.dtype}")
+            if fp32_ok and not amp_ok:
+                lines.append("  -> the FORWARD PASS overflows in fp16. "
+                             "Re-run with --no-amp; the loss is not at fault.")
+                return "\n".join(lines)
+
+    lines.append("  -> forward is finite, so the LOSS is at fault "
+                 "(see training/losses.py:_CLAMP).")
+    return "\n".join(lines)
+
+
 def evaluate(note_model, loader, device: str, max_batches: int = 20) -> dict:
     """Mean losses over a few validation batches.
 
@@ -135,7 +176,12 @@ def train(args) -> int:
     # AMP only helps on CUDA; on CPU it is a no-op wrapper that costs nothing
     # but must still exist so the save/resume shape is identical either way.
     use_amp = device.startswith("cuda") and not args.no_amp
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    # torch.amp.GradScaler on >=2.4; torch.cuda.amp.GradScaler on 2.2 (the
+    # local pin). Kaggle ships 2.10, where the old spelling warns.
+    try:
+        scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    except (AttributeError, TypeError):
+        scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
     start_step = 0
     if args.resume:
@@ -164,8 +210,13 @@ def train(args) -> int:
     started = time.time()
     epoch = 0
 
+    accum = max(1, args.accum_steps)
+
     while step < args.steps:
         epoch += 1
+        optimizer.zero_grad(set_to_none=True)
+        micro = 0
+
         for batch in loader:
             if step >= args.steps:
                 break
@@ -175,12 +226,33 @@ def train(args) -> int:
 
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device_type="cuda" if use_amp else "cpu",
                                 enabled=use_amp):
                 losses = compute_losses(note_model(batch["waveform"]), batch)
 
-            scaler.scale(losses["total"]).backward()
+            if not torch.isfinite(losses["total"]):
+                # A NaN loss poisons every weight through the backward pass,
+                # and the run continues producing NaN forever with no error.
+                # The first Kaggle run did exactly that for 500 steps. Fail at
+                # the first occurrence, and say WHERE it came from — the loss
+                # and the forward pass fail identically from the outside.
+                raise RuntimeError(
+                    f"Non-finite loss at step {step}: "
+                    + ", ".join(f"{k}={float(v.detach()):.4g}"
+                                for k, v in losses.items())
+                    + "\n" + diagnose_nan(note_model, batch, use_amp)
+                )
+
+            # Scale by 1/accum so the accumulated gradient equals the mean
+            # over the effective batch, not its sum — otherwise the effective
+            # learning rate silently scales with --accum-steps.
+            scaler.scale(losses["total"] / accum).backward()
+            micro += 1
+
+            if micro < accum:
+                continue
+            micro = 0
+
             # Unscale before clipping, or the clip threshold is applied to
             # scaled gradients and does nothing at fp16's scale factors.
             scaler.unscale_(optimizer)
@@ -189,6 +261,7 @@ def train(args) -> int:
             )
             scaler.step(optimizer)
             scaler.update()
+            optimizer.zero_grad(set_to_none=True)
 
             step += 1
 
@@ -201,15 +274,17 @@ def train(args) -> int:
                     "steps_per_s": round(
                         (step - start_step) / max(elapsed, 1e-6), 3),
                     "grad_norm": float(grad_norm),
-                    **{k: float(v) for k, v in losses.items()},
+                    # .detach() before float(): torch warns that converting a
+                    # grad-tracking tensor to a scalar can behave unexpectedly.
+                    **{k: float(v.detach()) for k, v in losses.items()},
                 }
                 if device.startswith("cuda"):
                     record["gpu_mem_gb"] = round(
                         torch.cuda.max_memory_allocated() / 1e9, 2)
                 logger.log(record)
-                print(f"  step {step:>6} loss {float(losses['total']):.4f} "
-                      f"(onset {float(losses['onset']):.4f} "
-                      f"frame {float(losses['frame']):.4f}) "
+                print(f"  step {step:>6} loss {record['total']:.4f} "
+                      f"(onset {record['onset']:.4f} "
+                      f"frame {record['frame']:.4f}) "
                       f"{record['steps_per_s']:.2f} steps/s")
 
             if val_loader is not None and step % args.validate_every == 0:
@@ -265,7 +340,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="name of the inference-loadable checkpoint")
 
     ap.add_argument("--steps", type=int, default=500)
-    ap.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    ap.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
+                    help="segments per forward pass. MEMORY-BOUND: the model "
+                         "runs four parallel CRNN branches over 1001x229 "
+                         "features, so a T4 (16GB) OOMs above ~2 in fp32")
+    ap.add_argument("--accum-steps", type=int, default=1,
+                    help="gradient accumulation; effective batch is "
+                         "batch-size x accum-steps. Use this to keep a large "
+                         "effective batch on a small GPU")
     ap.add_argument("--lr", type=float, default=DEFAULT_LR)
     ap.add_argument("--warmup", type=int, default=DEFAULT_WARMUP_STEPS)
     ap.add_argument("--clip", type=float, default=1.0)
@@ -294,7 +376,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    return train(build_parser().parse_args(argv))
+    args = build_parser().parse_args(argv)
+    try:
+        return train(args)
+    except Exception as exc:  # noqa: BLE001
+        # torch.OutOfMemoryError only exists on newer torch, so match by name
+        # rather than importing a symbol the local pin does not have.
+        if "OutOfMemory" not in type(exc).__name__:
+            raise
+        effective = args.batch_size * max(1, args.accum_steps)
+        halved = max(1, args.batch_size // 2)
+        raise SystemExit(
+            f"\nCUDA out of memory at batch-size {args.batch_size}.\n\n"
+            f"This model is unusually memory-hungry for its parameter count: "
+            f"it runs FOUR parallel CRNN branches (frame, onset, offset, "
+            f"velocity), each holding activations over 1001 frames x 229 mel "
+            f"bins for the backward pass.\n\n"
+            f"Keep the effective batch and halve the memory:\n"
+            f"    --batch-size {halved} --accum-steps "
+            f"{max(1, effective // halved)}\n"
+        ) from exc
 
 
 if __name__ == "__main__":

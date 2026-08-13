@@ -49,6 +49,37 @@ DEFAULT_SAVE_SECONDS = 20 * 60
 DEFAULT_SAVE_STEPS = 2000
 
 
+def torch_load(path: str | Path, device: str = "cpu"):
+    """`torch.load` that works on torch 2.2 and on 2.6+.
+
+    **PyTorch 2.6 flipped `weights_only` from False to True by default**, and
+    a checkpoint from this project is not weights-only: it carries the numpy
+    RNG state so a resumed run draws the same augmentations. numpy's array
+    reconstructor is not on the default allowlist, so 2.6+ refuses the file:
+
+        UnpicklingError: Weights only load failed ... Unsupported global:
+        GLOBAL numpy._core.multiarray._reconstruct
+
+    Found on Kaggle (torch 2.10) after resume failed; the local pin is 2.2,
+    whose default is False, so no local test could have caught it.
+
+    `weights_only=False` is correct HERE and would not be elsewhere: these are
+    files this training loop wrote itself, on the same machine, minutes
+    earlier. The flag exists to stop you unpickling a checkpoint downloaded
+    from a stranger. `training.model.assert_deployable` still validates
+    structure before anything is trusted for inference.
+
+    The older `torch.load` has no `weights_only` parameter at all, hence the
+    TypeError fallback rather than a version check.
+    """
+    import torch
+
+    try:
+        return torch.load(str(path), map_location=device, weights_only=False)
+    except TypeError:
+        return torch.load(str(path), map_location=device)
+
+
 def capture_rng_state() -> dict:
     """Snapshot every RNG the pipeline draws from.
 
@@ -62,7 +93,11 @@ def capture_rng_state() -> dict:
     return {
         "python": random.getstate(),
         "numpy": np.random.get_state(),
-        "torch": torch.get_rng_state(),
+        # `.cpu()` is belt-and-braces: torch.get_rng_state() already returns a
+        # CPU ByteTensor, but loading with map_location="cuda" would move it to
+        # the GPU on the way back in, and set_rng_state rejects that. Keeping
+        # it explicitly on CPU documents the requirement at both ends.
+        "torch": torch.get_rng_state().cpu(),
     }
 
 
@@ -82,7 +117,16 @@ def restore_rng_state(state: dict) -> None:
     if "numpy" in state:
         np.random.set_state(state["numpy"])
     if "torch" in state:
-        torch.set_rng_state(state["torch"])
+        # MUST be a CPU ByteTensor. `load_training_state` passes
+        # map_location=device, which on CUDA moves EVERY tensor in the file to
+        # the GPU — including this one — and `set_rng_state` then rejects it:
+        #     TypeError: RNG state must be a torch.ByteTensor
+        # Found on Kaggle; a CPU-only resume never hits it because there the
+        # map_location is already "cpu".
+        rng = state["torch"]
+        if hasattr(rng, "cpu"):
+            rng = rng.cpu().to(torch.uint8)
+        torch.set_rng_state(rng)
 
 
 def save_training_state(
@@ -135,9 +179,7 @@ def load_training_state(
     changed under the checkpoint, and continuing would train partly-random
     weights while the loss curve looked plausible.
     """
-    import torch
-
-    state = torch.load(str(path), map_location=device)
+    state = torch_load(path, device)
     if state.get("schema") != SCHEMA:
         raise ValueError(
             f"Checkpoint schema {state.get('schema')!r} != {SCHEMA}. "

@@ -77,6 +77,61 @@ def test_bce_handles_saturated_outputs():
     assert torch.isfinite(loss)
 
 
+def test_bce_is_finite_in_half_precision():
+    """REGRESSION (Phase 14.5, first Kaggle run): NaN loss from step 1.
+
+    Under AMP the model's sigmoid output is fp16, whose smallest normal is
+    6.1e-5. The original clamp bound of 1e-7 meant `1 - 1e-7` rounded to
+    **exactly 1.0**, so `log(1 - output)` was log(0) = -inf and the NaN
+    reached every weight through the backward pass. The run then produced NaN
+    forever with no error raised.
+
+    Anything that makes the loss compute in fp16 again — a tighter clamp, a
+    dropped `.float()` — reintroduces it, and only a GPU run would notice.
+    """
+    output = torch.tensor([[0.0, 1.0, 0.5]], dtype=torch.float16)
+    target = torch.tensor([[1.0, 0.0, 0.5]], dtype=torch.float16)
+
+    assert torch.isfinite(bce(output, target))
+    assert torch.isfinite(
+        masked_bce(output, target, torch.ones_like(output))
+    )
+
+
+def test_bce_reduces_in_float32():
+    """The reduction must not accumulate in fp16: summing ~88,000 cells per
+    sample in half precision loses low-order bits even when nothing
+    overflows."""
+    output = torch.full((1, 1001, 88), 0.5, dtype=torch.float16)
+    target = torch.zeros((1, 1001, 88), dtype=torch.float16)
+
+    loss = bce(output, target)
+
+    assert loss.dtype == torch.float32
+    assert float(loss) == pytest.approx(0.6931, abs=1e-3)
+
+
+def test_clamp_bound_survives_a_half_precision_round_trip():
+    """The canary for the exact arithmetic that failed.
+
+    The `.float()` cast means the clamp is applied in fp32, where any small
+    bound is exact. This asserts the *defence in depth*: a saturated fp16
+    output that reaches the clamp still yields a finite log on both ends, so
+    the loss holds up even if the cast is ever refactored away.
+
+    Measured on this machine: `1 - 2e-4` already rounds to exactly 1.0 in
+    fp16, so a bound tighter than ~5e-4 provides no fp16 protection on its
+    own — which is precisely why the cast is the primary fix.
+    """
+    saturated = torch.tensor([[0.0, 1.0]], dtype=torch.float16)
+    target = torch.tensor([[1.0, 0.0]], dtype=torch.float16)
+
+    loss = bce(saturated, target)
+
+    assert torch.isfinite(loss)
+    assert loss.dtype == torch.float32
+
+
 def test_bce_accepts_soft_regression_targets():
     """Onset targets are ramps, not 0/1 labels."""
     loss = bce(torch.tensor([[0.5, 0.25]]), torch.tensor([[0.5, 0.25]]))
@@ -172,6 +227,35 @@ def test_losses_are_differentiable():
 
 
 # --- learning-rate schedule ----------------------------------------------
+
+def test_gradient_accumulation_matches_a_full_batch():
+    """Accumulation exists because the T4 OOMs above ~2 segments per forward:
+    the model runs FOUR parallel CRNN branches over 1001x229 features.
+
+    It is only a valid substitute if the accumulated gradient equals the
+    full-batch one. Scaling each micro-batch by 1/accum is what makes it a
+    mean rather than a sum — without it the effective learning rate silently
+    scales with --accum-steps, which trains, diverges slowly, and looks like
+    a bad hyperparameter rather than a bug.
+    """
+    torch.manual_seed(0)
+    full, chunked = torch.nn.Linear(4, 2), torch.nn.Linear(4, 2)
+    chunked.load_state_dict(full.state_dict())
+
+    x, y = torch.randn(8, 4), torch.rand(8, 2)
+    loss_fn = torch.nn.functional.binary_cross_entropy
+
+    full.zero_grad()
+    loss_fn(torch.sigmoid(full(x)), y).backward()
+
+    accum = 4
+    chunked.zero_grad()
+    for i in range(accum):
+        lo, hi = i * 2, (i + 1) * 2
+        (loss_fn(torch.sigmoid(chunked(x[lo:hi])), y[lo:hi]) / accum).backward()
+
+    assert torch.allclose(full.weight.grad, chunked.weight.grad, atol=1e-6)
+
 
 def test_warmup_ramps_from_near_zero_to_base():
     assert lr_at(0, 1e-4, warmup=100) == pytest.approx(1e-6)
@@ -272,6 +356,72 @@ def test_python_random_state_round_trips(tmp_path):
     load_training_state(tmp_path / "step_1.pt", note_model=Tiny())
 
     assert [random.random() for _ in range(3)] == pytest.approx(expected)
+
+
+def test_checkpoint_loads_despite_the_weights_only_default(tmp_path):
+    """REGRESSION (Phase 14.5, Kaggle): resume failed on torch 2.10.
+
+    PyTorch 2.6 flipped `torch.load`'s `weights_only` default from False to
+    True. Our checkpoints are deliberately NOT weights-only — they carry the
+    numpy RNG state so a resumed run draws the same augmentations — and
+    numpy's array reconstructor is not on the default allowlist:
+
+        UnpicklingError: Weights only load failed ... Unsupported global:
+        GLOBAL numpy._core.multiarray._reconstruct
+
+    The local pin is torch 2.2, whose default is False, so this could only
+    ever fail on the GPU box. `torch_load` passes weights_only=False
+    explicitly, which is correct for files this loop wrote itself minutes
+    earlier.
+
+    This asserts the RNG state genuinely survives a round-trip — the thing
+    that made the file unloadable in the first place.
+    """
+    from training.checkpoint import torch_load
+
+    model = Tiny()
+    np.random.seed(5)
+    save_training_state(tmp_path / "step_9.pt", note_model=model,
+                        optimizer=_optimizer(model), step=9,
+                        rng_state=capture_rng_state())
+
+    state = torch_load(tmp_path / "step_9.pt")
+
+    assert state["step"] == 9
+    # A numpy RNG state is exactly what the 2.6 allowlist rejects.
+    assert "numpy" in state["rng"]
+    assert state["rng"]["numpy"][0] == "MT19937"
+
+
+def test_rng_state_restores_from_a_non_byte_tensor():
+    """REGRESSION (Phase 14.5, Kaggle): resume died restoring RNG state.
+
+        TypeError: RNG state must be a torch.ByteTensor
+
+    `load_training_state` passes `map_location=device`, and on CUDA that moves
+    EVERY tensor in the file to the GPU — including the RNG state, which
+    `torch.set_rng_state` requires to be a CPU ByteTensor. A CPU-only resume
+    never hits it, so no local test would have caught it either.
+
+    A GPU is not needed to pin the behaviour: any tensor of the wrong dtype or
+    device exercises the same coercion.
+    """
+    state = capture_rng_state()
+    # Simulate what map_location="cuda" does to it — dtype changed here, since
+    # a CUDA device is not available in the suite.
+    state["torch"] = state["torch"].to(torch.int64)
+
+    restore_rng_state(state)  # must not raise
+
+    assert torch.get_rng_state().dtype == torch.uint8
+
+
+def test_captured_rng_state_is_a_cpu_byte_tensor():
+    """The save side of the same requirement."""
+    captured = capture_rng_state()["torch"]
+
+    assert captured.dtype == torch.uint8
+    assert captured.device.type == "cpu"
 
 
 def test_mismatched_schema_is_rejected(tmp_path):

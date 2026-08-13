@@ -1194,10 +1194,72 @@ Kaggle is mandatory rather than convenient, and it belongs alongside HANDOFF
   from `git_commit` — the same provenance discipline `report.py` applies to
   scores.
 
-**Still outstanding:** the actual Kaggle GPU run. Everything it depends on has
-been rehearsed locally, so what remains to be discovered there is genuinely
-Kaggle-specific — whether `torchlibrosa` works on its torch/numpy 2.x, and
-what the real steps/sec is.
+### The Kaggle run: PASSED, after five failures the CPU rehearsal could not reach
+
+Ran on a T4 (torch 2.10, numpy 2.0). **500 steps, cross-session resume, and a
+checkpoint that loads back on local torch 2.2 / CPU and transcribes.**
+
+The value of this phase is the five bugs it found. Every one was invisible
+locally, and every one would have killed a booked Phase 15 session:
+
+| # | failure | why local rehearsal missed it |
+|---|---|---|
+| 1 | `ModuleNotFoundError: mido` | `--no-deps` on a venv that already had it |
+| 2 | `loss nan` in all four heads at step 0 | needed CUDA + AMP |
+| 3 | `CUDA out of memory` at batch 8 | no GPU here |
+| 4 | `UnpicklingError` loading our own checkpoint | torch 2.2 default differs from 2.6+ |
+| 5 | `TypeError: RNG state must be a torch.ByteTensor` | only `map_location="cuda"` triggers it |
+
+**The NaN and the OOM were the same bug.** Batch 8 does not fit in a T4's
+14.56 GiB. With AMP on it *nearly* fit, and instead of failing honestly the
+model computed in a degenerate state and emitted NaN in every head at step 0.
+The first diagnosis — an fp16 underflow in the loss clamp — was **wrong**, and
+cost a session. The clamp fix was still correct on its own terms (`1 - 1e-7`
+really does round to exactly 1.0 in fp16) but it was not the blocker.
+
+Two lessons worth carrying:
+- **A NaN and an OOM present identically when memory is tight.** `train.py`
+  now raises on the first non-finite loss and `diagnose_nan()` reports whether
+  the input, the forward pass, or the loss is responsible — those three look
+  the same from the outside and need different fixes.
+- **The model needs ~4x the memory its parameter count suggests.** It runs
+  four parallel CRNN branches, each holding 1001x229 activations for the
+  backward pass. `--batch-size 2 --accum-steps 4` keeps the effective batch at
+  8; the accumulated gradient is provably identical (each micro-batch scaled
+  by 1/accum, so it is a mean and not a sum).
+
+**Checkpoints do not survive torch's own defaults.** 2.6 flipped
+`torch.load(weights_only=)` to True, which rejects the numpy RNG state these
+checkpoints carry — the very thing that makes a resumed run draw the same
+augmentations. And `map_location="cuda"` moves that RNG state onto the GPU,
+where `set_rng_state` refuses it. Both are fixed in `checkpoint.py` and both
+are unreachable from a CPU-only, torch-2.2 test.
+
+### What the gate actually verified
+
+- **Cross-session resume**, the strongest form: `Resumed from step_178.pt` in a
+  fresh process, after a code update, continuing to 200/225/250. Both save
+  triggers fired — wall-clock at 178, step-count at 250.
+- **Validation ran** (`VAL total 0.7209` against training ~0.73), so the val
+  split plumbing works.
+- **`num_batches_tracked` = 2000** — exactly 500 steps x 4 micro-batches,
+  independent arithmetic confirming accumulation behaved.
+- **313 of 316 note tensors changed; 0 of 224 pedal tensors changed.** The
+  freeze held exactly.
+- **The checkpoint loads on local torch 2.2 / CPU** and produces 86 notes and
+  16 pedal events through the real inference library.
+
+Scored against ground truth on a 20s MAESTRO window (82 reference notes):
+
+| | onset F1 | offset F1 |
+|---|---|---|
+| ByteDance pretrained | 0.9643 | 0.2976 |
+| ours, after 500 steps | **0.9643** | 0.2857 |
+
+**Identical, and that is the correct result.** 500 steps at lr 5e-5 on the
+model's own training distribution, with no augmentation, should not move
+accuracy — this run tested plumbing, not learning. A *changed* number here
+would have meant something was broken.
 
 ---
 

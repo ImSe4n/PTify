@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 14.5 — training loop written and **rehearsed end to end on CPU** |
+| **Last completed** | Phase 14.5 — **smoke run PASSED on Kaggle GPU**, checkpoint verified locally |
 | **Branch** | `phase-14-training` — branch the next phase off `master` once merged |
-| **Tests** | 614 passing, ~61s, no model or network needed |
-| **Next** | **Run `training/kaggle/smoke_run.ipynb` on Kaggle GPU**, then Phase 15 |
+| **Tests** | 623 passing, ~62s, no model or network needed |
+| **Next** | **Phase 16a** — `detune_resample()` + the augmentation sampler (see §9) |
 
 **The headline number this project was missing.** ByteDance scores **0.969 on
 MAESTRO and 0.787 on MAPS** — an **18.3-point drop** onto an unfamiliar piano
@@ -196,6 +196,55 @@ inconsistency, not a memory optimisation. `training.model.enable_training_mode()
 patches it at runtime (not by editing the installed package, so the fix
 travels to Kaggle and survives a reinstall) and `load_pretrained` calls it.
 Weights are unaffected — it changes an activation's memory behaviour only.
+
+**`map_location="cuda"` moves the RNG state to the GPU, and
+`torch.set_rng_state` rejects it** (`TypeError: RNG state must be a
+torch.ByteTensor`). `load_training_state` passes the device through, so on
+CUDA *every* tensor in the file lands on the GPU — including the one thing
+that must stay a CPU ByteTensor. `restore_rng_state` coerces it back. A
+CPU-only resume never hits this, which is why it survived local rehearsal.
+
+**torch 2.6+ refuses to load our own checkpoints; the local pin (2.2) cannot
+catch it.** PyTorch 2.6 flipped `torch.load`'s `weights_only` default from
+False to True, and these checkpoints are deliberately not weights-only — they
+carry the **numpy RNG state** so a resumed run draws the same augmentations.
+numpy's array reconstructor is not on the default allowlist, so resume died on
+Kaggle with `UnpicklingError: Weights only load failed ... Unsupported global:
+GLOBAL numpy._core.multiarray._reconstruct`. `checkpoint.torch_load()` passes
+`weights_only=False` (correct for files this loop wrote itself minutes
+earlier) with a `TypeError` fallback for torch 2.2, which has no such
+parameter. **Every `torch.load` in `training/` must go through it.**
+
+**The model needs ~4x the GPU memory its parameter count suggests, and on a
+T4 that OOMs at batch 8.** `Regress_onset_offset_frame_velocity_CRNN` runs
+**four parallel `AcousticModelCRnn8Dropout` branches** (frame, onset, offset,
+velocity), each holding activations over 1001 frames x 229 mel bins for the
+backward pass. 20M parameters, but the activations dominate. Measured on a
+T4 (14.56 GiB): batch 8 fp32 fails; **`--batch-size 2 --accum-steps 4`** keeps
+the effective batch at 8 within memory. The accumulated gradient is provably
+identical to the full-batch one (each micro-batch is scaled by `1/accum`, so
+it is a mean and not a sum — without that the effective learning rate scales
+with `--accum-steps` and merely looks like a bad hyperparameter).
+
+**Near-OOM under AMP presents as NaN, not as an allocation error.** The run
+before the OOM produced `nan` in all four heads at step 0 with mixed precision
+on; the same forward pass is finite in fp32. Diagnosing the NaN as a loss bug
+cost a session. **Run fp32 until a configuration is known good**, and treat
+AMP as a Phase 15 speed optimisation. `train.py: diagnose_nan()` now reports
+whether the input, the forward pass, or the loss is responsible, because those
+three are indistinguishable from the outside.
+
+**A loss that is safe in fp32 can be NaN under AMP, from step 1, silently.**
+The first Kaggle run produced `loss nan` at every step and raised nothing.
+Cause: BCE clamped its sigmoid input at `1e-7`, but fp16's smallest normal is
+6.1e-5 and it carries ~3 decimal digits near 1.0, so **`1 - 1e-7` rounds to
+exactly 1.0** and `log(1 - output)` becomes `log(0) = -inf`. The NaN then
+reaches every weight through the backward pass and the run continues forever.
+Measured: `1 - 2e-4` already collapses to 1.0; 5e-4 is the smallest bound that
+round-trips at both ends. Fixed by casting to fp32 **inside** the loss (so the
+clamp and the ~88,000-cell reduction both happen in fp32) and by raising on a
+non-finite loss at the first occurrence rather than training on garbage.
+**A CPU rehearsal cannot catch this** — it never runs the fp16 path.
 
 **CPU training is ~110 seconds per step** (62s forward + 48s backward, batch 1,
 8 threads, measured). That is not a tuning problem; it is why Kaggle is
@@ -646,24 +695,39 @@ ambiguous timing; that is a property of quantisation, not a bug to fix.
 - `music21.makeNotation()` is required before Verovio sees the file, or bars
   that do not add up cause material to be dropped silently.
 
-### Phase 14.5 is written and REHEARSED. What remains is the Kaggle run.
+### Phase 14.5 is DONE. The whole chain is proven end to end.
 
-The training loop exists and has been driven end to end on CPU. Run
-`training/kaggle/smoke_run.ipynb` (GPU + Internet on, MAESTRO attached as a
-public dataset, `COMMIT` set). Budget 1–2 GPU-hours.
+500 steps ran on a Kaggle T4, an interrupted run resumed **across sessions**,
+and the resulting checkpoint loads on this machine (torch 2.2, CPU) and
+transcribes. Scored on a 20s MAESTRO window it matches the pretrained model
+exactly (onset F1 0.9643 both), which is the correct outcome — 500 steps at
+lr 5e-5 on the model's own distribution should not move accuracy.
 
-**The score is expected to be terrible; that is not what it measures.** The
-gate is: 500 steps complete, an interrupted run resumes at the right step, and
-the downloaded checkpoint loads locally through
-`PianoTranscription(checkpoint_path=...)` and produces notes.
+**The working configuration**, arrived at after five failures (all recorded
+in §4 — read them before changing any of this):
 
-Already proven locally, so a failure there is Kaggle-specific:
-gradients flow (loss 0.947 → 0.667), kill/resume restores weights + optimiser
-+ RNG exactly, the deployable checkpoint is 172.0 MB, and it loads through the
-real inference library producing 83 notes and 16 pedal events.
+```
+python -m training.train --index benchmarks/maestro_segments_smoke.json \
+    --audio-root <kaggle mount> --out /kaggle/working/checkpoints \
+    --device cuda --no-amp --batch-size 2 --accum-steps 4 --workers 2 \
+    --save-every-seconds 660 --resume auto
+```
 
-Genuinely unknown until Kaggle runs: whether `torchlibrosa` works on its
-torch/numpy 2.x, and the real steps/sec.
+- **`--no-amp` and `--batch-size 2 --accum-steps 4` are load-bearing on a T4.**
+  Batch 8 OOMs; with AMP it nearly fits and emits NaN instead of failing.
+- **Measured throughput: 0.27 steps/s** (fp32, 4 micro-batches of 2). 500
+  steps ≈ 31 min. Phase 15 can revisit AMP with this as a known-good baseline.
+- The Kaggle MAESTRO mount that worked:
+  `/kaggle/input/datasets/alonhaviv/the-maestro-dataset-v3-0-0/maestro-v3.0.0`.
+- `pip install --no-deps` needs `mido pretty_midi librosa soundfile resampy
+  audioread soxr lazy_loader msgpack` naming explicitly; the notebook does it.
+
+**Next is 16a, not 15.** The training loop, checkpointing and resume all work;
+what does not exist yet is the augmentation that the whole track depends on,
+and it is pure-CPU work that needs no GPU quota. `evaluation.augment.pitch_shift`
+costs 19.7s per 10s segment and cannot be used in a dataloader — build
+`detune_resample()` (~8ms) and the continuous sampler first, then spend GPU
+time on a run that can actually improve something.
 
 What Phase 14 leaves ready:
 

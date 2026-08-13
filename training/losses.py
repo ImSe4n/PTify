@@ -40,18 +40,49 @@ from __future__ import annotations
 _EPS = 1e-8
 
 
-def bce(output, target):
-    """Elementwise binary cross-entropy, averaged over everything.
+#: Clamp bound for the sigmoid output, applied AFTER the cast to fp32.
+#:
+#: The first Kaggle run produced NaN from step 1 with a 1e-7 bound under AMP.
+#: fp16's smallest normal is 6.1e-5 and it carries ~3 decimal digits near 1.0,
+#: so `1 - 1e-7` rounded to **exactly 1.0**; `log(1 - output)` became
+#: log(0) = -inf and the NaN reached every weight through the backward pass.
+#: The run then produced NaN forever without raising.
+#:
+#: Two things fix it, and both are kept because either alone is fragile:
+#: the `.float()` cast in `_elementwise_bce` (so the clamp is applied in fp32,
+#: where 1e-6 is exact), and a bound loose enough to survive fp16 anyway
+#: (measured: 5e-4 is the smallest that round-trips at BOTH ends; 2e-4
+#: already collapses to 1.0). 1e-6 in fp32 keeps the loss faithful, and
+#: `test_clamp_bound_survives_a_half_precision_round_trip` pins the fp16
+#: property against the value actually used at the boundary.
+_CLAMP = 1e-6
 
-    `clamp` guards `log(0)`: the model's sigmoid can saturate to exactly 0.0
-    or 1.0 in fp16 under AMP, and the resulting -inf becomes NaN on the
-    backward pass.
+
+def _elementwise_bce(output, target):
+    """BCE per cell, computed in fp32 regardless of the autocast dtype.
+
+    Two separate fp16 hazards, both measured rather than assumed:
+
+      - **The clamp bound must round-trip.** See `_CLAMP` above.
+      - **The reduction must not accumulate in fp16.** Summing ~88,000 cells
+        per sample in half precision loses low-order bits badly, and the mean
+        drifts even when no individual term overflows.
+
+    `.float()` is a no-op outside autocast, so the CPU path is unchanged. This
+    is the standard treatment for a loss under AMP: keep the matmuls in fp16,
+    keep the reduction in fp32.
     """
     import torch
 
-    output = torch.clamp(output, 1e-7, 1.0 - 1e-7)
+    output = torch.clamp(output.float(), _CLAMP, 1.0 - _CLAMP)
+    target = target.float()
     return -(target * torch.log(output)
-             + (1.0 - target) * torch.log(1.0 - output)).mean()
+             + (1.0 - target) * torch.log(1.0 - output))
+
+
+def bce(output, target):
+    """Elementwise binary cross-entropy, averaged over everything."""
+    return _elementwise_bce(output, target).mean()
 
 
 def masked_bce(output, target, mask):
@@ -59,12 +90,8 @@ def masked_bce(output, target, mask):
 
     Used for velocity, where the target is only defined at onset frames.
     """
-    import torch
-
-    output = torch.clamp(output, 1e-7, 1.0 - 1e-7)
-    elementwise = -(target * torch.log(output)
-                    + (1.0 - target) * torch.log(1.0 - output))
-    return (elementwise * mask).sum() / (mask.sum() + _EPS)
+    return ((_elementwise_bce(output, target) * mask.float()).sum()
+            / (mask.float().sum() + _EPS))
 
 
 def compute_losses(output: dict, batch: dict) -> dict:
