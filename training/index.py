@@ -76,6 +76,12 @@ class Segment:
     midi_filename: str
     split: str
     start: float        # seconds into the track
+    #: Full length of the track this segment came from. Carried so the dataset
+    #: can tell an augmenter how much source is left after `start` — an upshift
+    #: over-reads, and without this the sampler cannot clamp a detune to the
+    #: available tail. Defaulted to 0.0 (meaning "unknown", treated as no
+    #: constraint) so directly-constructed Segments in tests stay valid.
+    duration: float = 0.0
 
 
 def segment_starts(
@@ -143,6 +149,7 @@ def build_segments(
                         midi_filename=track.midi_filename,
                         split=split,
                         start=start,
+                        duration=track.duration,
                     )
                 )
 
@@ -333,6 +340,7 @@ def segments_from_index(index: dict, split: str | None = None) -> list[Segment]:
                 midi_filename=entry["midi_filename"],
                 split=entry["split"],
                 start=start,
+                duration=entry["duration"],
             )
             for start in starts
         )
