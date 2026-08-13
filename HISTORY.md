@@ -981,6 +981,226 @@ this project turns on that.
 
 ---
 
+## 2026-08-12 — Phase 14: the training data pipeline
+
+The first phase of the training track. No model is trained here; the phase
+exists to make the *inputs* to training exact and reproducible, because the
+two things that would silently ruin a training run — a wrong target encoding
+and a leaked validation split — both fail without raising.
+
+**Delivered:** `training/` (`targets.py`, `labels.py`, `index.py`,
+`dataset.py`), `benchmarks/maestro_segments.json`, and 82 new tests
+(500 → 582, still ~60s, still no model/network/GPU).
+
+### The target encoding was derived from the decoder, not guessed
+
+The model predicts a *regression ramp*, not a binary piano roll, and
+`RegressionPostProcessor` recovers sub-frame timing from the ratio of
+neighbouring values. Reading its shift formula and inverting it algebraically
+gives a **symmetric linear ramp** peaking at the true event time:
+
+    value(n) = max(0, 1 - |n - t*fps| / J)
+
+Verified against the real decoder rather than assumed: sub-frame onsets
+recover with **0.000ms** error at J >= 2. At J = 1 the ramp does not reach the
+±2 neighbours the decoder inspects and error rises to 0.86ms. `J = 5` was
+chosen to match what the pretrained checkpoint actually emits, read off a real
+forward pass — `[0.007 0.042 0.178 0.359 0.536 0.690 0.721 0.622 0.495 ...]`.
+That matters because this is a fine-tune: targets disagreeing with the
+network's current output scale would fight the initialisation.
+
+**Why this needed to be the first thing built.** A binary spike or a Gaussian
+target still trains, still shows a falling loss, and still decodes to notes —
+just the wrong ones. Nothing in the suite would have caught it. So the
+round-trip test through the real post-processor was written before any other
+training code.
+
+Two decoder quirks now pinned by tests:
+- **A plateau is rejected outright.** `is_monotonic_neighbour` requires strict
+  monotonicity, so `_paint_ramp` composes overlapping ramps with `np.maximum`.
+  Assignment would let a fast repeat flatten the first ramp's peak and lose
+  **both** onsets, not one.
+- **Velocity is read only at the onset frame** (`velocity_output[bgn]`), which
+  is why `render_targets` also returns a `mask`. Unmasked, the velocity loss
+  is supervised as 0 across the whole array and trains the model toward
+  silence.
+
+A third quirk is upstream and deliberately not worked around:
+`note_detection_with_onset_offset_regress` tests `if bgn:` rather than
+`if bgn is not None:`, so an onset in frame 0 is falsy and skipped. Inference
+segments overlap, so the neighbouring segment catches it.
+
+### The leakage check caught a real bug on its first run against real data
+
+`assert_no_track_overlap` fired immediately: a Haydn sonata appeared in **both
+train and validation**. It was not leakage — it was a **stem collision**.
+
+`TrackMeta.stem` truncated the source filename to 16 characters, and MAESTRO
+filenames share a long prefix, differing only near the end:
+
+    MIDI-Unprocessed_03_R3_2011_MID--AUDIO_R3-D1_02_Track02_wav
+    MIDI-Unprocessed_03_R3_2011_MID--AUDIO_R3-D1_03_Track03_wav
+
+Both truncated to `MIDI-Unprocessed`. Measured over the full metadata:
+**447 of 1276 tracks shared a stem with another track** (169 duplicate stems),
+**5 pairs spanning two splits**. The trailing `[:90]` cap made it worse by
+re-truncating any suffix that did distinguish them.
+
+Two silent consequences: `benchmark._find_pairs` keys on the stem, so one
+performance would overwrite the other on disk; and a training index built from
+all 962 train tracks would have put one name on both sides of a
+train/validation boundary — inflating the very dev gate Phase 16 depends on.
+
+Fixed by appending an 8-hex digest of the full `midi_filename`. Result:
+**1276 tracks → 1276 distinct stems.** The regression test was verified to
+**fail against the old code** before being kept.
+
+**No published number changes.** The shipped 12-track corpus had no collisions
+(checked), and the MAPS baselines Phase 17 is scored against never used these
+stems. But `benchmarks/maestro_test12.json` and the files already in
+`recordings/maestro_test12/` carry pre-fix names — HANDOFF §4 records this.
+
+### The index stores tracks, not segments — 231MB → 443KB
+
+Writing all 632,783 segment records produced a **231.7MB** JSON file, every
+record differing from its neighbour only in `start = i * hop`. Storing the
+1,099 tracks and regenerating starts with the same function that produced them
+gives **443KB**, a 526x reduction. `test_index_expands_to_exactly_the_generated
+_segments` pins that expansion reproduces generation *exactly* — same order,
+not merely the same set — which is what makes the compression safe.
+
+Real figures: 962 train tracks (159.2h) and 137 validation (19.4h), giving
+632,783 segments and 1,567h of training *exposure* at the 1s hop. Exposure
+counts overlapping segments and is not distinct audio; the CLI says so.
+
+### Measurements that shaped the dataset
+
+- **Seek-decode is 51x cheaper than full-decode**: 5.1ms for a 10s window
+  against 260ms for an 8-minute track. One track backs ~470 segments, so
+  full-decoding per segment turns a 40-minute epoch into a multi-day one —
+  and presents as "the GPU is too slow" rather than as an error.
+- **MAESTRO is 44.1kHz stereo; the model wants 16kHz mono**, so every segment
+  is downmixed and resampled (~4ms).
+- **A soxr benchmark trap.** The FIRST resample call in a process costs
+  **1.9–6.9 seconds** regardless of quality, because soxr initialises lazily.
+  Timed cold, `soxr_mq` measured 1854ms against `soxr_hq`'s 5.2ms — an
+  apparent 356x advantage for the *higher* quality setting. Warm, both are
+  ~3.5ms. The false result was caught by re-running in alternating order.
+
+**Measured throughput: 38.9 segments/sec/worker** end-to-end on real MAESTRO
+audio — 2.6x the ≥15/s budget, before Kaggle's 4 workers.
+
+### The validation that matters most
+
+Ground-truth MIDI → labels → targets → the real post-processor, on a real
+MAESTRO segment: **37 of 37 notes recovered, maximum onset error 0.000ms**.
+And a real batch through the pretrained CRNN confirms all four output heads
+match the target shapes exactly, including the 1001-frame count that
+`center=True` produces (not 1000).
+
+### What Phase 14 delivers
+
+An exact, reproducible answer to "what audio and what labels does training
+see", with the two silent failure modes — wrong encoding, leaked split —
+closed by tests rather than by care. Nothing here trains anything; that is
+Phase 14.5's smoke run and Phase 15's loop.
+
+---
+
+## 2026-08-12 — Phase 14.5: the smoke run, and a model that could not train
+
+The plan's smallest end-to-end slice: prove the chain before spending 30
+GPU-hours on it. It found a blocker that would have cost a full run to
+discover, and it found it on CPU, for free.
+
+**Delivered:** `training/{model,losses,checkpoint,train}.py`,
+`training/kaggle/smoke_run.ipynb`, `benchmarks/maestro_segments_smoke.json`,
+and 34 tests (582 → 614).
+
+### The model is untrainable as shipped
+
+The first attempt at a single training step died:
+
+    one of the variables needed for gradient computation has been modified
+    by an inplace operation: [torch.FloatTensor [2, 1001, 768]], which is
+    output 0 of ReluBackward0
+
+`AcousticModelCRnn8Dropout.forward` (models.py:146-147) does
+`x = F.relu(...)` followed by `F.dropout(..., inplace=True)`, and the
+in-place dropout overwrites the ReLU output that autograd needs.
+
+**It has never bitten anyone because `piano_transcription_inference` is an
+inference package.** `self.training` is always False there, so the in-place
+branch never executes and dropout is a no-op. It fires the instant the model
+is put in train mode — i.e. the instant this project tries to fine-tune.
+Four lines later the identical pattern uses `inplace=False`, so it is an
+upstream inconsistency rather than a deliberate memory optimisation.
+
+Patched at runtime in `training.model.enable_training_mode()` rather than by
+editing the installed package, so the fix travels with the repo to Kaggle and
+survives a reinstall. `load_pretrained` calls it, so no caller can forget.
+The regression test was verified to fail without the patch.
+
+**This is exactly what Phase 14.5 was for.** Discovered on CPU in minutes;
+on Kaggle it would have killed the first real run after the session had
+already been booked.
+
+### CPU training costs 110 seconds per step
+
+Measured: 62s forward + 48s backward at batch 1 with 8 threads. Two early
+attempts at the overfit-one-batch check were killed by a 2-minute timeout
+*mid-first-step*, which read as a hang. The rehearsal was rerun on 1-second
+segments (~2.5s/step) — same code path, ~10x cheaper.
+
+That number is not a tuning problem to solve. It is the quantified reason
+Kaggle is mandatory rather than convenient, and it belongs alongside HANDOFF
+§7's "no usable GPU".
+
+### What the rehearsal proved, on this machine, with no GPU
+
+- **Gradients flow and the loss falls**: 0.947 → 0.667 over 6 steps, with
+  onset dropping 0.0101 → 0.0009 and frame 0.0497 → 0.0015. Velocity
+  plateaus near 0.66, which is the *entropy floor* of a soft target
+  (80/128 = 0.625), not a stall — worth knowing before someone reads it as
+  a broken head.
+- **Kill/resume is exact**: weights identical, optimiser state restored, and
+  the RNG stream restored so a resumed run draws the same augmentations. All
+  three were checked independently, because a resume that silently changes
+  the training distribution reports nothing.
+- **The deployable checkpoint is 172.0 MB** and clears the 160MB floor.
+- **It loads through the real inference library** and produces **83 notes and
+  16 pedal events** — the pedals confirming the frozen pedal model was
+  re-attached correctly rather than lost.
+- **`--resume auto` works through the CLI**: interrupted at step 2, resumed at
+  step 3, with the JSONL log appending cleanly across the boundary.
+
+### Design decisions worth recording
+
+- **The velocity loss is masked to onset frames.** The decoder reads velocity
+  at exactly one frame per note (`velocity_output[bgn]`); everywhere else it
+  is *undefined*, not zero. Unmasked, ~99.96% of the target is zeros, the term
+  dominates the total, and the model learns to predict silence.
+- **Saves fire on a wall clock as well as a step count.** Kaggle kills at a
+  fixed hour regardless of how many steps have run, so a step-only trigger on
+  a slow dataloader can miss the deadline entirely.
+- **Resume is the same code path as start.** `--resume auto` finds the newest
+  checkpoint or begins fresh; there is no separate resume script, because a
+  path exercised only after a crash is untested at the moment it matters.
+- **`find_latest` orders by the step in the filename, not mtime** — a file
+  copied back from Kaggle carries a fresh mtime and would otherwise look
+  newest.
+- **The notebook contains no logic.** Every cell installs, invokes, or
+  downloads, and the repo is pinned to a commit, so what ran is recoverable
+  from `git_commit` — the same provenance discipline `report.py` applies to
+  scores.
+
+**Still outstanding:** the actual Kaggle GPU run. Everything it depends on has
+been rehearsed locally, so what remains to be discovered there is genuinely
+Kaggle-specific — whether `torchlibrosa` works on its torch/numpy 2.x, and
+what the real steps/sec is.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on
@@ -989,5 +1209,10 @@ this project turns on that.
   ByteDance's 96.72% is on studio Disklavier audio, not a real room. That gap
   is winnable on free-tier compute; the benchmark number is not.
 - **Hard constraints:** AMD integrated graphics (1GB shared VRAM) means no
-  CUDA and no local training. 59GB free disk against a 103GB dataset means
-  MAESTRO must be streamed, never downloaded.
+  CUDA and no local training. Disk is now **~44GB free** against a 103GB
+  dataset — but "MAESTRO must be streamed" was wrong twice over. Phase 13
+  showed the HuggingFace mirror serves loose per-track files (12 tracks =
+  867MB, plain `urllib`), and Phase 14 removed the question entirely:
+  **training reads MAESTRO from Kaggle's mounted public dataset, so the audio
+  never lands on this machine at all.** What is stored here is a 443KB index
+  of relative paths.

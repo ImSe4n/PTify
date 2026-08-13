@@ -123,13 +123,40 @@ class TrackMeta:
         correctly. They render as mojibake in a cp1252 console, which looks
         like an encoding bug and is not one — decoding the CSV as latin-1 to
         "fix" the display is what would actually corrupt the names.
+
+        THE HASH SUFFIX IS LOAD-BEARING (found in Phase 14b). Truncating the
+        source filename to 16 characters was NOT collision-resistant, despite
+        what this docstring used to promise: MAESTRO filenames share a long
+        prefix and differ only later, so
+            MIDI-Unprocessed_03_R3_2011_MID--AUDIO_R3-D1_02_Track02_wav
+            MIDI-Unprocessed_03_R3_2011_MID--AUDIO_R3-D1_03_Track03_wav
+        both truncate to "MIDI-Unprocessed". Measured over the full metadata:
+        **447 of 1276 tracks shared a stem with another track** (169 duplicate
+        stems), and 5 of those spanned two splits. The final `[:90]` made it
+        worse by re-truncating any suffix that did distinguish them.
+
+        Two consequences, both silent: `_find_pairs` keys on the stem and one
+        performance would overwrite the other on disk, and a training index
+        built from all 962 train tracks would place two different performances
+        under one name across a train/validation boundary.
+
+        The 8-hex digest of the full `midi_filename` is therefore appended.
+        It is deterministic, path-derived, and short enough to survive the
+        length cap — which is applied to the readable part only, so the digest
+        can never itself be truncated away.
+
+        The shipped 12-track benchmark corpus was checked and is NOT affected
+        (all 12 stems were already distinct), so no published number changes.
         """
         source = Path(self.midi_filename).stem
         raw = f"{self.composer}-{self.year}-{self.title}-{source[:16]}"
         cleaned = "".join(
             "_" if c in _ILLEGAL_CHARS else c for c in raw.replace(" ", "_")
         )
-        return cleaned.strip("._ ")[:90]
+        # Hash the full source path, not the truncated slice — the whole point
+        # is to reintroduce the information truncation threw away.
+        digest = hashlib.sha256(self.midi_filename.encode("utf-8")).hexdigest()[:8]
+        return f"{cleaned.strip('._ ')[:90]}-{digest}"
 
 
 def parse_metadata(csv_text: str) -> list[TrackMeta]:

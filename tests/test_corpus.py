@@ -112,6 +112,56 @@ def test_stems_are_unique_across_the_corpus():
     assert len(set(stems)) == len(stems)
 
 
+def test_stems_survive_real_maestro_filenames():
+    """REGRESSION (Phase 14b): truncation made stems collide on real data.
+
+    The fixture CSV above cannot catch this — its filenames are `a.midi` and
+    `b.midi`, which differ in the first character. Real MAESTRO filenames
+    share a long prefix and differ only near the end:
+
+        MIDI-Unprocessed_03_R3_2011_MID--AUDIO_R3-D1_02_Track02_wav
+        MIDI-Unprocessed_03_R3_2011_MID--AUDIO_R3-D1_03_Track03_wav
+
+    Both truncated to "MIDI-Unprocessed", so two different performances of
+    one Haydn sonata — 240.8s in `train`, 128.6s in `validation` — produced
+    an identical stem. Measured over the full metadata: 447 of 1276 tracks
+    collided, 5 pairs across splits.
+
+    Two silent failures followed: `_find_pairs` keys on the stem, so one
+    performance would overwrite the other on disk, and a training index built
+    from all 962 train tracks would put one name on both sides of a
+    train/validation boundary — inflating the dev score that Phase 16's gate
+    depends on.
+    """
+    common = "2011/MIDI-Unprocessed_03_R3_2011_MID--AUDIO_R3-D1"
+    a = TrackMeta(
+        composer="Joseph Haydn", title="Sonata in B-flat Major, Hob.XVI:41",
+        split="train", year=2011,
+        midi_filename=f"{common}_02_Track02_wav.midi",
+        audio_filename=f"{common}_02_Track02_wav.wav", duration=240.8,
+    )
+    b = TrackMeta(
+        composer="Joseph Haydn", title="Sonata in B-flat Major, Hob.XVI:41",
+        split="validation", year=2011,
+        midi_filename=f"{common}_03_Track03_wav.midi",
+        audio_filename=f"{common}_03_Track03_wav.wav", duration=128.6,
+    )
+
+    assert a.stem != b.stem
+
+
+def test_stem_is_deterministic():
+    """The stem names files on disk and keys benchmark rows, so it must not
+    drift between runs or processes."""
+    t = TrackMeta(
+        composer="Joseph Haydn", title="Sonata", split="train", year=2011,
+        midi_filename="2011/MIDI-Unprocessed_03_R3_2011_x.midi",
+        audio_filename="2011/MIDI-Unprocessed_03_R3_2011_x.wav", duration=100.0,
+    )
+    assert t.stem == t.stem
+    assert TrackMeta(**vars(t)).stem == t.stem
+
+
 # --- selection ------------------------------------------------------------
 
 def test_selects_only_the_requested_split():

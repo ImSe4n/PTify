@@ -49,7 +49,7 @@ ptify = "transcriber.__main__:main"
 ptify-notation = "notation.__main__:main"
 
 [tool.setuptools]
-packages = ["transcriber", "notation", "evaluation", "api", "api.routes"]
+packages = ["transcriber", "notation", "evaluation", "api", "api.routes", "training"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
