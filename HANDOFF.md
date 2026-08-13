@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 14.5 — **smoke run PASSED on Kaggle GPU**, checkpoint verified locally |
-| **Branch** | `phase-14-training` — branch the next phase off `master` once merged |
-| **Tests** | 623 passing, ~62s, no model or network needed |
-| **Next** | **Phase 16a** — `detune_resample()` + the augmentation sampler (see §9) |
+| **Last completed** | Phase 16a — augmentation in the dataloader, 20.6 seg/s/worker, −8.1 F1 on ByteDance |
+| **Branch** | `phase-16a-augmentation`, branched off **`phase-14-training`** (see the branch note) |
+| **Tests** | 701 passing, ~95s, no model or network needed |
+| **Next** | **Phase 16b/15** — the GPU run with `--augment` on. First one that can improve something |
 
 **The headline number this project was missing.** ByteDance scores **0.969 on
 MAESTRO and 0.787 on MAPS** — an **18.3-point drop** onto an unfamiliar piano
@@ -46,11 +46,19 @@ streams `GET /v1/jobs/{id}/events`. Artifacts come back from
 it with `pip install -e . --no-deps` then
 `python -m uvicorn api.app:create_app --factory`.
 
-**Branch note:** resolved. `master` had been 13 commits behind and was missing
-Phases 12 and 13; Phase 3 was therefore branched off `phase-13-real-audio`
-rather than `master`. All four phase branches are now merged into `master`
-(PR #6), the suite passes there, and `git branch --merged master` lists every
-one. Branch the next phase off `master`.
+**Branch note — `master` is STALE AGAIN, and this bit Phase 16a.** The advice
+below ("branch off `master`") was written before 14.5 shipped and is now
+wrong. `phase-14-training` carries **six commits that are not on `master`**,
+including all five Kaggle bug fixes — gradient accumulation, the non-finite
+loss guard, `diagnose_nan`, the `weights_only` fix and the RNG device fix.
+Branching 16a off `master` as instructed silently produced a `train.py` with
+none of them; caught only because an edit failed to apply against a file that
+should have contained accumulation. **Merge `phase-14-training` and
+`phase-16a-augmentation` into `master` before starting 16b**, then verify with
+`git log --oneline master..<branch>` rather than trusting this file.
+
+Historical: `master` had also been 13 commits behind before Phase 3, missing
+Phases 12 and 13. This is the second occurrence, so check rather than assume.
 
 **Deferred from Phase 13:** the full 8-preset × 2-engine degradation matrix.
 The `clean` baseline for both engines exists; the augmented cells do not. See
@@ -157,6 +165,11 @@ training/               inputs to a training run. No model, no torch at import
   labels.py             ground-truth MIDI -> notes/pedals (wraps read_midi)
   index.py              deterministic segment index + CLI
   dataset.py            seek-decode a segment, augment hook, render targets
+  augment.py            continuous room/detune sampler; hash-seeded per segment
+  model.py              load_pretrained, the in-place-dropout patch, deployable
+  losses.py             the four heads; velocity masked to onset frames
+  checkpoint.py         save/resume, RNG capture, atomic write, pruning
+  train.py              the fine-tuning loop. `--resume auto`, `--augment`
 ```
 
 **`training/` is a build-time dependency of a checkpoint, not a runtime
@@ -179,6 +192,45 @@ custom-trained model drops in the same way.
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**A resample detune's label error GROWS WITH TIME, and 10 cents is already
+too much.** Changing playback rate shifts pitch and time together, so a label
+at `t` is wrong by `t * |1 - 1/ratio|` if it is not rescaled. The figure that
+gets quoted (~29ms at 50 cents) is the error at **t=1s**; at the end of a 10s
+segment it is **284.7ms**, 5.7x mir_eval's 50ms onset tolerance. Even 10 cents
+breaks tolerance before the segment ends. This does not raise, does not stop
+the loss falling, and trains a systematic time offset into the model —
+`detune_resample` rescales labels by `1/ratio`, and
+`test_uncorrected_drift_would_fail_that_round_trip` pins why.
+
+**Augmentation must NOT draw from the global RNG, and `capture_rng_state` no
+longer claims it does.** Dataloader workers are separate processes that each
+inherit a *copy* of the global numpy/torch state, so every worker would draw
+identical augmentations. `shuffle=True` also moves a segment's stream position
+each epoch, and prefetch draws ahead of the step boundary a checkpoint
+restores. `training.augment.segment_seed` hashes `(seed, epoch, index)` with
+**blake2b** instead — `hash()` is salted per process and would differ every
+run. Resume is then exact for free, because a hash has no position to restore.
+
+**`persistent_workers=False` costs 44% of dataloader throughput**, and the
+augmentation's isolated cost is not its real cost. Measured: 8.3 seg/s/worker
+without persistence against 14.8 with, because soxr's 1.9–6.9s lazy init is
+repaid on every epoch boundary. The isolated augmentation measured 14ms/segment
+but the first end-to-end number was 74.9ms — a 5x gap that was entirely worker
+respawn, not augmentation. Epoch variety therefore comes from
+`SegmentDataset(epoch_offset=...)`, which shifts the *index* the sampler is
+asked about; `sampler.set_epoch()` cannot work through a persistent worker
+because the worker holds a copy. **Measure augmentation through a real
+DataLoader, never in isolation.**
+
+**A detune over-reads the source, so the augmenter must be consulted BEFORE
+decoding.** Producing 10s of +50-cent audio consumes 10.293s of source. That
+is why `SegmentDataset` calls `augment.plan(i)` first and decodes
+`plan.source_seconds` — and why labels are rebased over that wider window, or
+notes between 10s and 10s*ratio get dropped despite being audible. **315 of
+1099 indexed tracks have under 300ms of tail**, less than a +50-cent over-read
+needs, so the sampler clamps the detune rather than letting `fit_length` pad
+invented silence.
 
 **The ByteDance model is UNTRAINABLE as shipped — an in-place dropout breaks
 the backward pass.** `AcousticModelCRnn8Dropout.forward` (models.py:146-147)
@@ -722,12 +774,46 @@ python -m training.train --index benchmarks/maestro_segments_smoke.json \
 - `pip install --no-deps` needs `mido pretty_midi librosa soundfile resampy
   audioread soxr lazy_loader msgpack` naming explicitly; the notebook does it.
 
-**Next is 16a, not 15.** The training loop, checkpointing and resume all work;
-what does not exist yet is the augmentation that the whole track depends on,
-and it is pure-CPU work that needs no GPU quota. `evaluation.augment.pitch_shift`
-costs 19.7s per 10s segment and cannot be used in a dataloader — build
-`detune_resample()` (~8ms) and the continuous sampler first, then spend GPU
-time on a run that can actually improve something.
+**Phase 16a is DONE** — see below. The next GPU run can improve something.
+
+### Phase 16a is DONE. Augmentation runs in the dataloader.
+
+`--augment` is wired through `training/train.py` and measured:
+
+| | |
+|---|---|
+| throughput | **20.6 seg/s/worker** (budget ≥15), 17.3ms/segment |
+| effect on ByteDance | **0.9733 → 0.8920 onset F1**, −8.1 points, real MAESTRO audio |
+| CPU smoke run | loss 0.9929 → 0.7800, `VAL 0.6965` / `AUG 0.7030`, 172.0 MB deployable |
+
+```bash
+python -m training.train --augment --augment-seed 0 \
+    --index benchmarks/maestro_segments.json --audio-root <mount> \
+    --device cuda --no-amp --batch-size 2 --accum-steps 4 --workers 2
+```
+
+**What to know before changing any of it** (the traps are in §4):
+- **Detune labels are rescaled by `1/ratio`, and must stay that way.** The
+  drift is 284.7ms at the segment end at 50 cents.
+- **`plan()` is called before decoding** so a detune can over-read the source.
+- **Seeding is hashed, not streamed** — resume is exact without RNG state.
+- **Epoch variety is `epoch_offset`, not `set_epoch`** — persistence is worth
+  44% of throughput.
+- **Ranges came from the degradation curve**: detune triangular on ±50 cents,
+  rt60 log-uniform on 0.2–1.6, 20% clean passthrough, `eq` off at 22.6ms.
+
+**Both validation metrics are logged when augmenting.** `val_*` is clean — the
+regression guard, comparable to the 14.5 baseline and to `benchmarks/` — and
+`val_aug_*` is the metric this track actually optimises, pinned to epoch 0 so
+the condition does not drift between steps. A clean val curve can improve
+while room robustness goes nowhere; that would otherwise only surface at
+Phase 17's MAPS scoring.
+
+**Next: 16b/15, the real GPU run.** Everything it needs is proven. The open
+question is not plumbing but hyperparameters — how long to train, and whether
+`--augment-max-cents 50` and the 20% clean share are the right trade. Score
+against `benchmarks/real/maps-*.json` with `report.compare_reports()`, and
+remember the target is **beating 0.787 on MAPS, not 0.969 on MAESTRO**.
 
 What Phase 14 leaves ready:
 

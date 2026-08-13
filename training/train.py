@@ -64,7 +64,8 @@ def lr_at(step: int, base_lr: float, warmup: int = DEFAULT_WARMUP_STEPS,
     return base_lr * (decay ** ((step - warmup) // decay_every))
 
 
-def build_dataloader(args, split: str, *, shuffle: bool):
+def build_dataloader(args, split: str, *, shuffle: bool, augment=None,
+                     epoch_offset: int = 0):
     import torch
 
     index = read_index(Path(args.index))
@@ -78,7 +79,8 @@ def build_dataloader(args, split: str, *, shuffle: bool):
         segments = segments[: args.max_segments]
 
     dataset = SegmentDataset(segments, audio_root=args.audio_root,
-                             midi_root=args.midi_root or args.audio_root)
+                             midi_root=args.midi_root or args.audio_root,
+                             augment=augment, epoch_offset=epoch_offset)
     return torch.utils.data.DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -87,8 +89,31 @@ def build_dataloader(args, split: str, *, shuffle: bool):
         collate_fn=collate,
         drop_last=True,
         # Workers re-import the package per process; keeping them alive avoids
-        # paying soxr's ~2-6s lazy init on every epoch boundary.
+        # paying soxr's ~2-6s lazy init on every epoch boundary. MEASURED at
+        # 14.8 seg/s/worker against 8.3 without — so turning this off to let a
+        # `set_epoch` reach the workers would have cost 44% of throughput and
+        # broken the >=15 budget. `epoch_offset` gets epoch variety instead,
+        # without mutating anything a worker holds a copy of.
         persistent_workers=args.workers > 0,
+    )
+
+
+def build_augmenter(args, *, epoch: int = 0):
+    """The training-time augmenter, or None when `--augment` is off.
+
+    Off by default so Phase 14.5's known-good configuration stays exactly
+    reproducible; a run that changes two things at once cannot attribute
+    either.
+    """
+    if not args.augment:
+        return None
+    from .augment import AugmentationSampler
+
+    return AugmentationSampler(
+        seed=args.augment_seed, epoch=epoch,
+        clean_prob=args.augment_clean_prob,
+        max_cents=args.augment_max_cents,
+        eq_prob=args.augment_eq_prob,
     )
 
 
@@ -199,11 +224,38 @@ def train(args) -> int:
         else:
             print("No checkpoint found; starting fresh")
 
-    loader = build_dataloader(args, args.train_split, shuffle=True)
+    augmenter = build_augmenter(args)
+    loader = build_dataloader(args, args.train_split, shuffle=True,
+                              augment=augmenter)
+
+    # Clean validation is the REGRESSION GUARD: it answers "did fine-tuning
+    # damage what already worked", stays comparable to the Phase 14.5 baseline
+    # and to everything in benchmarks/, and is the metric that catches the real
+    # disaster of destroying the pretrained weights.
     val_loader = (build_dataloader(args, args.val_split, shuffle=False)
                   if args.validate_every else None)
+
+    # Augmented validation is the metric this whole track is OPTIMISING. A
+    # clean val curve can improve while room robustness goes nowhere, and that
+    # would not surface until Phase 17 scores against MAPS.
+    #
+    # It is pinned to epoch 0 deliberately: if the val condition moved with the
+    # training epoch, the curve would shift because the augmentation shifted
+    # and no step-to-step comparison would mean anything.
+    val_aug_loader = None
+    if args.validate_every and augmenter is not None:
+        val_aug_loader = build_dataloader(
+            args, args.val_split, shuffle=False,
+            augment=build_augmenter(args, epoch=0),
+        )
+
     print(f"{len(loader.dataset):,} training segments, "
           f"batch {args.batch_size}, {args.workers} workers")
+    if augmenter is not None:
+        print(f"  augmentation ON (seed {args.augment_seed}, "
+              f"clean {args.augment_clean_prob:.0%}, "
+              f"+-{args.augment_max_cents:g} cents, "
+              f"{len(augmenter.bank)} impulse responses)")
 
     trigger = SaveTrigger(args.save_every_steps, args.save_every_seconds)
     step = start_step
@@ -214,6 +266,17 @@ def train(args) -> int:
 
     while step < args.steps:
         epoch += 1
+        # A fresh condition for every segment each epoch. The loader is rebuilt
+        # rather than the sampler mutated, because a persistent worker holds a
+        # COPY of the sampler that a `set_epoch` would never reach — and
+        # turning persistence off to fix that cost 44% of throughput (measured
+        # 8.3 vs 14.8 seg/s/worker). Rebuilding costs one worker respawn per
+        # epoch, against a ~40-minute epoch.
+        if augmenter is not None and epoch > 1:
+            loader = build_dataloader(
+                args, args.train_split, shuffle=True, augment=augmenter,
+                epoch_offset=epoch * len(loader.dataset),
+            )
         optimizer.zero_grad(set_to_none=True)
         micro = 0
 
@@ -290,9 +353,17 @@ def train(args) -> int:
             if val_loader is not None and step % args.validate_every == 0:
                 metrics = evaluate(note_model, val_loader, device,
                                    args.val_batches)
+                if val_aug_loader is not None:
+                    metrics |= {
+                        k.replace("val_", "val_aug_"): v
+                        for k, v in evaluate(note_model, val_aug_loader,
+                                             device, args.val_batches).items()
+                    }
                 logger.log({"step": step, **metrics})
-                print(f"  step {step:>6} VAL total "
-                      f"{metrics['val_total']:.4f}")
+                line = f"  step {step:>6} VAL total {metrics['val_total']:.4f}"
+                if "val_aug_total" in metrics:
+                    line += f"  AUG {metrics['val_aug_total']:.4f}"
+                print(line)
 
             if trigger.should_save(step):
                 path = save_training_state(
@@ -355,6 +426,30 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--device", default="cpu", help="cpu or cuda")
     ap.add_argument("--no-amp", action="store_true",
                     help="disable mixed precision even on CUDA")
+
+    # --- augmentation (Phase 16a) ---
+    # Off by default: Phase 14.5's known-good configuration must stay exactly
+    # reproducible, and a run that changes two things at once cannot attribute
+    # either. Every one of these lands in the checkpoint via `vars(args)`.
+    ap.add_argument("--augment", action="store_true",
+                    help="continuous room/detune augmentation. Targets the "
+                         "measured 18.3-point MAESTRO->MAPS generalisation "
+                         "gap, of which 12.9 is room acoustics alone")
+    ap.add_argument("--augment-seed", type=int, default=0,
+                    help="per-segment seeds are hashed from this, the epoch "
+                         "and the segment index; resume reproduces them "
+                         "exactly without needing the RNG stream")
+    ap.add_argument("--augment-clean-prob", type=float, default=0.2,
+                    help="share of segments left untouched, so clean-audio "
+                         "accuracy is not traded away for robustness")
+    ap.add_argument("--augment-max-cents", type=float, default=50.0,
+                    help="detune half-range. A 25-cent detune cost 14.1 F1 "
+                         "points in the measured degradation curve, the "
+                         "worst single factor")
+    ap.add_argument("--augment-eq-prob", type=float, default=0.0,
+                    help="mic-colouration probability. Default 0: it costs "
+                         "22.6ms per segment, more than the rest of the chain "
+                         "combined, for a factor absent from the curve")
 
     ap.add_argument("--train-split", default="train")
     ap.add_argument("--val-split", default="validation")

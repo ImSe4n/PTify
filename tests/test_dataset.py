@@ -282,3 +282,139 @@ def test_decode_preserves_signal_content(tmp_path):
     peak_hz = np.fft.rfftfreq(len(audio), 1 / SAMPLE_RATE)[np.argmax(spectrum)]
 
     assert peak_hz == pytest.approx(440.0, abs=5.0)
+
+
+# --- the plan/apply augmentation protocol (Phase 16a) ---------------------
+#
+# A resample detune consumes more source audio than it produces, so the
+# augmenter has to be consulted BEFORE decoding. These pin that plumbing.
+
+class FakePlan:
+    def __init__(self, source_seconds):
+        self.source_seconds = source_seconds
+
+
+class PlanningAugmenter:
+    """Minimal stand-in for AugmentationSampler: records what it was asked."""
+
+    def __init__(self, source_seconds=SECONDS):
+        self.source_seconds = source_seconds
+        self.applied = []
+
+    def plan(self, index):
+        return FakePlan(self.source_seconds)
+
+    def apply(self, audio, labels, plan):
+        self.applied.append((len(audio), labels))
+        return audio[:SAMPLES], labels
+
+
+def test_a_planning_augmenter_makes_the_decoder_over_read():
+    """The whole reason the plan/apply protocol exists."""
+    seen = []
+
+    def decode(path, start, seconds):
+        seen.append(seconds)
+        return np.zeros(int(seconds * SAMPLE_RATE), dtype=np.float32)
+
+    aug = PlanningAugmenter(source_seconds=10.293)   # +50 cents
+    ds = dataset([make_segment(start=5.0)], decoder=decode, augment=aug)
+    ds[0]
+
+    assert seen == [10.293]
+
+
+def test_rebasing_uses_the_over_read_window_not_the_segment_length():
+    """A note between 10s and 10s*ratio IS in the decoded audio, so dropping
+    it would hand the augmenter labels that do not describe what it got."""
+    aug = PlanningAugmenter(source_seconds=10.293)
+    ds = dataset(
+        [make_segment(start=0.0)],
+        notes=[(60, 10.2, 10.25, 80)],       # inside the over-read only
+        augment=aug,
+    )
+    ds[0]
+
+    _, labels = aug.applied[0]
+    assert [n.pitch for n in labels.notes] == [60]
+
+
+def test_a_note_past_the_over_read_window_is_still_excluded():
+    aug = PlanningAugmenter(source_seconds=10.293)
+    ds = dataset(
+        [make_segment(start=0.0)], notes=[(60, 10.5, 10.9, 80)], augment=aug
+    )
+    ds[0]
+
+    _, labels = aug.applied[0]
+    assert labels.notes == []
+
+
+def test_a_plain_two_argument_augmenter_still_works():
+    """Backwards compatibility: the hook predates the plan protocol and the
+    tests above this line all use the two-argument form."""
+    calls = []
+
+    def augment(audio, labels):
+        calls.append(len(audio))
+        return audio, labels
+
+    ds = dataset([make_segment()], augment=augment)
+    item = ds[0]
+
+    assert calls == [SAMPLES]
+    assert item["waveform"].shape == (SAMPLES,)
+
+
+def test_the_real_sampler_drives_the_dataset_end_to_end():
+    from training.augment import AugmentationSampler
+
+    sampler = AugmentationSampler(SAMPLE_RATE, seed=0, ir_bank_size=2)
+
+    def decode(path, start, seconds):
+        t = np.arange(int(round(seconds * SAMPLE_RATE))) / SAMPLE_RATE
+        return (np.sin(2 * np.pi * 440 * t) * 0.5).astype(np.float32)
+
+    ds = dataset(
+        [make_segment(start=s) for s in (0.0, 1.0, 2.0)],
+        notes=[(60, 1.0, 2.0, 80)], decoder=decode, augment=sampler,
+    )
+
+    for i in range(3):
+        item = ds[i]
+        assert item["waveform"].shape == (SAMPLES,)
+        assert item["waveform"].dtype == np.float32
+        assert item["reg_onset"].shape == (segment_frames(), 88)
+        assert np.isfinite(item["waveform"]).all()
+
+
+def test_epoch_offset_changes_the_condition_a_segment_draws():
+    """Epoch variety without mutating the sampler — a persistent dataloader
+    worker holds a COPY that a `set_epoch` would never reach, and turning
+    persistence off to fix that measured 8.3 seg/s/worker against 14.8."""
+    from training.augment import AugmentationSampler
+
+    def decode(path, start, seconds):
+        return np.zeros(int(round(seconds * SAMPLE_RATE)), dtype=np.float32)
+
+    seen = []
+
+    class Recording(AugmentationSampler):
+        def plan(self, index, **kw):
+            plan = super().plan(index, **kw)
+            seen.append(plan)
+            return plan
+
+    for offset in (0, 1000):
+        ds = dataset([make_segment()], decoder=decode,
+                     augment=Recording(SAMPLE_RATE, seed=0, clean_prob=0.0,
+                                       ir_bank_size=2),
+                     epoch_offset=offset)
+        ds[0]
+
+    assert seen[0] != seen[1]
+
+
+def test_epoch_offset_defaults_to_zero():
+    ds = dataset([make_segment()])
+    assert ds.epoch_offset == 0

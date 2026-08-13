@@ -83,9 +83,19 @@ def torch_load(path: str | Path, device: str = "cpu"):
 def capture_rng_state() -> dict:
     """Snapshot every RNG the pipeline draws from.
 
-    numpy backs augmentation, `random` backs any Python-level sampling, and
-    torch backs DataLoader shuffling. Missing one means resume changes the
-    data the model sees without changing anything visible.
+    torch backs DataLoader shuffling, `random` backs any Python-level
+    sampling, numpy is captured for anything that reaches for the global
+    stream. Missing one means resume changes the data the model sees without
+    changing anything visible.
+
+    AUGMENTATION IS NOT IN HERE, DELIBERATELY (Phase 16a). This docstring used
+    to claim "numpy backs augmentation"; it does not.
+    `training.augment.segment_seed` hashes (seed, epoch, segment index)
+    instead, because a global stream cannot survive what a dataloader does to
+    it: worker processes each inherit a COPY of the state, `shuffle=True`
+    visits a segment at a different stream position every epoch, and prefetch
+    draws ahead of the step boundary a checkpoint restores. A hash has no
+    position to restore, so augmentation resumes exactly and for free.
     """
     import numpy as np
     import torch

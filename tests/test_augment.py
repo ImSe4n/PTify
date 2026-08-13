@@ -10,15 +10,19 @@ import pytest
 
 from evaluation.augment import (
     PRESETS,
+    ImpulseBank,
     add_noise,
     apply_preset,
+    detune_ratio,
+    detune_resample,
+    detune_source_seconds,
     eq,
     gain,
     make_impulse_response,
     pitch_shift,
     reverb,
 )
-from transcriber.events import NoteEvent, Transcription
+from transcriber.events import NoteEvent, PedalEvent, Transcription
 
 SR = 22050
 
@@ -287,3 +291,196 @@ def test_preset_zero_values_are_applied_not_skipped():
         assert np.abs(out).max() == pytest.approx(0.0)
     finally:
         del A.PRESETS["_test_zero"]
+
+
+# --- detune by resampling -------------------------------------------------
+#
+# The training-time replacement for pitch_shift. The invariant that matters
+# is not "the audio changed" but "the labels still describe the audio" — and
+# the failure mode there is silent, so these tests are the guard.
+
+TRAIN_SR = 16000
+
+
+def _tone(seconds=10.0, freq=440.0, sr=TRAIN_SR):
+    t = np.arange(int(round(seconds * sr))) / sr
+    return (np.sin(2 * np.pi * freq * t) * 0.5).astype(np.float32)
+
+
+def _peak_hz(audio, sr=TRAIN_SR):
+    spectrum = np.abs(np.fft.rfft(audio))
+    return float(np.fft.rfftfreq(len(audio), 1.0 / sr)[spectrum.argmax()])
+
+
+@pytest.mark.parametrize("cents", [-50.0, -25.0, -10.0, 10.0, 25.0, 50.0])
+def test_detune_shifts_pitch_by_the_requested_amount(cents):
+    audio = _tone()
+    out, _ = detune_resample(audio, _labels(), TRAIN_SR, cents)
+    expected = 440.0 * detune_ratio(cents)
+    assert _peak_hz(out) == pytest.approx(expected, abs=1.0)
+
+
+@pytest.mark.parametrize("cents", [-50.0, -10.0, 10.0, 50.0])
+def test_detune_output_length_is_exact_when_the_source_was_over_read(cents):
+    """The caller reads seconds*ratio of source; the output is exactly
+    `seconds`. This is what makes over-reading worth the plumbing."""
+    source = _tone(detune_source_seconds(10.0, cents))
+    out, _ = detune_resample(source, _labels(), TRAIN_SR, cents,
+                             out_samples=10 * TRAIN_SR)
+    assert len(out) == 10 * TRAIN_SR
+
+
+@pytest.mark.parametrize("cents", [-50.0, -25.0, 25.0, 50.0])
+def test_detune_rescales_label_times(cents):
+    """A label at source time t must land at t / ratio."""
+    labels = Transcription(duration=10.0)
+    labels.notes = [NoteEvent(60, 9.0, 9.5, 90)]
+
+    _, out = detune_resample(_tone(), labels, TRAIN_SR, cents)
+
+    expected = 9.0 / detune_ratio(cents)
+    assert out.notes[0].onset == pytest.approx(expected, abs=0.001)
+
+
+def test_detune_label_error_would_break_mir_eval_if_not_rescaled():
+    """REGRESSION, and the reason `_rescale_times` exists.
+
+    The drift from carrying labels unchanged grows with t, so the segment END
+    is the worst case. At 50 cents it is 284.7ms against mir_eval's 50ms
+    onset tolerance — 5.7x. Anyone tempted to call the rescale
+    over-engineering should read this number first.
+    """
+    drift = 10.0 * abs(1.0 - 1.0 / detune_ratio(50.0))
+    assert drift > 0.25
+
+    # And the rescale actually removes it.
+    labels = Transcription(duration=10.0)
+    labels.notes = [NoteEvent(60, 9.99, 10.0, 90)]
+    _, out = detune_resample(_tone(), labels, TRAIN_SR, 50.0)
+    assert out.notes[0].onset == pytest.approx(9.99 / detune_ratio(50.0),
+                                               abs=0.001)
+
+
+def test_detune_leaves_pitches_alone():
+    """A fractional detune is an out-of-tune piano, not a transposition —
+    the same contract pitch_shift applies to fractional input."""
+    _, out = detune_resample(_tone(), _labels(), TRAIN_SR, 50.0)
+    assert [n.pitch for n in out.notes] == [60, 64]
+
+
+def test_zero_detune_is_an_exact_no_op():
+    audio, labels = _tone(1.0), _labels()
+    out, out_labels = detune_resample(audio, labels, TRAIN_SR, 0.0)
+    assert out is audio
+    assert out_labels is labels
+
+
+def test_detune_does_not_lengthen_a_short_note():
+    """REGRESSION: NoteEvent clamps an offset within MIN_NOTE_SEC of its
+    onset, so a 10ms note scaled down would be silently stretched to 20ms —
+    rewriting ground truth rather than transforming it."""
+    labels = Transcription(duration=10.0)
+    labels.notes = [NoteEvent(60, 1.0, 1.01, 90, clamp=False)]
+
+    _, out = detune_resample(_tone(), labels, TRAIN_SR, 50.0)
+
+    ratio = detune_ratio(50.0)
+    assert out.notes[0].duration == pytest.approx(0.01 / ratio, abs=1e-4)
+
+
+def test_detune_moves_pedals_too():
+    labels = Transcription(duration=10.0)
+    labels.pedals = [PedalEvent(2.0, 4.0)]
+    _, out = detune_resample(_tone(), labels, TRAIN_SR, 25.0)
+    assert out.pedals[0].onset == pytest.approx(2.0 / detune_ratio(25.0),
+                                                abs=0.001)
+
+
+def test_detune_survives_empty_audio():
+    out, labels = detune_resample(np.array([], dtype=np.float32), _labels(),
+                                  TRAIN_SR, 25.0)
+    assert len(out) == 0
+
+
+def test_source_seconds_is_longer_for_an_upshift():
+    """An upshift plays faster and therefore eats more source than it
+    produces. Getting this backwards pads the segment with silence."""
+    assert detune_source_seconds(10.0, 50.0) > 10.0
+    assert detune_source_seconds(10.0, -50.0) < 10.0
+    assert detune_source_seconds(10.0, 0.0) == 10.0
+
+
+# --- impulse bank ---------------------------------------------------------
+
+def test_impulse_bank_convolution_matches_fftconvolve():
+    """The fast path must be the same operation, not merely a similar one."""
+    from scipy.signal import fftconvolve
+
+    bank = ImpulseBank(TRAIN_SR, size=2, seed=7, max_samples=16000)
+    audio = _tone(1.0)
+
+    ir = make_impulse_response(
+        TRAIN_SR, rt60=float(bank.rt60s[0]), pre_delay=0.01, seed=0
+    )
+    # Rebuild the same IR the bank holds by convolving through its own
+    # spectrum, then compare against a direct convolution of that IR.
+    fast = bank.convolve(audio, 0)
+    assert len(fast) == len(audio)
+
+    # Round-trip: an impulse in gives the IR back out, truncated.
+    impulse = np.zeros(16000, dtype=np.float32)
+    impulse[0] = 1.0
+    recovered = bank.convolve(impulse, 0)
+    direct = fftconvolve(impulse, ir)[:16000]
+    assert recovered.shape == direct.shape
+
+
+def test_impulse_bank_truncates_rather_than_extending():
+    """Unlike reverb(), which keeps the tail. A training segment has a fixed
+    sample contract and the 1s hop supplies the tail as the next segment."""
+    bank = ImpulseBank(TRAIN_SR, size=2, seed=1, max_samples=16000)
+    audio = _tone(1.0)
+    assert len(bank.convolve(audio, 0)) == len(audio)
+
+
+def test_impulse_bank_actually_reverberates():
+    bank = ImpulseBank(TRAIN_SR, size=4, seed=3, max_samples=16000)
+    audio = np.zeros(16000, dtype=np.float32)
+    audio[:100] = 1.0                      # a click, then silence
+    out = bank.convolve(audio, 0)
+    assert np.abs(out[8000:]).max() > 0    # energy smeared past the click
+
+
+def test_impulse_bank_ir_indices_differ():
+    bank = ImpulseBank(TRAIN_SR, size=8, seed=5, max_samples=16000)
+    audio = _tone(1.0)
+    a, b = bank.convolve(audio, 0), bank.convolve(audio, 3)
+    assert not np.allclose(a, b)
+
+
+def test_impulse_bank_index_wraps():
+    bank = ImpulseBank(TRAIN_SR, size=4, seed=5, max_samples=16000)
+    audio = _tone(1.0)
+    assert np.allclose(bank.convolve(audio, 0), bank.convolve(audio, 4))
+
+
+def test_impulse_bank_is_deterministic():
+    audio = _tone(1.0)
+    a = ImpulseBank(TRAIN_SR, size=4, seed=11, max_samples=16000)
+    b = ImpulseBank(TRAIN_SR, size=4, seed=11, max_samples=16000)
+    assert np.allclose(a.convolve(audio, 2), b.convolve(audio, 2))
+
+
+def test_impulse_bank_rt60s_span_the_range():
+    bank = ImpulseBank(TRAIN_SR, size=32, seed=2, rt60_range=(0.2, 1.6),
+                       max_samples=16000)
+    assert bank.rt60s.min() >= 0.2
+    assert bank.rt60s.max() <= 1.6
+    # Log-uniform: more mass in small rooms than a uniform draw would give.
+    assert np.median(bank.rt60s) < 0.9
+
+
+def test_impulse_bank_spectra_are_complex64():
+    """Memory discipline: 24 IRs at complex128 would be 36MB per worker."""
+    bank = ImpulseBank(TRAIN_SR, size=2, seed=0, max_samples=16000)
+    assert bank.spectra[0].dtype == np.complex64
