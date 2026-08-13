@@ -98,6 +98,27 @@ def build_dataloader(args, split: str, *, shuffle: bool, augment=None,
     )
 
 
+def resume_epoch_state(start_epoch: int) -> tuple[int, int]:
+    """`(epoch, loader_epoch)` to begin a run or a resume with.
+
+    The training loop increments `epoch` before using it, so the counter has
+    to start one BELOW the epoch to run: a fresh start gives 0 -> epoch 1, and
+    a checkpoint saved during epoch 5 gives 4 -> epoch 5 again, finishing the
+    epoch it was interrupted in rather than skipping to 6.
+
+    `loader_epoch` records which epoch the already-built loader belongs to, so
+    the loop rebuilds on real epoch boundaries instead of comparing against a
+    literal — the bug this replaces was `epoch > 1`, which silently meant
+    "epoch 1's augmentation for the rest of the run" after any resume.
+
+    Pulled out of `train()` because that function needs a model, a dataset and
+    a GPU to reach this arithmetic, and the arithmetic is where the off-by-one
+    lives.
+    """
+    epoch = max(start_epoch - 1, 0)
+    return epoch, epoch + 1
+
+
 def build_augmenter(args, *, epoch: int = 0):
     """The training-time augmenter, or None when `--augment` is off.
 
@@ -282,17 +303,9 @@ def train(args) -> int:
     step = start_step
     started = time.time()
     # Continues from the checkpoint rather than restarting at 0, so a resumed
-    # run keeps drawing the epoch it was actually in. The loop increments
-    # BEFORE using this, so it holds "the epoch before the one to run": a
-    # fresh start is 0 -> first iteration is epoch 1, and a resume saved
-    # during epoch 5 is 4 -> first iteration is epoch 5 again, finishing the
-    # epoch the checkpoint was taken in.
-    epoch = max(start_epoch - 1, 0)
-    # Which epoch the loader above was built for. `build_dataloader` was just
-    # called for `epoch + 1`, so the first iteration reuses it and every real
-    # boundary after that rebuilds — no literal comparison, which is what got
-    # this wrong before.
-    loader_epoch = epoch + 1
+    # run keeps drawing the epoch it was actually in. See `resume_epoch_state`
+    # for why the counter starts one below the epoch to run.
+    epoch, loader_epoch = resume_epoch_state(start_epoch)
 
     accum = max(1, args.accum_steps)
 

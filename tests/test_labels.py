@@ -85,6 +85,24 @@ def test_cache_returns_the_same_object(tmp_path):
     assert load_labels_cached(path) is load_labels_cached(path)
 
 
+def test_the_cache_holds_every_track_in_the_corpus():
+    """The dataloader SHUFFLES across all 962 MAESTRO train tracks, so a cache
+    that cannot hold them all thrashes and re-parses on nearly every segment.
+
+    Measured on real MAESTRO MIDI: a miss is 378.5ms, against the ~48ms an
+    entire segment gets at the >=15 seg/s/worker budget — so a thrashing cache
+    is 2.4 seg/s/worker, six times under. This was 32, which sounds harmless
+    and is not; the Phase 16a throughput figure never caught it because it was
+    measured on a subset small enough to fit.
+    """
+    from training.labels import MAX_CACHED_TRACKS, _cached
+
+    assert MAX_CACHED_TRACKS >= 962, (
+        "the cache must hold the whole train split, or a shuffle thrashes it"
+    )
+    assert _cached.cache_info().maxsize == MAX_CACHED_TRACKS
+
+
 def test_cache_reparses_when_the_file_changes(tmp_path):
     """Keyed on mtime, so regenerating labels cannot leave training reading
     the old ones."""

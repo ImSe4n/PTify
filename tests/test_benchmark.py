@@ -401,7 +401,10 @@ def test_real_audio_scores_use_distinct_filenames(tmp_path, monkeypatch):
             seen.append(Path(path).name)
             return Transcription()
 
-    monkeypatch.setattr(bm, "get_engine", lambda name: _FakeEngine())
+    monkeypatch.setattr(
+        bm, "get_engine",
+        lambda name, checkpoint_path=None: _FakeEngine(),
+    )
     bm.run_real_audio("fake", d, preset="clean", progress=False)
 
     assert len(seen) == 2

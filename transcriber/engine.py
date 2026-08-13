@@ -77,18 +77,31 @@ class TranscriptionEngine(ABC):
         """'cuda' or 'cpu'. Offline this only affects how long a job takes."""
 
 
-def get_engine(name: str = "bytedance") -> TranscriptionEngine:
+def get_engine(name: str = "bytedance", *,
+               checkpoint_path=None) -> TranscriptionEngine:
     """Construct an engine by name.
 
     Imports lazily so that using one engine does not pay the import cost of
     the other's heavy dependencies (torch vs onnxruntime).
+
+    `checkpoint_path` swaps in custom weights for the ByteDance architecture —
+    the seam a model fine-tuned by `training/` is scored through, so it goes
+    through the same harness that produced every published baseline. It is
+    rejected for engines that cannot use it rather than ignored: silently
+    dropping it would score the wrong weights and look like a result.
     """
     key = name.lower().replace("-", "").replace("_", "")
     if key == "bytedance":
         from .bytedance import ByteDanceEngine
 
-        return ByteDanceEngine()
+        return ByteDanceEngine(checkpoint_path=checkpoint_path)
     if key == "basicpitch":
+        if checkpoint_path is not None:
+            raise ValueError(
+                "checkpoint_path applies to the bytedance engine only; "
+                "basicpitch runs a fixed ONNX model. Passing it here would "
+                "silently score the stock model as if it were custom."
+            )
         try:
             from .basicpitch import BasicPitchEngine
         except ImportError as exc:

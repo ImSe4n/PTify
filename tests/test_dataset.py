@@ -418,3 +418,93 @@ def test_epoch_offset_changes_the_condition_a_segment_draws():
 def test_epoch_offset_defaults_to_zero():
     ds = dataset([make_segment()])
     assert ds.epoch_offset == 0
+
+
+# --- telling the sampler how much source is left --------------------------
+#
+# An upshift over-reads: +50 cents needs 10.293s of source for 10s of output.
+# `AugmentationSampler._clamp_to_available` reduces a detune that the track's
+# remaining tail cannot support — but it can only do that if the dataset
+# TELLS it, and for a while the dataset did not. `decode_segment` then clamped
+# silently and `fit_length` padded the shortfall with zeros, teaching the
+# model that notes stop there: the exact outcome the clamp exists to avoid.
+
+def test_the_sampler_is_told_how_much_source_remains():
+    from training.augment import AugmentationSampler
+
+    seen = {}
+
+    class Recording(AugmentationSampler):
+        def plan(self, index, *, available_seconds=None):
+            seen["available_seconds"] = available_seconds
+            return super().plan(index, available_seconds=available_seconds)
+
+    segment = Segment(track="t", audio_filename="a.wav",
+                      midi_filename="a.midi", split="train",
+                      start=90.0, duration=100.5)
+
+    ds = dataset([segment], decoder=fake_decoder(),
+                 augment=Recording(SAMPLE_RATE, seed=0, clean_prob=0.0,
+                                   ir_bank_size=2))
+    ds[0]
+
+    assert seen["available_seconds"] == pytest.approx(10.5)
+
+
+def test_a_segment_without_a_duration_imposes_no_constraint():
+    """`duration` defaults to 0.0 for a directly-constructed Segment, which
+    means "unknown" — not "no source left"."""
+    from training.augment import AugmentationSampler
+
+    seen = {}
+
+    class Recording(AugmentationSampler):
+        def plan(self, index, *, available_seconds=None):
+            seen["available_seconds"] = available_seconds
+            return super().plan(index, available_seconds=available_seconds)
+
+    ds = dataset([make_segment()], decoder=fake_decoder(),
+                 augment=Recording(SAMPLE_RATE, seed=0, clean_prob=0.0,
+                                   ir_bank_size=2))
+    ds[0]
+
+    assert seen["available_seconds"] is None
+
+
+def test_a_short_tail_actually_clamps_the_detune():
+    """The behaviour, not just the plumbing: a segment with 10.05s of tail
+    cannot support a +50-cent upshift (which needs 10.293s), so the drawn
+    detune must come down rather than the audio being padded."""
+    from training.augment import AugmentationSampler
+
+    sampler = AugmentationSampler(SAMPLE_RATE, seed=0, clean_prob=0.0,
+                                  ir_bank_size=2)
+    # An index whose natural draw is a real upshift.
+    index = next(i for i in range(200) if sampler.plan(i).cents > 20)
+
+    unconstrained = sampler.plan(index)
+    clamped = sampler.plan(index, available_seconds=10.05)
+
+    assert clamped.cents < unconstrained.cents
+    assert clamped.cents_clamped
+    assert clamped.source_seconds <= 10.05
+
+
+def test_a_one_argument_plan_still_works():
+    """The protocol is duck-typed. `available_seconds` is an affordance for
+    the sampler that can use it, never a requirement on everything that can
+    plan — and it must not be enforced by catching TypeError, which would
+    also swallow a genuine error raised inside a working plan()."""
+    class MinimalPlan:
+        source_seconds = SECONDS
+
+    class MinimalAugmenter:
+        def plan(self, index):
+            return MinimalPlan()
+
+        def apply(self, audio, labels, plan):
+            return audio[:SAMPLES], labels
+
+    ds = dataset([make_segment()], decoder=fake_decoder(),
+                 augment=MinimalAugmenter())
+    assert ds[0]["waveform"].shape == (SAMPLES,)
