@@ -197,6 +197,13 @@ patches it at runtime (not by editing the installed package, so the fix
 travels to Kaggle and survives a reinstall) and `load_pretrained` calls it.
 Weights are unaffected — it changes an activation's memory behaviour only.
 
+**`map_location="cuda"` moves the RNG state to the GPU, and
+`torch.set_rng_state` rejects it** (`TypeError: RNG state must be a
+torch.ByteTensor`). `load_training_state` passes the device through, so on
+CUDA *every* tensor in the file lands on the GPU — including the one thing
+that must stay a CPU ByteTensor. `restore_rng_state` coerces it back. A
+CPU-only resume never hits this, which is why it survived local rehearsal.
+
 **torch 2.6+ refuses to load our own checkpoints; the local pin (2.2) cannot
 catch it.** PyTorch 2.6 flipped `torch.load`'s `weights_only` default from
 False to True, and these checkpoints are deliberately not weights-only — they

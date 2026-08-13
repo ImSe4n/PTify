@@ -93,7 +93,11 @@ def capture_rng_state() -> dict:
     return {
         "python": random.getstate(),
         "numpy": np.random.get_state(),
-        "torch": torch.get_rng_state(),
+        # `.cpu()` is belt-and-braces: torch.get_rng_state() already returns a
+        # CPU ByteTensor, but loading with map_location="cuda" would move it to
+        # the GPU on the way back in, and set_rng_state rejects that. Keeping
+        # it explicitly on CPU documents the requirement at both ends.
+        "torch": torch.get_rng_state().cpu(),
     }
 
 
@@ -113,7 +117,16 @@ def restore_rng_state(state: dict) -> None:
     if "numpy" in state:
         np.random.set_state(state["numpy"])
     if "torch" in state:
-        torch.set_rng_state(state["torch"])
+        # MUST be a CPU ByteTensor. `load_training_state` passes
+        # map_location=device, which on CUDA moves EVERY tensor in the file to
+        # the GPU — including this one — and `set_rng_state` then rejects it:
+        #     TypeError: RNG state must be a torch.ByteTensor
+        # Found on Kaggle; a CPU-only resume never hits it because there the
+        # map_location is already "cpu".
+        rng = state["torch"]
+        if hasattr(rng, "cpu"):
+            rng = rng.cpu().to(torch.uint8)
+        torch.set_rng_state(rng)
 
 
 def save_training_state(

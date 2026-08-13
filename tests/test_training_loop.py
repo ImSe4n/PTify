@@ -393,6 +393,37 @@ def test_checkpoint_loads_despite_the_weights_only_default(tmp_path):
     assert state["rng"]["numpy"][0] == "MT19937"
 
 
+def test_rng_state_restores_from_a_non_byte_tensor():
+    """REGRESSION (Phase 14.5, Kaggle): resume died restoring RNG state.
+
+        TypeError: RNG state must be a torch.ByteTensor
+
+    `load_training_state` passes `map_location=device`, and on CUDA that moves
+    EVERY tensor in the file to the GPU — including the RNG state, which
+    `torch.set_rng_state` requires to be a CPU ByteTensor. A CPU-only resume
+    never hits it, so no local test would have caught it either.
+
+    A GPU is not needed to pin the behaviour: any tensor of the wrong dtype or
+    device exercises the same coercion.
+    """
+    state = capture_rng_state()
+    # Simulate what map_location="cuda" does to it — dtype changed here, since
+    # a CUDA device is not available in the suite.
+    state["torch"] = state["torch"].to(torch.int64)
+
+    restore_rng_state(state)  # must not raise
+
+    assert torch.get_rng_state().dtype == torch.uint8
+
+
+def test_captured_rng_state_is_a_cpu_byte_tensor():
+    """The save side of the same requirement."""
+    captured = capture_rng_state()["torch"]
+
+    assert captured.dtype == torch.uint8
+    assert captured.device.type == "cpu"
+
+
 def test_mismatched_schema_is_rejected(tmp_path):
     path = tmp_path / "step_1.pt"
     torch.save({"schema": 99, "step": 1}, path)
