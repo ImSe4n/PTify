@@ -209,6 +209,7 @@ def train(args) -> int:
         scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
     start_step = 0
+    start_epoch = 0
     if args.resume:
         path = (find_latest(out_dir) if args.resume == "auto"
                 else Path(args.resume))
@@ -218,7 +219,17 @@ def train(args) -> int:
                 scaler=scaler, device=device,
             )
             start_step = info["step"]
-            print(f"Resumed from {path} at step {start_step}")
+            # The epoch must come back too. The augmentation condition for a
+            # segment is hashed from (seed, epoch, index), so resuming at
+            # epoch 0 would re-draw epoch 1's conditions for the rest of the
+            # run and never draw the later epochs' at all — silently narrowing
+            # the training distribution, with no error and a loss curve that
+            # looks fine. `test_training_state_round_trips` pinned that the
+            # checkpoint CARRIES epoch, which made this look covered while the
+            # consumer discarded it.
+            start_epoch = info["epoch"]
+            print(f"Resumed from {path} at step {start_step} "
+                  f"(epoch {start_epoch})")
         elif args.resume != "auto":
             raise FileNotFoundError(f"--resume {args.resume} does not exist")
         else:
@@ -227,6 +238,16 @@ def train(args) -> int:
     augmenter = build_augmenter(args)
     loader = build_dataloader(args, args.train_split, shuffle=True,
                               augment=augmenter)
+    # A resume lands mid-epoch, so the first loader must carry the RESUMED
+    # epoch's offset rather than epoch 1's — otherwise the rest of the run
+    # re-draws epoch 1's conditions. Rebuilt only when resuming into epoch >= 2
+    # (epoch 1 already has offset 0), and it has to be a second call because
+    # the offset needs the dataset length, which the first loader supplies.
+    if augmenter is not None and start_epoch > 1:
+        loader = build_dataloader(
+            args, args.train_split, shuffle=True, augment=augmenter,
+            epoch_offset=start_epoch * len(loader.dataset),
+        )
 
     # Clean validation is the REGRESSION GUARD: it answers "did fine-tuning
     # damage what already worked", stays comparable to the Phase 14.5 baseline
@@ -260,7 +281,18 @@ def train(args) -> int:
     trigger = SaveTrigger(args.save_every_steps, args.save_every_seconds)
     step = start_step
     started = time.time()
-    epoch = 0
+    # Continues from the checkpoint rather than restarting at 0, so a resumed
+    # run keeps drawing the epoch it was actually in. The loop increments
+    # BEFORE using this, so it holds "the epoch before the one to run": a
+    # fresh start is 0 -> first iteration is epoch 1, and a resume saved
+    # during epoch 5 is 4 -> first iteration is epoch 5 again, finishing the
+    # epoch the checkpoint was taken in.
+    epoch = max(start_epoch - 1, 0)
+    # Which epoch the loader above was built for. `build_dataloader` was just
+    # called for `epoch + 1`, so the first iteration reuses it and every real
+    # boundary after that rebuilds — no literal comparison, which is what got
+    # this wrong before.
+    loader_epoch = epoch + 1
 
     accum = max(1, args.accum_steps)
 
@@ -272,11 +304,17 @@ def train(args) -> int:
         # turning persistence off to fix that cost 44% of throughput (measured
         # 8.3 vs 14.8 seg/s/worker). Rebuilding costs one worker respawn per
         # epoch, against a ~40-minute epoch.
-        if augmenter is not None and epoch > 1:
+        #
+        # NOTE: one epoch of the full index is 70,517 steps at effective batch
+        # 8 (~72h at the measured 0.27 steps/s), so no run on a 12-hour Kaggle
+        # session reaches a second epoch. This branch is correctness for a
+        # future longer run, not something Phase 16b exercises.
+        if augmenter is not None and epoch != loader_epoch:
             loader = build_dataloader(
                 args, args.train_split, shuffle=True, augment=augmenter,
                 epoch_offset=epoch * len(loader.dataset),
             )
+            loader_epoch = epoch
         optimizer.zero_grad(set_to_none=True)
         micro = 0
 
