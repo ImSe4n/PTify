@@ -210,8 +210,13 @@ def train(args) -> int:
     started = time.time()
     epoch = 0
 
+    accum = max(1, args.accum_steps)
+
     while step < args.steps:
         epoch += 1
+        optimizer.zero_grad(set_to_none=True)
+        micro = 0
+
         for batch in loader:
             if step >= args.steps:
                 break
@@ -221,7 +226,6 @@ def train(args) -> int:
 
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device_type="cuda" if use_amp else "cpu",
                                 enabled=use_amp):
                 losses = compute_losses(note_model(batch["waveform"]), batch)
@@ -239,7 +243,16 @@ def train(args) -> int:
                     + "\n" + diagnose_nan(note_model, batch, use_amp)
                 )
 
-            scaler.scale(losses["total"]).backward()
+            # Scale by 1/accum so the accumulated gradient equals the mean
+            # over the effective batch, not its sum — otherwise the effective
+            # learning rate silently scales with --accum-steps.
+            scaler.scale(losses["total"] / accum).backward()
+            micro += 1
+
+            if micro < accum:
+                continue
+            micro = 0
+
             # Unscale before clipping, or the clip threshold is applied to
             # scaled gradients and does nothing at fp16's scale factors.
             scaler.unscale_(optimizer)
@@ -248,6 +261,7 @@ def train(args) -> int:
             )
             scaler.step(optimizer)
             scaler.update()
+            optimizer.zero_grad(set_to_none=True)
 
             step += 1
 
@@ -326,7 +340,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="name of the inference-loadable checkpoint")
 
     ap.add_argument("--steps", type=int, default=500)
-    ap.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    ap.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
+                    help="segments per forward pass. MEMORY-BOUND: the model "
+                         "runs four parallel CRNN branches over 1001x229 "
+                         "features, so a T4 (16GB) OOMs above ~2 in fp32")
+    ap.add_argument("--accum-steps", type=int, default=1,
+                    help="gradient accumulation; effective batch is "
+                         "batch-size x accum-steps. Use this to keep a large "
+                         "effective batch on a small GPU")
     ap.add_argument("--lr", type=float, default=DEFAULT_LR)
     ap.add_argument("--warmup", type=int, default=DEFAULT_WARMUP_STEPS)
     ap.add_argument("--clip", type=float, default=1.0)
@@ -355,7 +376,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    return train(build_parser().parse_args(argv))
+    args = build_parser().parse_args(argv)
+    try:
+        return train(args)
+    except Exception as exc:  # noqa: BLE001
+        # torch.OutOfMemoryError only exists on newer torch, so match by name
+        # rather than importing a symbol the local pin does not have.
+        if "OutOfMemory" not in type(exc).__name__:
+            raise
+        effective = args.batch_size * max(1, args.accum_steps)
+        halved = max(1, args.batch_size // 2)
+        raise SystemExit(
+            f"\nCUDA out of memory at batch-size {args.batch_size}.\n\n"
+            f"This model is unusually memory-hungry for its parameter count: "
+            f"it runs FOUR parallel CRNN branches (frame, onset, offset, "
+            f"velocity), each holding activations over 1001 frames x 229 mel "
+            f"bins for the backward pass.\n\n"
+            f"Keep the effective batch and halve the memory:\n"
+            f"    --batch-size {halved} --accum-steps "
+            f"{max(1, effective // halved)}\n"
+        ) from exc
 
 
 if __name__ == "__main__":

@@ -228,6 +228,35 @@ def test_losses_are_differentiable():
 
 # --- learning-rate schedule ----------------------------------------------
 
+def test_gradient_accumulation_matches_a_full_batch():
+    """Accumulation exists because the T4 OOMs above ~2 segments per forward:
+    the model runs FOUR parallel CRNN branches over 1001x229 features.
+
+    It is only a valid substitute if the accumulated gradient equals the
+    full-batch one. Scaling each micro-batch by 1/accum is what makes it a
+    mean rather than a sum — without it the effective learning rate silently
+    scales with --accum-steps, which trains, diverges slowly, and looks like
+    a bad hyperparameter rather than a bug.
+    """
+    torch.manual_seed(0)
+    full, chunked = torch.nn.Linear(4, 2), torch.nn.Linear(4, 2)
+    chunked.load_state_dict(full.state_dict())
+
+    x, y = torch.randn(8, 4), torch.rand(8, 2)
+    loss_fn = torch.nn.functional.binary_cross_entropy
+
+    full.zero_grad()
+    loss_fn(torch.sigmoid(full(x)), y).backward()
+
+    accum = 4
+    chunked.zero_grad()
+    for i in range(accum):
+        lo, hi = i * 2, (i + 1) * 2
+        (loss_fn(torch.sigmoid(chunked(x[lo:hi])), y[lo:hi]) / accum).backward()
+
+    assert torch.allclose(full.weight.grad, chunked.weight.grad, atol=1e-6)
+
+
 def test_warmup_ramps_from_near_zero_to_base():
     assert lr_at(0, 1e-4, warmup=100) == pytest.approx(1e-6)
     assert lr_at(99, 1e-4, warmup=100) == pytest.approx(1e-4)

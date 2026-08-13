@@ -197,6 +197,25 @@ patches it at runtime (not by editing the installed package, so the fix
 travels to Kaggle and survives a reinstall) and `load_pretrained` calls it.
 Weights are unaffected — it changes an activation's memory behaviour only.
 
+**The model needs ~4x the GPU memory its parameter count suggests, and on a
+T4 that OOMs at batch 8.** `Regress_onset_offset_frame_velocity_CRNN` runs
+**four parallel `AcousticModelCRnn8Dropout` branches** (frame, onset, offset,
+velocity), each holding activations over 1001 frames x 229 mel bins for the
+backward pass. 20M parameters, but the activations dominate. Measured on a
+T4 (14.56 GiB): batch 8 fp32 fails; **`--batch-size 2 --accum-steps 4`** keeps
+the effective batch at 8 within memory. The accumulated gradient is provably
+identical to the full-batch one (each micro-batch is scaled by `1/accum`, so
+it is a mean and not a sum — without that the effective learning rate scales
+with `--accum-steps` and merely looks like a bad hyperparameter).
+
+**Near-OOM under AMP presents as NaN, not as an allocation error.** The run
+before the OOM produced `nan` in all four heads at step 0 with mixed precision
+on; the same forward pass is finite in fp32. Diagnosing the NaN as a loss bug
+cost a session. **Run fp32 until a configuration is known good**, and treat
+AMP as a Phase 15 speed optimisation. `train.py: diagnose_nan()` now reports
+whether the input, the forward pass, or the loss is responsible, because those
+three are indistinguishable from the outside.
+
 **A loss that is safe in fp32 can be NaN under AMP, from step 1, silently.**
 The first Kaggle run produced `loss nan` at every step and raised nothing.
 Cause: BCE clamped its sigmoid input at `1e-7`, but fp16's smallest normal is
