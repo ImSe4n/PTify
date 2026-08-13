@@ -1407,6 +1407,162 @@ number — `PRESETS`, `apply_preset` and `pitch_shift` are untouched, and
 
 ---
 
+## 2026-08-13 — Phase 16b: making the run measurable before running it
+
+The handoff said the open question for 16b was hyperparameters. It was not.
+**A fine-tuned checkpoint could not be scored at all**, and three defects in
+the augmented path would have silently degraded the run that produced it. All
+of this is CPU work, so none of it cost GPU quota — and all of it had to
+happen before the quota was spent, because a 10-hour run you cannot measure is
+10 hours wasted.
+
+**Delivered:** the `--checkpoint` seam end to end, three correctness fixes, a
+dataloader throughput fix worth 12x, `training/kaggle/full_run.ipynb`, and 28
+tests (701 → 729, ~109s, still no model/network/GPU).
+
+### The seam HANDOFF said existed, and did not
+
+HANDOFF §9 said a custom model "drops in as a third `TranscriptionEngine`" and
+that "that seam is why `get_engine()` exists". The seam exists for *engines*;
+there was none for *weights*. `ByteDanceEngine.load()` called
+`PianoTranscription(device=...)` with no `checkpoint_path`, and
+`python -m evaluation` had no flag to supply one.
+
+`--checkpoint` now threads through `get_engine` → `run_real_audio` →
+`ByteDanceEngine`. Two decisions worth recording:
+
+- **Custom rows keep the `bytedance` label.** `report._key` joins on
+  `(engine, case, preset)`, so relabelling them `ptify` would have made
+  `compare_reports()` print two disjoint sets of added/removed keys instead of
+  deltas. The weights are identified by the output filename and by a new
+  `checkpoint` + `checkpoint_sha256` pair in the report's provenance block.
+- **Everything that cannot use it is rejected, not ignored.** `--checkpoint`
+  with `basicpitch`, with `--compare`, without `--audio-dir`, or pointing at a
+  missing file all fail before any inference runs. Each would otherwise have
+  scored the *pretrained* weights and written a file that reads like a custom
+  result.
+
+`_assert_loadable` re-checks the 160MB floor and the `note_model`/`pedal_model`
+keys at the point of use, because `PianoTranscription` re-downloads anything
+smaller and loads with `strict=False` — both failures produce ByteDance's
+numbers under your filename rather than an error.
+
+**Validated as an instrument before being trusted.** Scoring the *pretrained*
+checkpoint through `--checkpoint` reproduces the baseline exactly: **+0.000
+delta**, rows key-joining correctly. Then the opposite control — a 4-step
+CPU-trained checkpoint through the same path scores **0.739 against the
+pretrained 0.772**, so custom weights are demonstrably being loaded rather
+than silently replaced. A seam that only ever reproduced the baseline would
+be indistinguishable from one that ignores its argument.
+
+### The noise had 24 distinct values, not 632,783
+
+`apply()` seeded its noise RNG from `segment_seed(seed, epoch, plan.ir_index)`
+— **the impulse-response index, not the segment index.** The IR bank holds 24
+entries, so the entire training set contained exactly 24 noise vectors, each
+shared byte-for-byte by ~146 segments. Verified directly: segments 2 and 68
+both draw `ir_index 7` and their noise arrays compare equal element-for-element.
+
+A fixed additive vector repeated hundreds of times is something a conv stack
+can learn to subtract, which is the opposite of what noise augmentation is
+for. Determinism looked identical from the outside either way, which is why
+all 38 existing augmentation tests passed.
+
+The plan now carries the segment index and the stream is keyed on it. Worth
+noting how nearly the *test* failed too: the first version compared two
+naturally-drawn plans, which also differ in cents, wet and snr_db — so their
+audio differed regardless of the noise seed, and the test **passed against the
+bug**. Only holding every other field constant and varying `index` alone
+isolates it. Counterfactually verified in both directions.
+
+### `epoch` was saved on every checkpoint and thrown away on every resume
+
+`load_training_state` returned it; `train()` set `epoch = 0` unconditionally.
+Since the augmentation condition is hashed from `(seed, epoch, index)`, a
+resumed run would re-draw epoch 1's conditions forever and never draw the
+later epochs' at all — the distribution narrows silently, with no error and a
+normal-looking loss curve.
+
+`test_training_state_round_trips` asserts the checkpoint *carries* `epoch`,
+which made this look covered while the consumer ignored it. That is the most
+misleading kind of coverage: a test on the producer standing in for a test on
+the consumer.
+
+The arithmetic is now `resume_epoch_state()`, a pure function, because
+reaching it inside `train()` needs a model, a dataset and a GPU. Extracting it
+immediately exposed an off-by-one in the first fix — the loop increments
+`epoch` before use, so the counter has to start one *below* the epoch to run,
+or a resume during epoch 5 continues at 6 and skips the remainder.
+
+**This cannot bite in Phase 16b**, and the docs now say so: one epoch of the
+full index is 70,517 steps ≈ **72 hours** at 0.27 steps/s, so a 10-hour
+session is 15% of a single epoch and the whole 30h weekly quota is 0.41 of
+one. The `epoch_offset` machinery is correctness for a future longer run.
+
+### The dataloader budget was broken, and the 16a number could not have caught it
+
+`load_labels_cached` was `lru_cache(maxsize=32)`, justified by "a worker only
+ever cycles through a handful of tracks before moving on" — true under
+sequential access, false under `shuffle=True` across 962 tracks, where the
+simulated hit rate is 5.3%.
+
+Measured on real MAESTRO MIDI, a cold parse is **378.5ms**, against the ~48ms
+a whole segment gets at the ≥15 seg/s/worker budget. A miss is eight times the
+entire budget. Measured end to end by thrashing a real cache over real audio
+(2 slots over 12 tracks reproduces 32 over 962):
+
+| maxsize | hit rate | ms/item | seg/s/worker |
+|---|---|---|---|
+| 2 | 42% | 409.9 | **2.4** — 6x under budget |
+| 32 | 69% | 132.5 | 7.5 |
+| resident | 93% | 33.5 | **29.9** — steady state |
+
+**Phase 16a's 20.6 seg/s/worker was measured on a subset small enough to fit
+in 32 slots**, so it never exercised the thrash it was meant to certify. This
+is the same lesson as 16a's `persistent_workers` finding, one level down: the
+measurement matched the budget and still did not describe the real run.
+
+Raised to 1024 (0.26MB/track measured → ~253MB per worker, against Kaggle's
+13GB). Cache warm-up still parses every track once, ~3 minutes across two
+workers — 0.5% of a 10-hour session, and the reason an early throughput
+reading reads lower than the steady state. The dataloader now has **28x
+headroom** over the 0.27 steps/s the GPU actually consumes.
+
+### A clamp that had never once fired
+
+`AugmentationSampler._clamp_to_available` reduces an upshift that would
+over-read past the end of a track — but `SegmentDataset` never passed
+`available_seconds`, so it was unreachable from the training path.
+`decode_segment` clamped silently and `fit_length` padded the shortfall with
+zeros instead: the invented silence the clamp exists to prevent.
+
+`Segment` now carries `duration` (defaulted, so the JSON schema is unchanged).
+**Measured impact: 274 of 564,137 train segments = 0.05%** — 28.5% of *tracks*
+have a short final tail, but only their last segment is affected, and sampling
+is per segment. Two lines to restore a guarantee the code already claimed.
+
+Detection is by signature rather than by catching `TypeError`, which would
+also have swallowed a genuine error raised *inside* a working `plan()` and
+turned a real bug into a silent fallback.
+
+### One correction to the handoff
+
+**`master` was not stale.** HANDOFF §1 warned that six phase-14 commits lived
+only on a branch and told the next phase to merge before starting. Both merges
+had already landed — `git diff master phase-16a-augmentation` is empty and all
+six commits are reachable via PR #10. The warning was verified before being
+acted on, which is what §1 itself now says to do.
+
+### What 16b has not done yet
+
+The GPU run. Everything it needs is proven — the augmented path runs end to
+end on real audio, a resume continues at the right step *and* epoch, the
+artifact clears `assert_deployable` at 172.0 MB, and it scores through the
+benchmark. What remains is spending the quota and reading the result against
+`benchmarks/real/maps-paired-bytedance-clean.json` (0.7866).
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

@@ -241,6 +241,22 @@ versions, git commit — because all of those change the numbers.
 Add `--resume` to skip cells whose JSON already exists; a long matrix then costs
 one cell per interruption instead of the whole run.
 
+`--checkpoint` scores a **fine-tuned** model through this same harness, so a
+custom checkpoint is measured by the code that produced every baseline rather
+than by a parallel path that might differ:
+
+```bash
+python -m evaluation --audio-dir recordings/maps_paired \
+    --engine bytedance --preset clean \
+    --checkpoint checkpoints/ptify-note-pedal.pth \
+    --json benchmarks/real/maps-paired-ptify-clean.json
+```
+
+The path is verified before the inference library sees it. That check is not
+paranoia: `PianoTranscription` silently re-downloads any checkpoint under 160MB
+and loads with `strict=False`, so a wrong path reports **ByteDance's** score
+under your filename — and it reads exactly like "training didn't help".
+
 **Two things worth knowing before trusting a number from this corpus.** MAESTRO
 is ByteDance's training distribution — the test split is held out, but the
 acoustics are not, so its absolute score is flattered. And the `room` preset
@@ -296,8 +312,9 @@ under sustain pedal.
 - [x] **Phase 13b** — MAPS cross-dataset benchmark; the generalisation gap **measured**
 - [x] **Phase 14** — training data pipeline: regression targets, segment index, dataset
 - [x] **Phase 14.5** — smoke run on Kaggle GPU: loop, checkpointing, cross-session resume
-- [x] **Phase 16a** — augmentation that fits in a dataloader (20.6 seg/s/worker)
-- [ ] **Phase 15–16b** — fine-tune the CRNN with augmentation on
+- [x] **Phase 16a** — augmentation that fits in a dataloader
+- [x] **Phase 16b (prep)** — a custom checkpoint can be *scored*; three correctness fixes; dataloader 2.4 → 29.9 seg/s/worker
+- [ ] **Phase 15–16b** — fine-tune the CRNN with augmentation on (the GPU run)
 - [ ] **Phase 17** — ship the custom model behind `TranscriptionEngine`
 
 The training goal is **beating ByteDance on your own recordings**, not on the
