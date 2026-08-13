@@ -230,6 +230,28 @@ covers `*.wav`, `*.midi` and `recordings/`. The corpus is reconstructed from
 `benchmarks/maestro_test12.json`, which carries the track list and a sha256 per
 file. Verify with `git diff --cached --name-only` before any commit.
 
+**`TrackMeta.stem` truncated to 16 characters and COLLIDED (fixed in 14b).**
+MAESTRO filenames share a long prefix and differ only near the end, so
+`..._02_Track02` and `..._03_Track03` both truncated to `MIDI-Unprocessed`.
+Measured over the full metadata: **447 of 1276 tracks shared a stem** (169
+duplicates), **5 pairs spanning two splits**. Two silent failures followed —
+`_find_pairs` keys on the stem, so one performance overwrote the other on
+disk, and a training index built from all 962 train tracks put one name on
+both sides of a train/validation boundary. `stem` now appends an 8-hex digest
+of the full `midi_filename`; `test_stems_survive_real_maestro_filenames` pins
+it and was verified to fail against the old code.
+
+*Consequence for existing artifacts:* **no published number changes** — the
+shipped 12-track corpus had no collisions, and the MAPS baselines that Phase
+17 is scored against never used these stems at all. But
+`benchmarks/maestro_test12.json` and the 12 files already in
+`recordings/maestro_test12/` carry **pre-fix stems**. Re-running
+`python -m evaluation.corpus --out ...` regenerates both with new names; until
+then the manifest's stems will not match a freshly-fetched corpus. The
+`case` names in `benchmarks/real/bytedance-clean.json` and
+`basicpitch-*.json` are likewise pre-fix, so a re-fetched corpus will not
+key-join against them.
+
 **Excerpt/boundary semantics do not exist yet — tracks are used whole.** If a
 future phase adds excerpting to cut runtime, note that truncating a note at an
 excerpt boundary rewrites its reference duration, and `mir_eval` matches offsets
