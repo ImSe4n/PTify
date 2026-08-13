@@ -92,6 +92,47 @@ def build_dataloader(args, split: str, *, shuffle: bool):
     )
 
 
+def diagnose_nan(note_model, batch, use_amp: bool) -> str:
+    """Locate a non-finite loss: the input, the forward pass, or the loss.
+
+    These three fail identically from the outside — `loss = nan` — but need
+    completely different fixes, and on free-tier compute a wrong guess costs a
+    whole session. So the failure path reports which one it was rather than
+    leaving the next person to bisect it by hand.
+    """
+    import torch
+
+    lines = []
+    finite_in = bool(torch.isfinite(batch["waveform"]).all())
+    lines.append(f"  input waveform finite: {finite_in}")
+    if not finite_in:
+        return "\n".join(lines + ["  -> the AUDIO is corrupt, not the model."])
+
+    with torch.no_grad():
+        fp32 = note_model(batch["waveform"].float())
+        fp32_ok = all(bool(torch.isfinite(v).all()) for v in fp32.values())
+        lines.append(f"  forward in fp32 finite: {fp32_ok}")
+
+        if use_amp:
+            with torch.autocast(device_type="cuda", enabled=True):
+                amp = note_model(batch["waveform"])
+            amp_ok = all(bool(torch.isfinite(v).all()) for v in amp.values())
+            lines.append(f"  forward under AMP finite: {amp_ok}")
+            for key, value in amp.items():
+                if not torch.isfinite(value).all():
+                    share = float((~torch.isfinite(value)).float().mean())
+                    lines.append(f"    {key}: {share:.1%} non-finite, "
+                                 f"dtype={value.dtype}")
+            if fp32_ok and not amp_ok:
+                lines.append("  -> the FORWARD PASS overflows in fp16. "
+                             "Re-run with --no-amp; the loss is not at fault.")
+                return "\n".join(lines)
+
+    lines.append("  -> forward is finite, so the LOSS is at fault "
+                 "(see training/losses.py:_CLAMP).")
+    return "\n".join(lines)
+
+
 def evaluate(note_model, loader, device: str, max_batches: int = 20) -> dict:
     """Mean losses over a few validation batches.
 
@@ -189,13 +230,13 @@ def train(args) -> int:
                 # A NaN loss poisons every weight through the backward pass,
                 # and the run continues producing NaN forever with no error.
                 # The first Kaggle run did exactly that for 500 steps. Fail at
-                # the first occurrence instead, naming the head responsible.
+                # the first occurrence, and say WHERE it came from — the loss
+                # and the forward pass fail identically from the outside.
                 raise RuntimeError(
                     f"Non-finite loss at step {step}: "
                     + ", ".join(f"{k}={float(v.detach()):.4g}"
                                 for k, v in losses.items())
-                    + ". Under AMP this is usually the loss underflowing in "
-                      "fp16 — check training/losses.py:_CLAMP."
+                    + "\n" + diagnose_nan(note_model, batch, use_amp)
                 )
 
             scaler.scale(losses["total"]).backward()
