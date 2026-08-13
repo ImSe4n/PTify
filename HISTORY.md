@@ -1448,12 +1448,17 @@ smaller and loads with `strict=False` — both failures produce ByteDance's
 numbers under your filename rather than an error.
 
 **Validated as an instrument before being trusted.** Scoring the *pretrained*
-checkpoint through `--checkpoint` reproduces the baseline exactly: **+0.000
-delta**, rows key-joining correctly. Then the opposite control — a 4-step
-CPU-trained checkpoint through the same path scores **0.739 against the
-pretrained 0.772**, so custom weights are demonstrably being loaded rather
-than silently replaced. A seam that only ever reproduced the baseline would
-be indistinguishable from one that ignores its argument.
+checkpoint through `--checkpoint` over the full 14-track MAPS corpus
+reproduces the baseline exactly: **+0.000 on every track**, mean 0.786612
+against 0.786612, onset F1 bitwise identical on all 14 keys, and the rows
+key-joining correctly under `compare_reports`.
+
+Then the opposite control, which matters just as much — a 4-step CPU-trained
+checkpoint through the same path scores **0.739 against the pretrained
+0.772**. Custom weights are demonstrably being loaded rather than silently
+replaced. A seam that only ever reproduced the baseline would be
+indistinguishable from one that ignores its argument, so both directions were
+needed.
 
 ### The noise had 24 distinct values, not 632,783
 

@@ -895,7 +895,7 @@ fixed, all on CPU, no quota spent. See §4 for each trap.
 | | |
 |---|---|
 | scoring seam | `--checkpoint` through `get_engine` → `run_real_audio` → `ByteDanceEngine` |
-| seam validated | pretrained through the seam = **+0.000** delta; a trained checkpoint = **0.739 vs 0.772** |
+| seam validated | pretrained through the seam = **+0.000 on all 14 MAPS tracks** (0.786612, bitwise identical); a trained checkpoint = **0.739 vs 0.772** |
 | noise diversity | 24 realisations → one per segment |
 | resume | `epoch` restored, so conditions do not reset to epoch 1 |
 | dataloader | **2.4 → 29.9 seg/s/worker** (label cache was thrashing under shuffle) |

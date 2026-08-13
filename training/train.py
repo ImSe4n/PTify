@@ -114,6 +114,14 @@ def resume_epoch_state(start_epoch: int) -> tuple[int, int]:
     Pulled out of `train()` because that function needs a model, a dataset and
     a GPU to reach this arithmetic, and the arithmetic is where the off-by-one
     lives.
+
+    RELATED HAZARD, not guarded here: `epoch_offset` is `epoch * len(dataset)`,
+    so resuming with a different `--index` or `--max-segments` changes the
+    dataset length and silently re-maps every segment's augmentation. The
+    checkpoint stores the full `vars(args)` for exactly this kind of question
+    — compare against it before resuming with changed flags. Unreachable while
+    a run stays inside epoch 1, which at 70,517 steps per epoch is every run
+    this project currently does.
     """
     epoch = max(start_epoch - 1, 0)
     return epoch, epoch + 1
