@@ -51,7 +51,36 @@ python -m notation song.mid --formats musicxml,pdf,svg,midi
 Audio input is beat-tracked with librosa to build the rhythmic grid; MIDI input
 has no audio to track and uses a constant tempo unless `--tempo` is given.
 
-Each run reports what share of the notes were released under sustain pedal:
+### What the score carries
+
+Beyond the notes themselves, the engraved page includes:
+
+| | |
+|---|---|
+| **Key signature** | Krumhansl-Schmuckler over the note content, **with a confidence** |
+| **Time signature** | any meter — `--time-signature 6/8`, not just `n/4` |
+| **Trills** | rapid alternations printed as one note plus a trill mark |
+| **Staccato** | notes clipped far below their notated value |
+| **Dynamics** | `p`/`mf`/`f` at changes, printed on the page |
+
+```
+Metre    : 4/4
+Key      : D major (confidence 0.86)
+Trills   : 3 (rapid alternations written as trill marks)
+Staccato : 12 notes
+```
+
+**A wrong key signature is worse than none** — it misspells every accidental in
+the piece — so a weak reading prints no signature and says so:
+`Key : unclear (best guess A minor at 0.20)`. Pass `--no-analysis` to engrave
+the notes literally.
+
+Detection is deliberately conservative. A symbol nobody played rewrites the
+music and cannot be recovered from the page; a missing one still leaves the
+notes readable. Thresholds are measured against MAPS ground truth — a trill
+must alternate faster than ~6 notes/sec, the p75 of real adjacent-pitch runs.
+
+Each run also reports what share of the notes were released under sustain pedal:
 
 ```
 Pedalled : 91% of notes released under sustain - their durations are estimates
@@ -232,6 +261,7 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `api/events.py` | SSE progress, and the heartbeat that makes it usable |
 | `api/security.py` | `get_principal()` seam, rate limit, caps |
 | `notation/quantise.py` | Beat grid, snapping, pedal-confidence flag |
+| `notation/analysis.py` | Key, trills, staccato, dynamics — ornaments detected *before* quantisation |
 | `notation/score.py` | Hand splitting, chord grouping, `music21` score |
 | `notation/render.py` | MusicXML / SVG / PDF writers |
 | `training/targets.py` | Notes → the regression targets the CRNN is trained against |
@@ -379,6 +409,7 @@ under sustain pedal.
 - [x] **Phase 2** — core library + CLI (audio → MIDI)
 - [x] **Phase 3** — notation: beats → quantize → hand separation → MusicXML → PDF
 - [x] **Phase 4** — FastAPI backend + job queue
+- [x] **Phase 20** — musical understanding: key signatures, meters, trills, staccato, dynamics
 - [ ] **Phase 5** — Supabase auth and persistence
 - [ ] **Phase 6–8** — React frontend, piano roll, sheet music view
 - [ ] **Phase 9–11** — error handling, deploy, YouTube input
@@ -392,6 +423,9 @@ under sustain pedal.
 - [x] **Phase 16a** — augmentation that fits in a dataloader
 - [x] **Phase 15–16b** — fine-tuned the CRNN with augmentation: **MAPS 0.787 → 0.840 (+5.3), 14/14 tracks**
 - [x] **Phase 17** — shipped it as `--engine ptify`, working in the CLI, notation and HTTP API
+- [x] **Phase 18** — the offset anomaly explained: `offset_f1` is not comparable across corpora
+- [x] **Phase 19** — note truncation was a **decoding** bug, not the weights: +offset 0.406 → 0.503
+- [ ] **Phase 21** — retrain the **frame head**, the one regression Phase 19 could not decode away
 
 The training goal is **beating ByteDance on your own recordings**, not on the
 MAESTRO benchmark. Models overfit badly to their training audio — published work

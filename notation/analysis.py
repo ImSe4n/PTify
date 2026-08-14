@@ -146,7 +146,10 @@ def detect_trills(notes: list[NoteEvent]) -> list[Ornament]:
 
     Notes must already be sorted by onset; `Transcription.sort()` guarantees it.
     """
-    if len(notes) < config.TRILL_MIN_ALTERNATIONS + 1:
+    # `TRILL_MIN_ALTERNATIONS` counts NOTES in the run, and the run check
+    # below uses the same units. An earlier `+ 1` here rejected a run of
+    # exactly the minimum length -- the boundary the constant names.
+    if len(notes) < config.TRILL_MIN_ALTERNATIONS:
         return []
 
     out: list[Ornament] = []

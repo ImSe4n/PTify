@@ -125,6 +125,21 @@ def run(
         result.summary["pedalled_fraction"] = stats.uncertain_fraction
         result.summary["bpm"] = stats.bpm
         result.summary["measures"] = stats.n_measures
+        result.summary["time_signature"] = stats.time_signature
+        result.summary["trills"] = stats.n_trills
+        result.summary["staccato"] = stats.n_staccato
+        # The key is reported WITH its confidence, and is null when the
+        # material was too chromatic to call. A client that prints a key must
+        # be able to tell "A minor" from "probably A minor" -- and a wrong key
+        # signature misspells every accidental on the page.
+        if stats.key is not None and stats.key.confident:
+            result.summary["key"] = {
+                "name": stats.key.name,
+                "confidence": round(stats.key.correlation, 4),
+                "margin": round(stats.key.margin, 4),
+            }
+        else:
+            result.summary["key"] = None
 
     report(0.95, "writing outputs")
     _write_artifacts(

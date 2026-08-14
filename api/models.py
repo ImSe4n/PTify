@@ -61,6 +61,20 @@ class TranscriptionOut(BaseModel):
     bpm: float | None = None
     measures: int | None = None
 
+    #: Detected key, or null when the material was too chromatic to call.
+    #: `{"name": "D major", "confidence": 0.91, "margin": 0.15}`. The
+    #: confidence is part of the value, not decoration: a client that prints a
+    #: key signature on a weak reading misspells every accidental in the piece,
+    #: so null genuinely means "print no signature" rather than "unknown".
+    key: dict | None = None
+
+    #: Engraved meter, e.g. "4/4" or "6/8".
+    time_signature: str | None = None
+
+    #: Counts of the notation markings that were detected and printed.
+    trills: int | None = None
+    staccato: int | None = None
+
 
 class JobOut(BaseModel):
     """Job status. The shape returned by POST /jobs and GET /jobs/{id}."""

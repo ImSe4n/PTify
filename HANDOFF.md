@@ -11,10 +11,23 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 19 — DONE. PTify's note truncation was mostly a DECODING bug, not the weights. Recalibrated: mean +offset 0.406 → 0.503 with onsets untouched, no retraining.** |
-| **Branch** | `phase-19-decode-calibration`, off `master` (Phases 17 and 18 merged as PR #14 — verify with `git log --oneline master..HEAD`) |
-| **Tests** | 839 + Phase 19's, ~2 min, no model or network needed |
+| **Last completed** | **Phase 20 — DONE. The score now carries key signatures, real meters, trills, staccato and printed dynamics — the notation features the model output was missing.** |
+| **Branch** | `phase-20-musical-understanding`, off `master` (Phase 19 merged as PR #15 — verify with `git log --oneline master..HEAD`) |
+| **Tests** | 869 passing, ~2 min, no model or network needed |
 | **Next** | A second training run targeting the **frame head** (§9), or Phase 5 auth/persistence. Neither is blocked |
+
+**Phase 20 in one paragraph.** The goal was for the output to match what
+songscription.ai advertises — *"time signatures, key signatures, trills,
+staccato, and expressive markings."* Measured against that list the gap was
+**not in the model**: it was the notation layer, which emitted none of them.
+`notation/analysis.py` adds all of it symbolically — **no GPU, no training, no
+new datasets** — because music21 already ships Krumhansl-Schmuckler key
+detection and already exports `<trill-mark>`, `<staccato>` and `<dynamics>`;
+only the detection logic was missing. Verified on real repertoire:
+Tchaikovsky's *Chanson de Mai* comes back **D major at 0.86 confidence**, and
+the MusicXML carries `<fifths>2</fifths>` on both staves. The whole change is
+**purely additive to `transcriber/`** (58 new constant lines, zero modified),
+so transcription accuracy is unchanged by construction rather than by sampling.
 
 **Phase 19 in one paragraph.** Phase 18 handed over a plan — raise the offset
 term in the loss — and **the plan was wrong**. The 16b log already showed the
@@ -215,6 +228,8 @@ evaluation/             measure before improving
 
 notation/               transcription -> sheet music
   quantise.py           beat grid, snapping, pedal-confidence flag
+  analysis.py           key / trills / staccato / dynamics. ORDER MATTERS:
+                        ornaments run BEFORE quantise, articulation AFTER
   score.py              hand splitting, chord grouping, music21 score
   render.py             MusicXML / SVG / PDF writers
   __main__.py           CLI
@@ -641,6 +656,26 @@ came to look like an unexplained contradiction for two phases. See §6. The same
 warning does not apply to `onset_f1`, which has a flat 50ms tolerance and no
 duration term.
 
+**QUANTISATION DESTROYS ORNAMENTS, so trill detection must run BEFORE it.**
+A trill alternates at 15-20 notes/sec (measured over 6 MAPS tracks: 1,543
+adjacent-pitch onset pairs, p10 16.3/sec, p50 10.2/sec). The default grid is a
+sixteenth — 125ms at 120 BPM — so the alternation is finer than the grid can
+represent. Measured: **12 notes at 17/sec land on 6 distinct grid positions,
+with both pitches of each alternation collapsing onto the SAME instant.** The
+trill becomes six two-note chords.
+
+The failure mode if the order is swapped is the dangerous kind, not a crash:
+those simultaneous pairs *still look like an alternation*, so a detector run
+after quantisation reports a trill assembled from destroyed evidence — a
+plausible answer to a question the data can no longer support. That is the §4
+genre exactly.
+
+`transcription_to_score` is the only place the order is visible, and it is
+commented there. **Articulation is the opposite** — staccato compares played
+duration against the *notated* value, which does not exist until the note is on
+the grid, so `detect_staccato` runs after. `test_quantisation_destroys_a_trill`
+pins the measurement.
+
 **A note before the first tracked beat gets a NEGATIVE position, and the crash
 was the harmless half. FIXED in Phase 18** (found in 17c, predates it).
 
@@ -826,6 +861,19 @@ measurements that produced them. Three are load-bearing:
   interact. Attack echoes arrive ~93ms after a strike, which is *longer* than
   the 90ms that genuine fast repeats need, so onset distance alone cannot
   separate them. The echo filter keys on the **shared offset** instead.
+- **`TRILL_MAX_ONSET_GAP_SEC = 0.16`** (Phase 20) — measured over the
+  ground-truth MIDI of 6 MAPS tracks: 1,543 consecutive adjacent-pitch onset
+  pairs under 0.5s, distributed p5 0.050s (20/sec), p10 0.061s (16.3/sec),
+  p50 0.098s (10.2/sec), p75 0.148s (6.8/sec). The threshold sits just outside
+  p75 so it admits the genuine trill range and excludes the slow alternating
+  figures a reader expects written out in full.
+- **The notation-analysis constants are deliberately CONSERVATIVE.**
+  `KEY_MIN_CORRELATION`, `TRILL_MIN_ALTERNATIONS`, `STACCATO_MAX_RATIO` all
+  err toward printing nothing. A symbol nobody played rewrites the music and
+  is unrecoverable from the page; a missing symbol still leaves the notes
+  readable. **`DYNAMIC_LEVELS` is the exception and says so in the file**: it
+  is a MIDI-convention mapping, not a measurement, because no ground truth in
+  this project labels dynamics — so there is no sweep behind it to find.
 
 ## 6. Current accuracy
 

@@ -47,11 +47,28 @@ def main(argv: list[str] | None = None) -> int:
                     help="fixed BPM; skips beat tracking")
     ap.add_argument("--beats-per-bar", type=int, default=4,
                     help="time signature numerator (default: 4)")
+    ap.add_argument("--time-signature", default="",
+                    help="full meter, e.g. 6/8 or 2/2. Overrides "
+                         "--beats-per-bar, which can only express n/4")
+    ap.add_argument("--no-analysis", action="store_true",
+                    help="skip key/ornament/articulation detection and "
+                         "engrave the notes literally")
     ap.add_argument("--formats", default="musicxml,pdf",
                     help=f"comma-separated from {','.join(ALL_FORMATS)}")
     ap.add_argument("--title", default="")
     ap.add_argument("--composer", default="")
     args = ap.parse_args(argv)
+
+    if args.time_signature:
+        # Validated here rather than inside music21, which raises a
+        # MeterException from deep in its own stack -- the same break in
+        # contract the --beats-per-bar guard exists to prevent.
+        parts = args.time_signature.split("/")
+        if (len(parts) != 2 or not all(p.strip().isdigit() for p in parts)
+                or int(parts[0]) < 1 or int(parts[1]) < 1):
+            print(f"error: --time-signature must look like 6/8, got "
+                  f"{args.time_signature!r}", file=sys.stderr)
+            return 1
 
     if not args.input.exists():
         print(f"error: no such file: {args.input}", file=sys.stderr)
@@ -150,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
             beats_per_bar=args.beats_per_bar,
             title=args.title or args.input.stem,
             composer=args.composer,
+            analyse=not args.no_analysis,
+            time_signature=args.time_signature,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"error: could not build a score: {type(exc).__name__}: {exc}",
@@ -157,8 +176,29 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"Measures : {stats.n_measures}")
+    print(f"Metre    : {stats.time_signature}")
     print(f"Split    : MIDI {stats.split_point} "
           f"(treble >= this, bass below)")
+
+    # Key detection is reported WITH its confidence, and a weak reading prints
+    # no signature at all rather than guessing: a wrong key signature misspells
+    # every accidental in the piece, which is worse than none.
+    if stats.key is not None:
+        if stats.key.confident:
+            print(f"Key      : {stats.key.name} "
+                  f"(confidence {stats.key.correlation:.2f})")
+            if stats.key.margin < 0.05 and stats.key.alternatives:
+                print(f"           (close call: {stats.key.alternatives[0]} "
+                      f"was nearly as likely)")
+        else:
+            print(f"Key      : unclear (best guess {stats.key.name} at "
+                  f"{stats.key.correlation:.2f}) - no signature printed")
+
+    if stats.n_trills:
+        print(f"Trills   : {stats.n_trills} "
+              f"(rapid alternations written as trill marks)")
+    if stats.n_staccato:
+        print(f"Staccato : {stats.n_staccato} notes")
 
     # The honest health metric. Under heavy pedal the printed rhythms are
     # interpolation, not measurement — say so rather than implying precision.

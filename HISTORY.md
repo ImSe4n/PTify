@@ -2022,6 +2022,102 @@ against a 0.350s reference, up from 0.127s, with the note count unchanged at
 
 ---
 
+## 2026-08-14 — Phase 20: the page learns to read
+
+The brief was "make the model as close to songscription.ai as possible". That
+product advertises *"intelligently notates notes while automatically detecting
+time signatures, key signatures, trills, staccato, and expressive markings."*
+
+Measured against that list, **the gap was not in the model.** PTify already
+beats ByteDance by +5.3 onset F1 on MAPS and decodes durations correctly since
+Phase 19. The gap was in the notation layer, which emitted **none** of the five:
+no key signature (so every accidental printed as a sharp), no meter beyond
+`n/4`, no ornaments, no articulation, and no printed dynamics.
+
+**Almost none of it needed a GPU, a Transformer, or new data.** music21 was
+already installed and already ships Krumhansl-Schmuckler key detection; it
+already exports `<trill-mark>`, `<staccato>` and `<dynamics>`. The *rendering*
+half of every advertised feature worked. Only detection was missing. What this
+phase spent was an afternoon on CPU, not 10 hours of a 30-hour weekly quota.
+
+**The one real constraint, measured before any code was written.** A trill
+alternates at 15-20 notes/sec; the default grid is a sixteenth (125ms at 120
+BPM). So quantisation cannot represent a trill — measured, **12 notes at 17/sec
+land on 6 distinct grid positions**, with both pitches of each alternation
+collapsing onto the *same instant*. The trill becomes six two-note chords.
+
+That forced the pipeline order: **ornaments are detected on the raw
+`Transcription`, before `quantise_notes`; articulation is detected after it**,
+because staccato compares the played duration against the *notated* value,
+which does not exist until the note is on the grid. The failure mode if the
+order is swapped is the §4 kind rather than a crash — the collapsed pairs still
+*look* like an alternation, so a detector run afterwards reports a trill
+assembled from destroyed evidence.
+
+**Thresholds came from the corpus, not from taste.** 1,543 consecutive
+adjacent-pitch onset pairs across 6 MAPS tracks: p10 16.3/sec, p50 10.2/sec,
+p75 6.8/sec. `TRILL_MAX_ONSET_GAP_SEC = 0.16` sits just outside p75 — it admits
+the real trill range and excludes slow alternating figures that a reader
+expects written out. The whole constant block is biased toward printing
+*nothing*: a symbol nobody played rewrites the music and cannot be recovered
+from the page, whereas a missing symbol still leaves the notes readable.
+`DYNAMIC_LEVELS` is flagged in the file as the exception — a MIDI-convention
+mapping, not a measurement, because nothing in this project labels dynamics.
+
+**Two tests earned their keep immediately.** The run-length boundary test
+caught an off-by-one: the guard required `TRILL_MIN_ALTERNATIONS + 1` notes
+while the run check required `TRILL_MIN_ALTERNATIONS`, so a run of exactly the
+minimum length — the boundary the constant names — was rejected. And writing
+the ordering test forced a correction to my own claim: I had asserted a trill
+would be *undetectable* after quantisation, and it is not. The pairs survive as
+chords and still read as an alternation. The honest assertion, now in the test,
+is that the rhythm is destroyed and any detection afterwards is built on that
+wreckage.
+
+**Verified on real repertoire, not just synthetics.** Tchaikovsky's *Chanson de
+Mai* (1,003 notes, ground-truth MIDI) engraves to 97 measures and reports
+**D major at 0.86 confidence** — the correct key — with `<fifths>2</fifths>` on
+both staves of the MusicXML. Across the 7 MAPS `ENSTDkCl` pieces every key was
+detected at 0.86-0.93. Grieg's *Butterfly* returns F# minor where the score says
+A major: the **relative** minor, same signature, and the 0.02 margin correctly
+flags it as a close call. That is what the `margin` field exists for.
+
+**A wrong key signature is worse than none**, so a weak reading prints no
+signature and the CLI says `Key : unclear (best guess X at 0.20)`. Confirmed on
+a chromatic synthetic file, which correctly declined to guess.
+
+**Completed**
+- `notation/analysis.py` — `detect_key`, `detect_trills`, `apply_ornaments`,
+  `detect_staccato`, `detect_dynamics`
+- `notation/score.py` — key signature on both staves, real meter strings (so
+  6/8 is expressible at last), trill/staccato/dynamics attachment
+- `notation/__main__.py` — `Metre`/`Key`/`Trills`/`Staccato` reporting,
+  `--time-signature`, `--no-analysis`
+- `api/` — `key`, `time_signature`, `trills`, `staccato` in the job summary
+- `transcriber/config.py` — the constants, each with its measurement
+- 869 tests (was 848)
+
+**A documentation bug fixed in passing.** `score.py` claimed average velocity
+became "MusicXML dynamics on export". It never did — `el.volume.velocity`
+exports as `<sound>` playback data and prints nothing. The comment described a
+feature that did not exist; printed dynamics now genuinely do.
+
+**Scope deliberately left out.** Mordents and turns are the same machinery with
+different patterns, but were not added: a detector that cannot be scored should
+not ship, and there is no notation-level metric here yet. Time-signature
+*inference* was also left — the denominator bug is fixed and `--time-signature`
+works, but guessing the meter from accent patterns is genuinely ambiguous DSP
+and would need its own measurement.
+
+**Next**
+- A second training run targeting the **frame head** (§9) — unchanged by this
+  work, since `transcriber/` was purely additive.
+- Phase 5 (auth + persistence) remains the app-track blocker.
+- Ornament evaluation needs a notation-level metric before mordents/turns are
+  worth adding. `mir_eval` scores notes, not symbols.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on
