@@ -178,6 +178,56 @@ def test_staccato_is_never_claimed_under_sustain_pedal():
     assert detect_staccato(q, grid) == set()
 
 
+def _detached(frac, n=6, bpm=120.0):
+    """`n` quarter notes, each sounding `frac` of its beat."""
+    spq = 60.0 / bpm
+    return [NoteEvent(60 + i, i * spq, i * spq + spq * frac, 80, clamp=False)
+            for i in range(n)]
+
+
+def test_a_quarter_note_played_short_is_staccato():
+    """REGRESSION (Phase 21): the notated value was read from `length_beats`,
+    but quantisation snaps a note's DURATION to the grid -- so a short note's
+    notated length tracked its played length and the ratio came out ~1.0.
+
+    Measured at 120 BPM: a quarter played 0.30 of its beat (0.15s) quantised
+    to a sixteenth (0.125s) and scored 1.20, reading as legato. The detector
+    could only ever fire below 1/20 of a beat, where the one-subdivision floor
+    stops tracking, and returned 0 of 937 notes on Grieg's "Butterfly".
+
+    A single note cannot catch this -- with no next onset the slot falls back
+    to `length_beats` and the bug is invisible. That is why this uses six.
+    """
+    grid = grid_from_tempo(120.0, 10.0)
+    q = quantise_notes(_detached(0.30), grid)
+    # The last note has no following onset, so exclude it: its slot is the
+    # fallback, not a measurement.
+    assert {i for i in detect_staccato(q, grid) if i < 5} == {0, 1, 2, 3, 4}
+
+
+def test_a_quarter_note_held_nearly_full_is_not_staccato():
+    """The other half of the boundary. Ordinary detached playing sits around
+    half the written value, so a detector that fired here would mark most
+    piano music staccato."""
+    grid = grid_from_tempo(120.0, 10.0)
+    q = quantise_notes(_detached(0.95), grid)
+    assert {i for i in detect_staccato(q, grid) if i < 5} == set()
+
+
+def test_the_notated_slot_skips_notes_of_the_same_chord():
+    """Notes sharing an onset are one chord. Measuring the slot to the next
+    note by INDEX rather than by a later onset would give a slot of zero for
+    every note but the last in each chord, and zero-length slots are skipped
+    -- which would silently exclude all chordal writing from the detector."""
+    grid = grid_from_tempo(120.0, 10.0)
+    spq = 0.5
+    # A staccato triad, then a note a beat later.
+    notes = [NoteEvent(p, 0.0, spq * 0.2, 80, clamp=False) for p in (60, 64, 67)]
+    notes.append(NoteEvent(72, spq, spq * 1.9, 80, clamp=False))
+    q = quantise_notes(notes, grid)
+    assert len(detect_staccato(q, grid) & {0, 1, 2}) == 3
+
+
 # --- dynamics -------------------------------------------------------------
 
 def test_dynamics_are_emitted_at_changes_not_per_note():

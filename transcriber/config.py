@@ -99,6 +99,15 @@ TRILL_MIN_ALTERNATIONS = 4
 # written value; 0.5 would therefore fire on ordinary detached playing, so the
 # threshold sits well below it and only catches genuinely clipped notes.
 # Never applied to a note whose duration is uncertain — see analysis.py.
+#
+# UNCHANGED in Phase 21, deliberately. The Phase 21 benchmark found the
+# detector fired on almost nothing (0 of 937 notes on Grieg's "Butterfly"),
+# but the cause was the DENOMINATOR, not this value: the notated duration was
+# read from the quantised length, which had already absorbed the shortness.
+# With the inter-onset interval as the notated slot (analysis.py), a
+# monophonic sweep at 120 BPM cuts exactly where this constant says it should
+# — 0.30 of a beat marks, 0.40 does not — so retuning it would have been
+# tuning around a bug rather than fixing one.
 STACCATO_MAX_RATIO = 0.35
 
 # --- Dynamics ---

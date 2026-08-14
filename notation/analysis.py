@@ -249,6 +249,23 @@ def detect_staccato(qnotes, grid) -> set[int]:
     than the NOTATED value, and the notated value does not exist until the note
     is on the grid.
 
+    The notated value is the INTER-ONSET INTERVAL to the next note, not
+    `length_beats`. This is the whole difficulty of the measurement, and using
+    `length_beats` is wrong in a way that silently disables the detector:
+    quantisation snaps a note's DURATION to the grid, so a short note's notated
+    length tracks its played length instead of staying at the written value. A
+    quarter note played staccato at 120 BPM (0.5s slot, 0.15s played) quantises
+    to a sixteenth, and 0.15 / 0.125 reads as ratio 1.20 -- indistinguishable
+    from legato. Measured across the range, the old test fired ONLY below 1/20
+    of a beat, where the one-subdivision floor in `quantise_notes` stops
+    tracking; on real repertoire it returned 0 of 937 notes for Grieg's
+    "Butterfly", a piece built almost entirely of detached figuration.
+
+    The inter-onset interval does not have that defect, because it is a
+    property of the note's POSITION rather than its duration: measured over the
+    same range it recovers the played fraction exactly (0.30 of a quarter reads
+    as 0.300).
+
     Notes whose duration is uncertain are never marked. Under sustain pedal the
     release and the decay are acoustically indistinguishable (`quantise.py`),
     so the played duration there is an estimate -- and an articulation mark
@@ -260,7 +277,8 @@ def detect_staccato(qnotes, grid) -> set[int]:
     for idx, q in enumerate(qnotes):
         if q.duration_uncertain or q.source is None:
             continue
-        notated = q.length_beats * period
+
+        notated = _notated_slot(qnotes, idx) * period
         if notated <= 0:
             continue
         if (q.source.duration / notated) <= config.STACCATO_MAX_RATIO:
@@ -269,12 +287,49 @@ def detect_staccato(qnotes, grid) -> set[int]:
     return out
 
 
+def _notated_slot(qnotes, idx) -> float:
+    """The written value of `qnotes[idx]`, in beats.
+
+    The gap to the next LATER onset -- notes starting at the same instant are
+    one chord, and their shared onset would give a slot of zero. Falls back to
+    the quantised length for the final note, where there is no next onset to
+    measure against; that is the one position where the tracking defect
+    described in `detect_staccato` cannot be avoided, and one note per piece
+    is an acceptable blind spot.
+    """
+    start = qnotes[idx].start_beats
+    for other in qnotes[idx + 1:]:
+        if other.start_beats > start:
+            return other.start_beats - start
+    return qnotes[idx].length_beats
+
+
+def has_dynamics(qnotes) -> bool:
+    """Does this material carry real dynamics at all?
+
+    One distinct velocity across every note means the source never recorded
+    them, and then `detect_dynamics` is not measuring loudness -- it is
+    reporting which bucket the single constant fell into. MAPS ground-truth
+    MIDI assigns a flat 80 to every note, so all 713 windows of Liszt's
+    "Rhapsody" come out `f`: a marking that looks like a reading and is
+    actually a restatement of the constant.
+
+    The same degeneracy, and the same guard, as `velocity_valid` in
+    `evaluation/metrics.py`. Detected from the notes rather than from a corpus
+    name, because the cause is the data, not the source.
+    """
+    return len({q.velocity for q in qnotes}) > 1
+
+
 def detect_dynamics(qnotes) -> list[tuple[float, str]]:
     """(start_beats, marking) for printed dynamics.
 
     Emitted at CHANGES rather than per note: a `mf` on every notehead is not
     how music is written and would bury the page. Velocity is averaged over a
     window so that one accented note does not trigger a marking.
+
+    Callers that intend to SCORE this should check `has_dynamics` first; on a
+    constant-velocity source the output is an artifact of the mapping.
     """
     if not qnotes:
         return []
