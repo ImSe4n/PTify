@@ -195,6 +195,100 @@ def test_compare_has_no_nan():
     assert "nan" not in compare_reports(old, new)
 
 
+# --- engine_alias (Phase 17) ----------------------------------------------
+#
+# Phase 16b's committed ptify reports carry `engine: "bytedance"` because
+# `ptify` was not an engine yet and rows had to key-join against the baseline.
+# Phase 17 made it a real engine, so a re-run labels its rows `ptify`. Without
+# a remap those two files no longer join at all.
+
+def _ptify_pair():
+    """A 16b-era report (rows labelled bytedance) and a Phase 17 re-run."""
+    old = build_report([_row(case="a", onset=0.84),
+                        _row(case="b", onset=0.80)], source=SOURCE)
+    new = build_report([_row(engine="ptify", case="a", onset=0.84),
+                        _row(engine="ptify", case="b", onset=0.80)],
+                       source=SOURCE)
+    return old, new
+
+
+def test_without_the_alias_the_two_reports_do_not_join():
+    """THE assertion that proves the parameter does something.
+
+    A seam that behaves identically with and without its argument is
+    indistinguishable from one that ignores it — the standard HANDOFF §4 sets
+    for the checkpoint seam. If this ever passes with rows joined, the alias
+    below is decorative.
+    """
+    old, new = _ptify_pair()
+    out = compare_reports(old, new)
+
+    assert "only in new" in out
+    assert "only in old" in out
+    # Nothing matched, so there is no mean to report.
+    assert "MEAN DELTA" not in out
+
+
+def test_with_the_alias_every_row_joins():
+    old, new = _ptify_pair()
+    out = compare_reports(old, new, engine_alias={"ptify": "bytedance"})
+
+    assert "only in new" not in out
+    assert "only in old" not in out
+    assert out.count("+0.000") == 3  # two rows plus the mean
+
+
+def test_the_alias_reports_a_real_delta():
+    """Joining is not enough — the numbers have to reach the arithmetic."""
+    old = build_report([_row(case="a", onset=0.7866)], source=SOURCE)
+    new = build_report([_row(engine="ptify", case="a", onset=0.8395)],
+                       source=SOURCE)
+    out = compare_reports(old, new, engine_alias={"ptify": "bytedance"})
+
+    assert "+0.053" in out
+
+
+def test_the_label_shows_both_engines_when_they_differ():
+    """The table must not claim both sides were the same model. A diff that
+    silently relabelled one engine as another would be the provenance error
+    this whole phase exists to avoid."""
+    old, new = _ptify_pair()
+    out = compare_reports(old, new, engine_alias={"ptify": "bytedance"})
+
+    assert "ptify->bytedance" in out
+
+
+def test_the_alias_does_not_rewrite_the_stored_rows():
+    """A JOIN-KEY remap only. The committed 16b reports are honest records of
+    how they were produced and must survive a diff untouched."""
+    old, new = _ptify_pair()
+    compare_reports(old, new, engine_alias={"ptify": "bytedance"})
+
+    assert [r["engine"] for r in new["rows"]] == ["ptify", "ptify"]
+    assert [r["engine"] for r in old["rows"]] == ["bytedance", "bytedance"]
+
+
+def test_an_alias_naming_an_absent_engine_changes_nothing():
+    """A stale alias must be inert, not destructive."""
+    old = build_report([_row(case="a")], source=SOURCE)
+    new = build_report([_row(case="a")], source=SOURCE)
+
+    assert (compare_reports(old, new, engine_alias={"nosuch": "other"})
+            == compare_reports(old, new))
+
+
+def test_the_alias_still_joins_on_case_and_preset():
+    """Folding the engine name must not fold anything else — two different
+    cases must stay two rows."""
+    old = build_report([_row(case="a"), _row(case="b")], source=SOURCE)
+    new = build_report([_row(engine="ptify", case="a"),
+                        _row(engine="ptify", case="zzz")], source=SOURCE)
+    out = compare_reports(old, new, engine_alias={"ptify": "bytedance"})
+
+    assert "only in old" in out   # b vanished
+    assert "only in new" in out   # zzz appeared
+
+
 # --- resume ---------------------------------------------------------------
 
 def test_rows_from_json_restores_what_the_tables_read(tmp_path):

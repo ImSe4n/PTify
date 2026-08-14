@@ -209,11 +209,30 @@ def merge_reports(reports: list[dict]) -> dict:
     return merged
 
 
-def _key(row: dict) -> tuple:
-    return (row.get("engine"), row.get("case"), row.get("preset"))
+def _key(row: dict, engine_alias: dict | None = None) -> tuple:
+    """The join key: (engine, case, preset).
+
+    `engine_alias` folds one engine's name onto another's FOR THE KEY ONLY. It
+    never rewrites a stored row, and the printed label still shows the real
+    names on both sides — a diff that quietly claimed two different models were
+    the same engine would be worse than one that refuses to join.
+    """
+    engine = row.get("engine")
+    if engine_alias:
+        engine = engine_alias.get(engine, engine)
+    return (engine, row.get("case"), row.get("preset"))
 
 
-def compare_reports(old: dict, new: dict, field: str = "onset_f1") -> str:
+def _engine_label(before: dict | None, after: dict | None) -> str:
+    """`ptify->bytedance` when the two sides really are different engines."""
+    names = [r.get("engine") for r in (before, after) if r is not None]
+    if len(names) == 2 and names[0] != names[1]:
+        return f"{names[1]}->{names[0]}"
+    return str(names[0]) if names else "?"
+
+
+def compare_reports(old: dict, new: dict, field: str = "onset_f1", *,
+                    engine_alias: dict | None = None) -> str:
     """Diff two baselines on a metric, joined BY KEY.
 
     Never by position. Zipping two result lists by index is exactly the defect
@@ -221,16 +240,35 @@ def compare_reports(old: dict, new: dict, field: str = "onset_f1") -> str:
     worse — silently compared different cases when the lengths happened to
     match but the order did not. A baseline differ has the same failure mode
     with months in which to hide.
+
+    `engine_alias` maps engine names onto a common join key so two runs that
+    used DIFFERENT WEIGHTS can still be diffed row by row. It exists for one
+    concrete situation: Phase 16b's committed reports
+    (`benchmarks/real/maps-paired-ptify-clean.json`, `maestro-ptify-clean.json`)
+    carry `engine: "bytedance"` because `ptify` was not an engine yet and rows
+    had to key-join against the baseline. Phase 17 made `ptify` a real engine,
+    so a re-run labels its rows `ptify` and would otherwise show every row as
+    "only in new" against those files. Pass `{"ptify": "bytedance"}` to join
+    them.
+
+    A JOIN-KEY remap only. The stored rows are untouched — they are honest
+    records of how they were produced — and the label prints `new->old` when
+    the two sides differ, so the table says what was actually compared.
     """
-    old_rows = {_key(r): r for r in old.get("rows", [])}
-    new_rows = {_key(r): r for r in new.get("rows", [])}
+    old_rows = {_key(r, engine_alias): r for r in old.get("rows", [])}
+    new_rows = {_key(r, engine_alias): r for r in new.get("rows", [])}
 
     keys = sorted(set(old_rows) | set(new_rows),
                   key=lambda k: tuple("" if p is None else str(p) for p in k))
     if not keys:
         return "(no rows)"
 
-    labels = [f"{k[0]}/{k[1]}/{k[2]}" for k in keys]
+    labels = []
+    for key in keys:
+        before, after = old_rows.get(key), new_rows.get(key)
+        engine = _engine_label(before, after) if engine_alias else key[0]
+        labels.append(f"{engine}/{key[1]}/{key[2]}")
+
     width = max(len(label) for label in labels)
     lines = [f"  {'engine/case/preset':<{width}}  {'old':>7} {'new':>7} {'delta':>7}",
              "  " + "-" * (width + 26)]
