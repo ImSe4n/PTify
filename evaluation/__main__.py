@@ -198,17 +198,15 @@ def _source(args, n_items: int) -> dict:
 def _digest(path: Path) -> str:
     """SHA-256 of a checkpoint, or a marker if it cannot be read.
 
-    Identifies the exact weights behind a score. Read in chunks — these files
-    are ~172MB and this runs before an hours-long benchmark, not in a loop.
+    Identifies the exact weights behind a score. The hashing itself lives in
+    `transcriber.weights.sha256_file` so that the digest written into a report
+    and the digest `verify()` checks a checkpoint against are computed by one
+    implementation — two would be free to disagree.
     """
-    import hashlib
+    from transcriber.weights import sha256_file
 
     try:
-        h = hashlib.sha256()
-        with open(path, "rb") as fh:
-            for block in iter(lambda: fh.read(1024 * 1024), b""):
-                h.update(block)
-        return h.hexdigest()
+        return sha256_file(path)
     except OSError:
         return "unreadable"
 

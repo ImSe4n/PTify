@@ -32,6 +32,29 @@ from .events import Transcription
 # minutes, so a pipeline with no progress reporting looks like a hang.
 ProgressCallback = Callable[[float, str], None]
 
+#: Every engine `get_engine()` can build. THE authority — argparse `choices`,
+#: the API's env allowlist and its per-request gate all read this rather than
+#: repeating a literal, because a name accepted by one gate and refused by
+#: another is a 400 that blames the client for the server's own list being out
+#: of date.
+#:
+#: Capability facts do NOT live here. `api/routes/health.py` keeps those, since
+#: reading them off the classes would mean constructing an engine (17-50s for
+#: ByteDance) to answer a health check.
+ENGINE_NAMES = ("bytedance", "basicpitch", "ptify")
+
+
+def normalise_engine_name(name: str) -> str:
+    """Fold an engine name to its canonical key.
+
+    `Byte-Dance`, `byte_dance` and `bytedance` are the same engine. This was
+    duplicated inline in five places (the factory, the API's engine cache, the
+    settings allowlist, the jobs route and the engines endpoint); they now
+    share one implementation, so a gate cannot drift into accepting a spelling
+    another gate rejects.
+    """
+    return name.lower().replace("-", "").replace("_", "")
+
 
 class TranscriptionEngine(ABC):
     """Turns an audio file into notes (and pedal, where supported)."""
@@ -90,7 +113,7 @@ def get_engine(name: str = "bytedance", *,
     rejected for engines that cannot use it rather than ignored: silently
     dropping it would score the wrong weights and look like a result.
     """
-    key = name.lower().replace("-", "").replace("_", "")
+    key = normalise_engine_name(name)
     if key == "bytedance":
         from .bytedance import ByteDanceEngine
 

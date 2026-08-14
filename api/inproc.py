@@ -46,9 +46,14 @@ class _EngineCache:
         self._lock = threading.Lock()
 
     def get(self, name: str):
-        from transcriber.engine import get_engine
+        from transcriber.engine import get_engine, normalise_engine_name
 
-        key = name.lower().replace("-", "").replace("_", "")
+        # Keyed on the engine NAME only, deliberately. Each engine resolves its
+        # own weights (ptify from PTIFY_CHECKPOINT or a conventional path), and
+        # no request carries a per-job checkpoint, so "bytedance" and "ptify"
+        # are already distinct entries holding distinct weights. Adding a
+        # checkpoint to the key would be speculation with no caller to vary it.
+        key = normalise_engine_name(name)
         with self._lock:
             engine = self._engines.get(key)
             if engine is None:

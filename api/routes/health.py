@@ -58,8 +58,10 @@ async def healthz(request: Request) -> dict:
 
 @router.get("/v1/engines", response_model=list[EngineOut], summary="Available engines")
 async def engines(request: Request) -> list[EngineOut]:
+    from transcriber.engine import normalise_engine_name
+
     default = request.app.state.settings.default_engine
-    key = default.lower().replace("-", "").replace("_", "")
+    key = normalise_engine_name(default)
     return [
         EngineOut(name=name, default=(name == key), **facts)
         for name, facts in _ENGINES.items()
