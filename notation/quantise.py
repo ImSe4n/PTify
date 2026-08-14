@@ -235,14 +235,31 @@ def quantise_notes(
     neighbours were placed. A note that quantises to zero length is given one
     subdivision — the shortest value the grid can express — because a
     zero-length note cannot be engraved at all.
+
+    Notes before the first tracked beat are shifted back onto it. `beat_position`
+    deliberately extrapolates below beat 0 and returns a NEGATIVE position, which
+    is correct as a coordinate but cannot be engraved: `makeMeasures` builds bars
+    over [0, end] and raises `StreamException` for anything outside them. The
+    same value also travels through `quantised_to_transcription`, so an unshifted
+    negative start writes a note at a negative time into the exported MIDI —
+    silently, since nothing there raises. The whole piece is translated by one
+    offset rather than each note being clamped to 0.0 individually: clamping
+    would collapse distinct pre-grid onsets onto a single position and merge
+    them into a chord that was never played.
     """
     pedals = pedals or []
     sub = grid.subdivision
-    out: list[QuantisedNote] = []
 
-    for n in notes:
-        start = _snap(grid.beat_position(n.onset), sub)
-        end = _snap(grid.beat_position(n.offset), sub)
+    starts = [_snap(grid.beat_position(n.onset), sub) for n in notes]
+    ends = [_snap(grid.beat_position(n.offset), sub) for n in notes]
+
+    # Translate, preserving every interval between notes.
+    shift = -min(starts) if starts and min(starts) < 0.0 else 0.0
+
+    out: list[QuantisedNote] = []
+    for n, start, end in zip(notes, starts, ends):
+        start += shift
+        end += shift
 
         length = end - start
         if length < sub:

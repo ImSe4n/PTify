@@ -90,6 +90,25 @@ def test_score_without_a_grid_uses_a_constant_tempo():
     assert len(sc.parts) == 2
 
 
+def test_a_note_before_the_first_tracked_beat_still_engraves():
+    # Found in 17c, present on master and not engine-specific: on short audio
+    # librosa's first beat lands after t=0, the earlier note quantises to a
+    # negative offset, and makeMeasures -- which only builds bars over
+    # [0, end] -- raised StreamException("cannot place element ... with
+    # start/end -1.0/0.0 within any measures") as a raw traceback.
+    from notation.quantise import BeatGrid
+
+    grid = BeatGrid(beats=[0.5, 1.0, 1.5, 2.0], bpm=120.0, beats_per_bar=4,
+                    subdivision=0.25)
+    tr = Transcription(
+        notes=[NoteEvent(60, 0.0, 0.4), NoteEvent(64, 0.6, 1.0)],
+        duration=2.0, engine="test",
+    )
+    sc, stats = transcription_to_score(tr, grid)
+    assert stats.n_measures >= 1
+    assert len(sc.parts) == 2
+
+
 # --- rendering ------------------------------------------------------------
 
 def test_musicxml_contains_the_notes(tmp_path):

@@ -1,0 +1,44 @@
+{
+  "note": "Predicted note-duration distributions, Phase 18. Explains why MAPS +offset fell while MAESTRO +offset rose: offset_f1 tolerance is max(50ms, 0.2*ref_duration), so the two corpora score offsets in different regimes -- AND ptify genuinely truncates notes.",
+  "track": "ENSTDkCl-grieg_butterfly",
+  "corpus": "MAPS paired",
+  "audio_seconds": 99.9,
+  "reference": {
+    "n": 937,
+    "median": 0.35,
+    "mean": 0.4364,
+    "p25": 0.1409,
+    "p75": 0.5841,
+    "under_100ms_frac": 0.0,
+    "under_250ms_frac": 0.4023
+  },
+  "bytedance": {
+    "n": 984,
+    "median": 0.2691,
+    "mean": 0.3658,
+    "p25": 0.1322,
+    "p75": 0.4748,
+    "under_100ms_frac": 0.1524,
+    "under_250ms_frac": 0.4736
+  },
+  "ptify": {
+    "n": 933,
+    "median": 0.1273,
+    "mean": 0.1937,
+    "p25": 0.0992,
+    "p75": 0.224,
+    "under_100ms_frac": 0.2529,
+    "under_250ms_frac": 0.7631
+  },
+  "conclusion": "ptify median 0.127s vs bytedance 0.269s vs reference 0.350s: ptify releases notes ~3x too early. For a typical 0.350s note the tolerance is 70ms; bytedance misses by 81ms, ptify by 223ms (3.2x tolerance).",
+  "environment": {
+    "inference_threads": 8,
+    "device": "cpu",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.5",
+    "torch": "2.2.2+cpu",
+    "numpy": "1.26.4",
+    "git_commit": "b473b11"
+  },
+  "checkpoint_sha256": "17286ad93c5806e02a59caf0333769d9bea9f4f3e53abd7360be8cabe9d4accd"
+}
