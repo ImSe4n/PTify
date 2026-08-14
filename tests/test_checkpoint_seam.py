@@ -193,6 +193,83 @@ def test_provenance_omits_the_checkpoint_for_a_baseline_run(tmp_path):
     assert "checkpoint" not in _source(_Args(), n_items=3)
 
 
+def test_the_device_probe_uses_the_custom_weights_too(tmp_path, monkeypatch):
+    """`_device_of` builds an engine just to read `.device` off it. Built
+    without the checkpoint it loads the PRETRAINED model — which corrupts no
+    score, because the engine that transcribes is constructed separately
+    inside `run_real_audio`, but it loads a second ~172MB model that is not
+    the one being measured.
+
+    Pinned because "an engine built from the wrong weights" is the exact
+    shape of the failure this seam exists to prevent, and the next reader
+    should not have to re-derive that this particular one is harmless.
+    """
+    from evaluation import __main__ as cli
+
+    seen = []
+
+    class _FakeEngine:
+        device = "cpu"
+
+        def load(self):
+            pass
+
+    def fake_get_engine(name, checkpoint_path=None):
+        seen.append(checkpoint_path)
+        return _FakeEngine()
+
+    monkeypatch.setattr(cli, "get_engine", fake_get_engine)
+    monkeypatch.setattr(cli, "_DEVICE_CACHE", {})
+
+    cli._device_of("bytedance", tmp_path / "custom.pth")
+    assert seen == [tmp_path / "custom.pth"]
+
+
+def test_the_device_cache_separates_baseline_from_custom(tmp_path, monkeypatch):
+    """Keyed on (engine, checkpoint). A single key would let a baseline run
+    and a custom run share an entry, recording one's device for the other."""
+    from evaluation import __main__ as cli
+
+    calls = []
+
+    class _FakeEngine:
+        device = "cpu"
+
+        def load(self):
+            pass
+
+    monkeypatch.setattr(cli, "get_engine",
+                        lambda name, checkpoint_path=None:
+                        (calls.append(checkpoint_path), _FakeEngine())[1])
+    monkeypatch.setattr(cli, "_DEVICE_CACHE", {})
+
+    cli._device_of("bytedance", None)
+    cli._device_of("bytedance", tmp_path / "custom.pth")
+    cli._device_of("bytedance", None)          # cached, no new call
+
+    assert calls == [None, tmp_path / "custom.pth"]
+
+
+def test_converting_a_resumable_checkpoint_rejects_the_wrong_file(tmp_path):
+    """`training.deployable` turns a `step_*.pt` into a scoreable file, which
+    is the only way to salvage an interrupted run — a deployable is written
+    only when the loop exits normally, and a Kaggle session cap means that
+    often does not happen.
+
+    Pointed at something that is not a training checkpoint it must raise, not
+    guess. A plausible-looking output here would be benchmarked as if it were
+    the trained model.
+    """
+    from training.deployable import convert
+
+    path = _big_checkpoint(tmp_path / "already-deployable.pth",
+                           {"note_model": {}, "pedal_model": {}})
+
+    # A DEPLOYABLE checkpoint has 'model', not 'note_model', at the top level.
+    with pytest.raises(ValueError, match="not a training checkpoint"):
+        convert(path, tmp_path / "out.pth")
+
+
 def test_run_real_audio_forwards_the_checkpoint(tmp_path, monkeypatch):
     """The wiring itself: benchmark -> get_engine. Verified without loading a
     model, because the point is which argument arrives, not what it does."""

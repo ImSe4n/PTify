@@ -206,6 +206,25 @@ custom-trained model drops in the same way.
 
 Each of these cost real debugging time. They are non-obvious and will recur.
 
+**A SUMMED loss hides the result: velocity is 92% of it and barely moves.**
+`compute_losses` returns `total = onset + offset + frame + velocity`, and the
+velocity term is intrinsically far larger than the other three. Room
+augmentation barely touches it — a note struck hard is still struck hard in a
+wet room — so it acts as a large constant that swamps the signal. Measured
+over Phase 16b's 6,555 steps: the augmented **total moved −1.4%** while
+**onset+offset+frame moved −14.2%** (frame alone −20.9%). Watching `total`
+made a working run look like a stalled one for hours. **`train_log.jsonl`
+records every head separately for exactly this reason — read those, not
+`*_total`.**
+
+**Establish the noise floor before reading a trend.** In the same run, the
+per-step training loss has a spread of ~0.05 while real validation movement is
+~0.005 — an order of magnitude apart, so no per-step line means anything. The
+20-batch validation itself carries ~±0.003. A mid-run story of "clean
+degrading while augmented improves" was constructed from movements of 0.0004
+and contradicted 1,500 steps later. Two numbers and a direction are not a
+trend.
+
 **A custom checkpoint scored WITHOUT `--checkpoint` silently reports
 ByteDance's number.** `PianoTranscription.__init__` re-downloads any file
 under 160MB (inference.py:31) and loads with `strict=False` (inference.py:54),

@@ -220,21 +220,32 @@ def _digest(path: Path) -> str:
 _DEVICE_CACHE: dict[str, str] = {}
 
 
-def _device_of(engine_name: str) -> str:
+def _device_of(engine_name: str, checkpoint_path=None) -> str:
     """The engine's real device, loading it once if needed.
 
     Cached because get_engine().load() costs ~40s for ByteDance, and every
     cell of a preset sweep would otherwise pay it again just to record the
     same string.
+
+    `checkpoint_path` is forwarded even though only the device string is read
+    from the result. Without it this builds a PRETRAINED engine — which does
+    not corrupt any score, because the engine that transcribes is constructed
+    inside `run_real_audio`, but it does load a second ~172MB model that is
+    not the one being measured. Anyone reading this later would reasonably
+    assume otherwise, and in this project an engine built from the wrong
+    weights is the exact shape of the failure the checkpoint seam exists to
+    prevent. Keyed on both, so a baseline and a custom run do not share a
+    cache entry.
     """
-    if engine_name not in _DEVICE_CACHE:
+    key = (engine_name, str(checkpoint_path) if checkpoint_path else None)
+    if key not in _DEVICE_CACHE:
         try:
-            engine = get_engine(engine_name)
+            engine = get_engine(engine_name, checkpoint_path=checkpoint_path)
             engine.load()
-            _DEVICE_CACHE[engine_name] = engine.device
+            _DEVICE_CACHE[key] = engine.device
         except Exception:
-            _DEVICE_CACHE[engine_name] = "unknown"
-    return _DEVICE_CACHE[engine_name]
+            _DEVICE_CACHE[key] = "unknown"
+    return _DEVICE_CACHE[key]
 
 
 def _run(args, corpus, engine: str, preset: str):
@@ -257,7 +268,7 @@ def _run(args, corpus, engine: str, preset: str):
 
     if path:
         report.write_json(path, rows, source=_source(args, len(rows)),
-                          device=_device_of(engine))
+                          device=_device_of(engine, args.checkpoint))
         print(f"  wrote {path}", file=sys.stderr)
     return rows
 

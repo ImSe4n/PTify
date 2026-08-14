@@ -1558,13 +1558,84 @@ had already landed — `git diff master phase-16a-augmentation` is empty and all
 six commits are reachable via PR #10. The warning was verified before being
 acted on, which is what §1 itself now says to do.
 
-### What 16b has not done yet
+### The GPU run: 6,555 steps, and a metric that was hiding the result
 
-The GPU run. Everything it needs is proven — the augmented path runs end to
-end on real audio, a resume continues at the right step *and* epoch, the
-artifact clears `assert_deployable` at 172.0 MB, and it scores through the
-benchmark. What remains is spending the quota and reading the result against
-`benchmarks/real/maps-paired-bytedance-clean.json` (0.7866).
+Ran on a Kaggle T4 with `--augment` as the single change from 14.5's
+known-good configuration, on the full 962-track index. Stopped at step 6,555
+of 10,000 once the curve had flattened. Log committed at
+`benchmarks/training/16b-step6555.jsonl`.
+
+**`total` was the wrong number to watch, and it was the number being watched.**
+Velocity is **92% of the loss** and barely moves under room augmentation — a
+note struck hard is still struck hard in a wet room, and the velocity loss is
+masked to onset frames anyway. That one flat head masked everything else:
+
+| augmented head | step 500 → 6500 | |
+|---|---|---|
+| frame | 0.03742 → 0.02961 | **−20.9%** |
+| offset | 0.01934 → 0.01794 | **−7.2%** |
+| onset | 0.00972 → 0.00948 | −2.4% |
+| velocity | 0.65637 → 0.65676 | +0.1% (92% of total) |
+| **onset+offset+frame** | 0.06648 → 0.05703 | **−14.2%** |
+
+So the augmented total moved −1.4% while the three heads that actually drive
+note F1 moved **−14.2%**. Frame improving 21% is the most encouraging signal
+in the run: frame prediction is "which notes are sounding", and smeared note
+boundaries are exactly what reverb does. Offset improving 7.2% matters
+independently, because `+offset` (0.381) is this project's documented weak
+spot and the input to `notation/`.
+
+*This was reported wrongly for most of the run.* The totals were narrated live
+as "barely moving", and a mid-run reading of "VAL degrading while AUG
+improves" was built from movements of 0.0004 — inside a noise band that had
+not been established. Two corrections followed from the data itself: step 4000
+put VAL below its earlier best, and the per-head breakdown at the end showed
+the totals had never been the informative number. **Establish the noise floor
+before narrating a trend, and decompose a summed loss before trusting it.**
+
+**Converged early.** 56% of the augmented improvement landed in the first
+1,000 steps; the last six validation points sit within 0.0019 (sd 0.0007), and
+step 6500 rose on both metrics. The remaining 3,445 steps were forecast to buy
+~0.002 — inside the noise — so the run was stopped and the quota kept.
+
+**Peak GPU was 4.99 GB of a T4's 14.56.** `--batch-size 2 --accum-steps 4` was
+tuned in 14.5 to survive an OOM *under AMP* and was carried into an fp32 run
+that did not need it. A future run should raise the batch before spending more
+quota on steps.
+
+**Reproducible across three sessions.** A manual interrupt and a Kaggle
+container recycle split the run into three; at matched steps the validation
+numbers agree to ~0.0007. That is the hash-seeded augmentation and the
+restored RNG state doing exactly what they were built for — and the epoch fix
+above is why the resumed segments drew the right conditions.
+
+### Getting the artifact off Kaggle, and a fourth disguise of the same trap
+
+Kaggle's file browser, `FileLink`, and the Output panel all failed on this
+session (404s and a "databundle source" error), and the console silently
+dropped output lines throughout — including several validation lines and a
+`saved step_N.pt`. **The scrollback is not a record; `train_log.jsonl` is.**
+The checkpoint eventually came out through `kaggle datasets create`.
+
+A resumable `step_*.pt` (260MB, carries optimizer + RNG state) is not
+loadable by `PianoTranscription`, and the 172MB deployable is only written
+when the loop exits normally — which an interrupted run never does. So
+`training/deployable.py` converts one to the other, re-attaching the untrained
+pedal weights from the pretrained file exactly as `save_deployable` does.
+
+Then, setting up the scoring, the "silent wrong weights" failure appeared for
+a **fourth** time in this phase: `_device_of()` built a second engine without
+the checkpoint purely to read `.device` off it, so it loaded ByteDance's
+pretrained weights. Caught only because the seam prints its checkpoint path on
+startup and the MAESTRO run printed the wrong one. It corrupted no score — the
+engine that transcribes is built separately inside `run_real_audio` — but it
+loaded a 172MB model that was not the one being measured. Fixed, with the
+device cache now keyed on `(engine, checkpoint)` so a baseline and a custom
+run cannot share an entry.
+
+That trap has now appeared as: no seam at all, an undersized file, a wrong key
+set, and a redundant engine. It is the single most persistent hazard in this
+codebase.
 
 ---
 
