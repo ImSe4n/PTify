@@ -89,6 +89,63 @@ def test_beat_position_extrapolates_outside_the_tracked_span():
     assert g.beat_position(4.0) == pytest.approx(3.0)
 
 
+# --- notes before the first tracked beat (Phase 18) -----------------------
+#
+# librosa's first beat lands after t=0 on short audio, so any earlier note
+# extrapolates to a NEGATIVE beat position. That is correct as a coordinate and
+# is pinned by the test above; what follows is about what quantise_notes may
+# then hand downstream.
+
+
+def _pre_grid():
+    """A grid whose first beat is late, plus a note before it."""
+    g = BeatGrid(beats=[0.5, 1.0, 1.5, 2.0], bpm=120.0, beats_per_bar=4,
+                 subdivision=0.25)
+    notes = [NoteEvent(60, 0.0, 0.4), NoteEvent(64, 0.6, 1.0)]
+    return g, notes
+
+
+def test_notes_before_the_first_beat_are_not_placed_at_negative_positions():
+    # A note at t=0 under a grid starting at 0.5s quantised to start_beats
+    # -1.0, and music21's makeMeasures builds bars over [0, end] only:
+    # "cannot place element <music21.note.Note C> with start/end -1.0/0.0
+    # within any measures". Reproduced on master with --engine bytedance.
+    g, notes = _pre_grid()
+    q = quantise_notes(notes, g)
+    assert all(n.start_beats >= 0.0 for n in q)
+
+
+def test_a_pre_grid_note_does_not_reach_the_exported_midi_as_negative_time():
+    # The louder half of this bug was the crash. This is the quiet half:
+    # quantised_to_transcription converts beats back to seconds, so an
+    # unshifted -1.0 wrote a note at -0.5s into --formats midi with nothing
+    # raised and nothing logged.
+    g, notes = _pre_grid()
+    tr = quantised_to_transcription(quantise_notes(notes, g), g)
+    assert all(n.onset >= 0.0 for n in tr.notes)
+    assert all(n.offset >= 0.0 for n in tr.notes)
+
+
+def test_shifting_pre_grid_notes_preserves_the_spacing_between_them():
+    # The whole piece is translated by one offset, NOT clamped per note.
+    # Clamping each start to 0.0 is the tempting one-liner and it collapses
+    # distinct onsets onto a single position, merging them into a chord that
+    # was never played. 1.25 beats apart before the fix; still 1.25 after.
+    g, notes = _pre_grid()
+    q = quantise_notes(notes, g)
+    assert q[1].start_beats - q[0].start_beats == pytest.approx(1.25)
+
+
+def test_a_grid_with_no_pre_grid_notes_is_left_exactly_where_it_was():
+    # The shift must be inert when nothing is negative, or every ordinary
+    # score silently moves off its downbeat.
+    g = grid_from_tempo(120.0, 10.0)
+    notes = [NoteEvent(60, 1.0, 1.4), NoteEvent(62, 1.5, 2.0)]
+    q = quantise_notes(notes, g)
+    assert q[0].start_beats == pytest.approx(2.0)
+    assert q[1].start_beats == pytest.approx(3.0)
+
+
 def test_onsets_snap_to_the_grid():
     g = grid_from_tempo(120.0, 10.0)
     # 40ms early / late must still land on the beat.
@@ -206,3 +263,22 @@ def test_cli_accepts_valid_meter_and_tempo(tmp_path):
                "--beats-per-bar", "3", "--formats", "musicxml"])
     assert rc == 0
     assert (tmp_path / "tiny.musicxml").is_file()
+
+
+def test_cli_reports_an_engraving_failure_without_a_traceback(tmp_path, capsys,
+                                                              monkeypatch):
+    # Engraving was the one step with no handler, so a music21 raise printed a
+    # traceback while every other stage printed a one-line 'error:'. The clamp
+    # removes the known cause; this pins the contract for the next one, so it
+    # is forced here rather than relying on any particular input still failing.
+    import notation.__main__ as m
+
+    def boom(*_a, **_k):
+        raise RuntimeError("makeMeasures exploded")
+
+    monkeypatch.setattr(m, "transcription_to_score", boom)
+    rc = m.main([str(_tiny_midi(tmp_path)), "--formats", "musicxml"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Traceback" not in err
