@@ -1609,6 +1609,42 @@ numbers agree to ~0.0007. That is the hash-seeded augmentation and the
 restored RNG state doing exactly what they were built for — and the epoch fix
 above is why the resumed segments drew the right conditions.
 
+### The result: 0.7866 → 0.8395 on MAPS, 14 of 14 tracks
+
+**+5.3 onset F1 points**, scored through the same harness that produced every
+baseline, joined by `compare_reports` on (engine, case, preset).
+
+| | ByteDance | PTify 16b | delta |
+|---|---|---|---|
+| **MAPS paired (14 tracks)** | 0.7866 | **0.8395** | **+0.053** |
+| MAPS ambient (3–4m mics) | 0.7222 | **0.8012** | **+0.079** |
+| MAPS close (~50cm) | 0.8510 | 0.8778 | +0.027 |
+| MAESTRO (regression guard) | 0.9693 | 0.9633 | −0.006 |
+
+**The gain is concentrated where the theory says it should be.** The ambient
+subset — the same performances at 3–4m instead of ~50cm — gained **2.9x** what
+the close-mic subset did. That is the signature of room robustness, not of a
+model that simply got better at everything, and it is the strongest evidence
+the improvement is causal rather than incidental.
+
+Consequently the **room-acoustics penalty measured in Phase 13b falls from
+12.9 points to 7.7**, and the **MAESTRO→MAPS generalisation gap closes from
+18.3 to 12.4 — 32% of it**, for one 10-hour session at lr 5e-5 on 15% of a
+single epoch.
+
+**The price was 0.6 points on MAESTRO**, consistent across all 12 tracks
+(−0.001 to −0.009). That is the trade the 20% clean passthrough exists to
+bound, and it cost about a ninth of what it bought. No sign of the pretrained
+weights being damaged.
+
+**An unexplained result, flagged rather than claimed.** MAESTRO `+offset` rose
+**0.3807 → 0.5196 (+13.9)** while MAPS `+offset` FELL 0.6069 → 0.4314. Nothing
+in this phase targeted offsets, and two corpora moving in opposite directions
+on the same metric means something systematic is happening that is not yet
+understood. Offset accuracy is this project's documented weak spot and the
+input to `notation/`, so it is worth investigating — but it is not a result to
+report as an improvement until the disagreement is explained.
+
 ### Getting the artifact off Kaggle, and a fourth disguise of the same trap
 
 Kaggle's file browser, `FileLink`, and the Output panel all failed on this

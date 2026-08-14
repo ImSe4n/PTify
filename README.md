@@ -280,9 +280,21 @@ On **MAPS**, which neither engine trained on, the picture changes again:
 | engine | MAESTRO | MAPS | |
 |---|---|---|---|
 | ByteDance | 0.969 | **0.787** | −0.183 — loses its home-field advantage |
+| **PTify** (fine-tuned) | 0.963 | **0.840** | −0.124 — **+5.3 over ByteDance** |
 | Basic Pitch | 0.730 | **0.727** | −0.003 — it never had one |
 
 The 24-point gap on MAESTRO narrows to **6.3 points** on unfamiliar audio.
+
+**PTify's custom model beats ByteDance on MAPS by 5.3 points**, improving 14 of
+14 tracks for a cost of 0.6 points on MAESTRO. The gain concentrates exactly
+where the theory predicts — the **ambient** (3–4m mic) recordings gain **+7.9**
+against **+2.7** for close-mic, so the room-acoustics penalty falls from 12.9
+points to 7.7. That asymmetry is the evidence this is genuine room robustness
+rather than a general uplift.
+
+It comes from ~6,500 fine-tuning steps with continuous reverb/detune
+augmentation on one free-tier GPU session — 15% of a single epoch. See
+`training/` and `benchmarks/training/`.
 
 A useful check on the harness itself: ByteDance's published MAESTRO note F1 is
 0.9677, and this corpus measures **0.9693** — agreement to within 0.002,
@@ -313,8 +325,7 @@ under sustain pedal.
 - [x] **Phase 14** — training data pipeline: regression targets, segment index, dataset
 - [x] **Phase 14.5** — smoke run on Kaggle GPU: loop, checkpointing, cross-session resume
 - [x] **Phase 16a** — augmentation that fits in a dataloader
-- [x] **Phase 16b (prep)** — a custom checkpoint can be *scored*; three correctness fixes; dataloader 2.4 → 29.9 seg/s/worker
-- [ ] **Phase 15–16b** — fine-tune the CRNN with augmentation on (the GPU run)
+- [x] **Phase 15–16b** — fine-tuned the CRNN with augmentation: **MAPS 0.787 → 0.840 (+5.3), 14/14 tracks**
 - [ ] **Phase 17** — ship the custom model behind `TranscriptionEngine`
 
 The training goal is **beating ByteDance on your own recordings**, not on the

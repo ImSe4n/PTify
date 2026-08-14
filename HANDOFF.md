@@ -11,10 +11,18 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 16b (prep) — the `--checkpoint` scoring seam, three correctness fixes, and a 12x dataloader fix |
+| **Last completed** | **Phase 16b — DONE. MAPS 0.7866 → 0.8395 (+5.3), 14 of 14 tracks. The training track's premise is validated.** |
 | **Branch** | `phase-16b-gpu-run`, branched off `master` (which was up to date — verified, see the branch note) |
-| **Tests** | 729 passing, ~109s, no model or network needed |
-| **Next** | **The GPU run itself.** Everything it needs is proven; what remains is spending the quota |
+| **Tests** | 733 passing, ~110s, no model or network needed |
+| **Next** | **Phase 17** — ship the model behind `TranscriptionEngine`. A second training run is optional; see §9 |
+
+**The headline this project was built to produce.** Fine-tuning ByteDance's
+CRNN for 6,555 steps with room/detune augmentation beat it on the honest
+target: **+5.3 onset F1 on MAPS**, for **−0.6 on MAESTRO**. The gain is
+concentrated in the **ambient** (3–4m mic) subset, +7.9 against +2.7 close-mic
+— the signature of room robustness rather than a model that got better at
+everything. The 18.3-point generalisation gap is now **12.4**, and Phase 13b's
+12.9-point room penalty is now **7.7**.
 
 **The headline number this project was missing.** ByteDance scores **0.969 on
 MAESTRO and 0.787 on MAPS** — an **18.3-point drop** onto an unfamiliar piano
@@ -573,7 +581,26 @@ fetched; the 14 paired tracks (58 min, 30,356 notes) carry the ByteDance run.
 | engine | MAESTRO | MAPS | drop |
 |---|---|---|---|
 | ByteDance | 0.969 | **0.787** | **−0.183** |
+| **PTify 16b** (fine-tuned) | 0.963 | **0.840** | **−0.124** |
 | Basic Pitch | 0.730 | **0.727** | −0.003 |
+
+**Phase 16b closed 32% of that gap.** Room/detune augmentation for 6,555 steps
+moved MAPS +5.3 points for −0.6 on MAESTRO, improving 14 of 14 tracks. Broken
+down by mic distance, which is where the mechanism shows:
+
+| ByteDance → PTify 16b | onset | delta |
+|---|---|---|
+| `ENSTDkCl` close (~50cm) | 0.851 → 0.878 | +0.027 |
+| `ENSTDkAm` ambient (3–4m) | 0.722 → **0.801** | **+0.079** |
+| **room penalty** | 0.129 → **0.077** | **−0.052** |
+
+The ambient subset gains 2.9x the close-mic subset. That asymmetry is the
+evidence the improvement is room robustness and not a general uplift.
+
+**Unexplained, do not quote as a win:** MAESTRO `+offset` rose 0.381 → 0.520
+while MAPS `+offset` FELL 0.607 → 0.431. Nothing targeted offsets, and two
+corpora disagreeing in direction means something systematic is unaccounted
+for. Investigate before relying on either number.
 
 **This is the measurement the whole training track was waiting for.** README
 predicted a ~20-point loss on unfamiliar acoustics from published work; the
