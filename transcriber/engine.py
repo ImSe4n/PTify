@@ -13,6 +13,12 @@ and they have genuinely different strengths:
     Not piano-specific and does not model pedal; reports strong partials as
     separate notes, so it needs harmonic filtering. Useful for quick previews.
 
+  - PTify (Phase 17) — the same CRNN as ByteDance, fine-tuned here with
+    room/detune augmentation. Same speed and same capabilities; +5.3 onset F1
+    over ByteDance on MAPS, concentrated in ambient-mic recordings. Needs a
+    172MB checkpoint that is not bundled, so it RAISES rather than falling
+    back when the weights are absent.
+
 The old live interface was `process(audio, window_start)`. `window_start`
 existed solely to map window-relative onsets onto a live absolute timeline;
 offline it would always be 0.0, so it is gone. Engines now take a file path
@@ -31,6 +37,29 @@ from .events import Transcription
 # Called with a 0.0-1.0 fraction and a short status string. Long files take
 # minutes, so a pipeline with no progress reporting looks like a hang.
 ProgressCallback = Callable[[float, str], None]
+
+#: Every engine `get_engine()` can build. THE authority — argparse `choices`,
+#: the API's env allowlist and its per-request gate all read this rather than
+#: repeating a literal, because a name accepted by one gate and refused by
+#: another is a 400 that blames the client for the server's own list being out
+#: of date.
+#:
+#: Capability facts do NOT live here. `api/routes/health.py` keeps those, since
+#: reading them off the classes would mean constructing an engine (17-50s for
+#: ByteDance) to answer a health check.
+ENGINE_NAMES = ("bytedance", "basicpitch", "ptify")
+
+
+def normalise_engine_name(name: str) -> str:
+    """Fold an engine name to its canonical key.
+
+    `Byte-Dance`, `byte_dance` and `bytedance` are the same engine. This was
+    duplicated inline in five places (the factory, the API's engine cache, the
+    settings allowlist, the jobs route and the engines endpoint); they now
+    share one implementation, so a gate cannot drift into accepting a spelling
+    another gate rejects.
+    """
+    return name.lower().replace("-", "").replace("_", "")
 
 
 class TranscriptionEngine(ABC):
@@ -90,11 +119,20 @@ def get_engine(name: str = "bytedance", *,
     rejected for engines that cannot use it rather than ignored: silently
     dropping it would score the wrong weights and look like a result.
     """
-    key = name.lower().replace("-", "").replace("_", "")
+    key = normalise_engine_name(name)
     if key == "bytedance":
         from .bytedance import ByteDanceEngine
 
         return ByteDanceEngine(checkpoint_path=checkpoint_path)
+    if key == "ptify":
+        from .ptify import PtifyEngine
+
+        # `checkpoint_path` is ACCEPTED here, unlike for basicpitch: it is the
+        # same architecture, so pointing this engine at a later training run's
+        # weights is meaningful and needs no code change. Left unset, the
+        # engine resolves the shipped Phase 16b checkpoint and verifies its
+        # digest.
+        return PtifyEngine(checkpoint_path=checkpoint_path)
     if key == "basicpitch":
         if checkpoint_path is not None:
             raise ValueError(
@@ -112,4 +150,6 @@ def get_engine(name: str = "bytedance", *,
                 "Install them, or use --engine bytedance."
             ) from exc
         return BasicPitchEngine()
-    raise ValueError(f"Unknown engine {name!r}. Options: bytedance, basicpitch")
+    raise ValueError(
+        f"Unknown engine {name!r}. Options: {', '.join(ENGINE_NAMES)}"
+    )

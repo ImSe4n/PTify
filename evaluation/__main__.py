@@ -1,9 +1,10 @@
 """Benchmark CLI.
 
     python -m evaluation                     # default engine, clean audio
-    python -m evaluation --compare           # both engines side by side
+    python -m evaluation --compare           # bytedance vs basicpitch
     python -m evaluation --all-presets       # degradation table
     python -m evaluation --audio-dir recs/   # real recordings + .mid labels
+    python -m evaluation --engine ptify --audio-dir recs/   # fine-tuned model
 
 Every run reports the engine, device, and thread count, because all three
 change the numbers — scores from different configurations are not comparable.
@@ -16,7 +17,7 @@ import sys
 from pathlib import Path
 
 from transcriber import config
-from transcriber.engine import get_engine
+from transcriber.engine import ENGINE_NAMES, get_engine
 
 from . import report
 from .augment import PRESETS
@@ -30,7 +31,24 @@ from .benchmark import (
 )
 from .cases import CASES, load_all
 
-ENGINES = ["bytedance", "basicpitch"]
+#: Selectable with --engine. The factory is the authority.
+ENGINES = list(ENGINE_NAMES)
+
+#: What bare `--compare` runs, which is deliberately NOT every engine.
+#:
+#: `ptify` needs a 172MB checkpoint that is not in the repository, so including
+#: it here would make `--compare` crash partway through on any machine without
+#: those weights -- after ByteDance had already spent its ~2.6h. Opt in with
+#: `--compare-engines bytedance,ptify` on a machine that has them.
+#:
+#: An explicit list beats skipping absent engines silently: a comparison table
+#: with fewer columns on one machine than another is exactly the artifact that
+#: gets screenshotted and misread.
+COMPARE_ENGINES = ["bytedance", "basicpitch"]
+
+#: Engines whose weights `--checkpoint` can replace. Both run the same CRNN
+#: architecture, which is what makes a checkpoint meaningful for either.
+CHECKPOINTABLE = ("bytedance", "ptify")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -44,16 +62,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all-presets", action="store_true",
                     help="score every preset and show the degradation table")
     ap.add_argument("--compare", action="store_true",
-                    help="run every engine and compare them")
+                    help=f"run several engines and compare them "
+                         f"(default: {','.join(COMPARE_ENGINES)})")
+    ap.add_argument("--compare-engines", default=None, metavar="A,B",
+                    help=f"which engines --compare runs. Default omits ptify, "
+                         f"whose checkpoint is not in the repository and would "
+                         f"abort the run partway through on a machine that "
+                         f"lacks it")
     ap.add_argument("--case", action="append", choices=sorted(CASES),
                     help="limit to specific cases (repeatable)")
     ap.add_argument("--audio-dir", type=Path, default=None,
                     help="score real recordings (needs matching .mid files)")
     ap.add_argument("--checkpoint", type=Path, default=None, metavar="PATH",
-                    help="score custom ByteDance-architecture weights from "
-                         "training/ instead of the pretrained ones. Rows keep "
-                         "the engine name so they key-join against the "
-                         "baseline; use the filename to tell runs apart")
+                    help="score custom CRNN weights from training/ instead of "
+                         "the engine's own. Rows keep the engine name, so a "
+                         "run is identified by checkpoint_sha256 in the "
+                         "report's source block")
     ap.add_argument("--json", type=Path, default=None, metavar="PATH",
                     help="write results as JSON. With --all-presets or "
                          "--compare, PATH may contain {engine} and {preset}, "
@@ -68,6 +92,27 @@ def main(argv: list[str] | None = None) -> int:
         print("error: --compare and --all-presets cannot be combined",
               file=sys.stderr)
         return 1
+
+    # Resolved before any inference, so a typo'd engine name costs a second
+    # rather than being discovered after the first engine has finished.
+    compare_engines = COMPARE_ENGINES
+    if args.compare_engines:
+        compare_engines = [e.strip() for e in args.compare_engines.split(",")
+                           if e.strip()]
+        unknown = [e for e in compare_engines if e not in ENGINES]
+        if unknown:
+            print(f"error: unknown engine(s) in --compare-engines: "
+                  f"{', '.join(unknown)}. Options: {', '.join(ENGINES)}",
+                  file=sys.stderr)
+            return 1
+        if len(compare_engines) < 2:
+            print("error: --compare-engines needs at least two engines to "
+                  "compare", file=sys.stderr)
+            return 1
+        if not args.compare:
+            print("error: --compare-engines needs --compare", file=sys.stderr)
+            return 1
+    args.compare_engines_resolved = compare_engines
 
     # --case filters the synthetic corpus only; run_real_audio takes every
     # pair in the directory. Silently ignoring the filter would report a
@@ -91,11 +136,11 @@ def main(argv: list[str] | None = None) -> int:
                   "scored on real recordings; the synthetic cases exist to "
                   "compare engines, not weights.", file=sys.stderr)
             return 1
-        if args.engine != "bytedance":
-            print(f"error: --checkpoint applies to the bytedance engine only "
-                  f"(got {args.engine!r}). It is the only engine whose "
-                  f"architecture training/ produces weights for.",
-                  file=sys.stderr)
+        if args.engine not in CHECKPOINTABLE:
+            print(f"error: --checkpoint applies to "
+                  f"{' and '.join(CHECKPOINTABLE)} only (got {args.engine!r}). "
+                  f"They are the engines whose architecture training/ produces "
+                  f"weights for.", file=sys.stderr)
             return 1
         if args.compare:
             print("error: --checkpoint cannot be combined with --compare, "
@@ -185,39 +230,77 @@ def _source(args, n_items: int) -> dict:
     else:
         out = {"kind": "synthetic", "n_items": n_items}
 
-    # Custom rows keep the engine's name so they key-join against the
-    # baseline, which means the ROW cannot say which weights produced it.
-    # Recording the path and its digest here is what keeps the two runs
-    # distinguishable inside the file rather than only by filename.
-    if getattr(args, "checkpoint", None):
-        out["checkpoint"] = str(args.checkpoint)
-        out["checkpoint_sha256"] = _digest(args.checkpoint)
+    # A row records WHICH ENGINE produced it, never which weights. Recording
+    # the path and its digest here is the only thing that makes two runs of
+    # the same engine distinguishable inside the file rather than by filename.
+    #
+    # `--checkpoint` is not the only way weights get chosen: `--engine ptify`
+    # resolves its own (PTIFY_CHECKPOINT, then checkpoints/, then ~/.ptify/).
+    # Recording only the explicit flag wrote `checkpoint: null` for a run whose
+    # weights were entirely determined by the environment -- a report that
+    # cannot say what produced it, which is the failure this block exists to
+    # prevent. Ask the ENGINE what it loaded.
+    # getattr for both: `args` is a plain namespace here and callers (including
+    # tests) do not all set every field. A provenance block must never be the
+    # thing that raises at the end of an hours-long run.
+    path = (getattr(args, "checkpoint", None)
+            or _resolved_checkpoint(getattr(args, "engine", None)))
+    if path:
+        out["checkpoint"] = str(path)
+        out["checkpoint_sha256"] = _digest(Path(path))
     return out
+
+
+def _resolved_checkpoint(engine_name: str):
+    """The weights an engine will load of its own accord, or None.
+
+    Deliberately does NOT construct or load the engine: this runs while
+    building a report, and a 17-50s model load to fill in a provenance field
+    would be paid on every cell of a preset sweep.
+    """
+    if engine_name != "ptify":
+        return None
+    try:
+        from transcriber.ptify import resolve_checkpoint
+
+        return resolve_checkpoint()
+    except Exception:  # noqa: BLE001
+        # Provenance is diagnostic. A run that got this far HAS working
+        # weights; failing to name them must not discard hours of scoring.
+        return None
 
 
 def _digest(path: Path) -> str:
     """SHA-256 of a checkpoint, or a marker if it cannot be read.
 
-    Identifies the exact weights behind a score. Read in chunks — these files
-    are ~172MB and this runs before an hours-long benchmark, not in a loop.
+    Identifies the exact weights behind a score. The hashing itself lives in
+    `transcriber.weights.sha256_file` so that the digest written into a report
+    and the digest `verify()` checks a checkpoint against are computed by one
+    implementation — two would be free to disagree.
     """
-    import hashlib
+    from transcriber.weights import sha256_file
 
     try:
-        h = hashlib.sha256()
-        with open(path, "rb") as fh:
-            for block in iter(lambda: fh.read(1024 * 1024), b""):
-                h.update(block)
-        return h.hexdigest()
+        return sha256_file(path)
     except OSError:
         return "unreadable"
 
 
-#: Device per engine, filled in after a load so the value is real. Reading
-#: `.device` off a FRESH engine always says "cpu" — it is only set inside
-#: load() — so recording it unloaded would write a falsehood into the
-#: provenance block, the exact bug the 12d audit fixed in the header.
-_DEVICE_CACHE: dict[str, str] = {}
+#: Device per (engine, checkpoint), filled in after a load so the value is
+#: real. Reading `.device` off a FRESH engine always says "cpu" — it is only
+#: set inside load() — so recording it unloaded would write a falsehood into
+#: the provenance block, the exact bug the 12d audit fixed in the header.
+_DEVICE_CACHE: dict[tuple[str, str | None], str] = {}
+
+
+def _device_key(engine_name: str, checkpoint_path=None) -> tuple[str, str | None]:
+    """The cache key, in ONE place.
+
+    It was built inline in two spots and they disagreed: the writer used a bare
+    engine name while the reader used this tuple, so the warm entry could never
+    be hit and a second model was loaded to re-read one string.
+    """
+    return (engine_name, str(checkpoint_path) if checkpoint_path else None)
 
 
 def _device_of(engine_name: str, checkpoint_path=None) -> str:
@@ -237,7 +320,7 @@ def _device_of(engine_name: str, checkpoint_path=None) -> str:
     prevent. Keyed on both, so a baseline and a custom run do not share a
     cache entry.
     """
-    key = (engine_name, str(checkpoint_path) if checkpoint_path else None)
+    key = _device_key(engine_name, checkpoint_path)
     if key not in _DEVICE_CACHE:
         try:
             engine = get_engine(engine_name, checkpoint_path=checkpoint_path)
@@ -282,11 +365,16 @@ def _single(args, corpus) -> int:
     # from torch.cuda.is_available() inside load(), so the header was
     # reporting a falsehood on any CUDA machine — for a field the module
     # docstring calls load-bearing.
-    engine = get_engine(args.engine)
+    # Built with the checkpoint, not without it. Two reasons: the header should
+    # describe the engine that will actually score, and this warms the cache
+    # `_device_of` reads later -- which is keyed on (engine, checkpoint), so a
+    # bare-name write here was a dead entry that could never be hit, and the
+    # run silently loaded a second ~172MB model to re-read one string.
+    engine = get_engine(args.engine, checkpoint_path=args.checkpoint)
     engine.load()
     print(f" device : {engine.device}")
     print()
-    _DEVICE_CACHE[args.engine] = engine.device  # already loaded; don't reload
+    _DEVICE_CACHE[_device_key(args.engine, args.checkpoint)] = engine.device
 
     rows = _run(args, corpus, args.engine, args.preset)
     print(format_rows(rows))
@@ -297,7 +385,7 @@ def _compare(args, corpus) -> int:
     print(f" preset : {args.preset}")
     print()
     by_engine = {}
-    for engine in ENGINES:
+    for engine in getattr(args, "compare_engines_resolved", COMPARE_ENGINES):
         print(f"running {engine}...", file=sys.stderr)
         by_engine[engine] = _run(args, corpus, engine, args.preset)
 

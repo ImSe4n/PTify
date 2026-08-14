@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import FileResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
+from transcriber.engine import ENGINE_NAMES, normalise_engine_name
+
 from ..events import job_events
 from ..jobs import ALL_FORMATS, JobSpec, JobState
 from ..models import ErrorOut, JobAccepted, JobOut
@@ -98,16 +100,13 @@ async def create_job(
         )
 
     chosen = engine or settings.default_engine
-    if chosen.lower().replace("-", "").replace("_", "") not in (
-        "bytedance",
-        "basicpitch",
-    ):
+    if normalise_engine_name(chosen) not in ENGINE_NAMES:
         # Rejected here so the client gets a 400 immediately rather than a job
         # that fails seconds later for a reason it could have been told now.
         raise _error(
             400,
             "unknown_engine",
-            f"Unknown engine {chosen!r}. Options: bytedance, basicpitch.",
+            f"Unknown engine {chosen!r}. Options: {', '.join(ENGINE_NAMES)}.",
         )
 
     fmts = _parse_formats(formats)

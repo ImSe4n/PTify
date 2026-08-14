@@ -177,15 +177,15 @@ def _load() -> Settings:
     # Validated here rather than at first use. An unknown engine name would
     # otherwise surface as a 400 on every job with a message blaming the client
     # for the server's own misconfiguration, and an unknown queue backend would
-    # not surface until the first enqueue. `get_engine()` (engine.py:79) and
-    # `get_queue()` are the authorities on the valid names.
+    # not surface until the first enqueue. `transcriber.engine.ENGINE_NAMES`
+    # and `get_queue()` are the authorities on the valid names.
+    from transcriber.engine import ENGINE_NAMES, normalise_engine_name
+
     engine = _env_str("PTIFY_DEFAULT_ENGINE", "bytedance")
-    if engine.lower().replace("-", "").replace("_", "") not in {
-        "bytedance",
-        "basicpitch",
-    }:
+    if normalise_engine_name(engine) not in ENGINE_NAMES:
         raise ValueError(
-            f"PTIFY_DEFAULT_ENGINE must be bytedance or basicpitch, got {engine!r}"
+            f"PTIFY_DEFAULT_ENGINE must be one of "
+            f"{', '.join(ENGINE_NAMES)}, got {engine!r}"
         )
 
     queue_backend = _env_str("PTIFY_QUEUE", "inproc")

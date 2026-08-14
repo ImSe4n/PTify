@@ -137,13 +137,23 @@ def test_checkpoint_requires_a_real_audio_dir(tmp_path, capsys):
 
 
 def test_checkpoint_is_refused_for_another_engine(tmp_path, capsys):
+    """An engine that cannot use custom weights must REFUSE them, not ignore
+    them — ignoring would score the stock model and write a file that reads
+    like a custom result.
+
+    Phase 17 widened the set that accepts a checkpoint from {bytedance} to
+    {bytedance, ptify} (both run the same CRNN), so this asserts the refusal
+    and names the rejected engine rather than pinning the message's wording.
+    """
     from evaluation.__main__ import main
 
     ckpt = _write(tmp_path / "c.pth", size_bytes=1)
     code = main(["--checkpoint", str(ckpt), "--audio-dir", str(tmp_path),
                  "--engine", "basicpitch", "--quiet"])
     assert code == 1
-    assert "bytedance engine only" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "--checkpoint applies to" in err
+    assert "basicpitch" in err
 
 
 def test_a_nonexistent_checkpoint_is_caught_before_any_inference(tmp_path,

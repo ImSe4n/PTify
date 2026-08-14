@@ -11,10 +11,30 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 16b — DONE. MAPS 0.7866 → 0.8395 (+5.3), 14 of 14 tracks. The training track's premise is validated.** |
-| **Branch** | `phase-16b-gpu-run`, branched off `master` (which was up to date — verified, see the branch note) |
-| **Tests** | 733 passing, ~110s, no model or network needed |
-| **Next** | **Phase 17** — ship the model behind `TranscriptionEngine`. A second training run is optional; see §9 |
+| **Last completed** | **Phase 17 — DONE. The 16b model ships as `--engine ptify`, working in the transcriber CLI, notation, the evaluation harness and the HTTP API.** |
+| **Branch** | `phase-17-ptify-engine`, branched off `master` (verified current: `git log --oneline master..HEAD` was empty at the start) |
+| **Tests** | 827 passing, ~125s, no model or network needed |
+| **Next** | **Phase 18** — the offset anomaly (§6) or a second training run (§9). Both are open; neither is blocked |
+
+**The engine was verified to BE the measured model.** Scoring
+`--engine ptify` over the 14 MAPS paired tracks reproduces Phase 16b's report
+**exactly: +0.000 on all 14 rows, largest absolute delta 0.000000**, with
+threads/device/torch/numpy matching. Both reports record the same
+`checkpoint_sha256`. That check is the point of the phase: shipping an engine
+that scores *slightly differently* from the published number would mean the
+thing users run is not the thing the README describes, and nothing else would
+have caught it. `benchmarks/real/maps-paired-ptify17-clean.json` is the
+artifact; diff it with `engine_alias={"ptify": "bytedance"}`.
+
+**Phase 17 in one paragraph.** `transcriber/ptify.py` adds a third
+`TranscriptionEngine`. It **composes** `ByteDanceEngine` rather than
+subclassing it — see the trap in §4, which is the single most important thing
+to know before touching that file. The weights are not in the repository, so
+`resolve_checkpoint()` searches `$PTIFY_CHECKPOINT`, `checkpoints/`, then
+`~/.ptify/checkpoints/` and **raises** rather than falling back. Benchmark rows
+from this engine now honestly say `ptify`, which means they no longer key-join
+against the 16b baselines; `compare_reports(engine_alias={"ptify": "bytedance"})`
+bridges that, and the two committed 16b JSONs were left byte-identical.
 
 **The headline this project was built to produce.** Fine-tuning ByteDance's
 CRNN for 6,555 steps with room/detune augmentation beat it on the honest
@@ -85,6 +105,14 @@ curl -F file=@song.mp3 -F formats=midi,pdf http://127.0.0.1:8000/v1/jobs
 
 .venv\Scripts\python.exe -m transcriber song.mp3 --notes --verify
 .venv\Scripts\python.exe -m transcriber --doctor
+
+# the fine-tuned model (Phase 17). Its 172MB checkpoint is NOT in the repo;
+# --doctor reports whether it is present, absent, or present-but-wrong.
+.venv\Scripts\python.exe -m transcriber song.mp3 --engine ptify
+set PTIFY_CHECKPOINT=C:\path\to\ptify-16b-step6555.pth
+.venv\Scripts\python.exe -m evaluation --audio-dir recordings/maps_paired ^
+    --engine ptify --preset clean ^
+    --json benchmarks/real/maps-paired-ptify17-clean.json
 .venv\Scripts\python.exe -m evaluation --compare
 .venv\Scripts\python.exe -m evaluation --all-presets
 .venv\Scripts\python.exe -m pytest tests/ -q
@@ -139,13 +167,16 @@ overhead). 84.5 min of audio takes **~2.6h**. Budget from 1.87x, not 1.1x. Use
 ```
 transcriber/            audio -> notes -> MIDI
   engine.py             TranscriptionEngine ABC + get_engine() factory
+                        ENGINE_NAMES is THE list; every gate reads it
   bytedance.py          DEFAULT. Piano-specific, pedal + velocity.
                         `checkpoint_path=` scores a fine-tuned checkpoint
   basicpitch.py         Fast ONNX. No pedal. Needs harmonic filtering
+  ptify.py              The 16b fine-tuned model. COMPOSES bytedance (see
+                        the trap in section 4); resolves + verifies weights
   events.py             NoteEvent / PedalEvent / Transcription
   midi.py               read/write, pedal as CC64
   config.py             tuning constants (MEASURED — see comments)
-  weights.py            Windows-safe checkpoint download
+  weights.py            Windows-safe download; Checkpoint spec + sha256 verify
   doctor.py             environment diagnostics
 
 evaluation/             measure before improving
@@ -207,12 +238,79 @@ a branch to `get_queue()`. The pipeline and routes do not change.
 
 **Adding an engine:** subclass `TranscriptionEngine` (implement `name`,
 `load`, `transcribe_file`, `device`; set `native_sample_rate` and
-`supports_pedal`), then add a branch to `get_engine()`. That seam exists so a
-custom-trained model drops in the same way.
+`supports_pedal`), add the name to `ENGINE_NAMES`, then add a branch to
+`get_engine()`. Phase 17 spent this seam — `ptify` is the worked example.
+
+`ENGINE_NAMES` is read by argparse `choices` in three CLIs, the API's env
+allowlist and its per-request gate; before 17a each kept its own literal list,
+and a name accepted by one gate and refused by another is a 400 that blames the
+client for the server's list being stale. Two things are deliberately NOT
+derived from it: `api/routes/health.py`'s capability facts (reading them off the
+classes would mean constructing an engine, 17-50s, to answer a health check)
+and `COMPARE_ENGINES` (see the §4 trap).
 
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**`PtifyEngine` must NEVER be able to reach `ensure_checkpoint()`.**
+`ByteDanceEngine.load()` downloads and loads ByteDance's *pretrained* weights
+on exactly one condition: `checkpoint_path is None`. If `PtifyEngine` is ever
+refactored to **subclass** `ByteDanceEngine` rather than compose it, or if
+`resolve_checkpoint()` is changed to return `None` instead of raising, then
+`--engine ptify` on a machine without the weights transcribes with the **stock
+model and stamps `engine: "ptify"` on the result** — the baseline published as
+the fine-tuned result, with nothing raised and nothing logged. Subclassing is
+the tempting one-line "simplification" here, because only `name` differs;
+composition is what makes that branch unreachable.
+`test_ptify_never_falls_back_to_pretrained` pins it by monkeypatching
+`ensure_checkpoint` to raise and asserting it never fires — and was verified to
+FAIL against a deliberately sabotaged `resolve_checkpoint`.
+`test_ptify_is_not_a_bytedance_subclass` pins the structure itself.
+
+**A report records the ENGINE, never the weights — so an engine that resolves
+its own checkpoint writes `checkpoint: null`.** `_source()` only recorded
+provenance when `--checkpoint` was passed explicitly, but `--engine ptify`
+finds its weights from `PTIFY_CHECKPOINT` / `checkpoints/` / `~/.ptify/`. The
+first 17g run therefore produced 1.8h of scoring in a file that **could not say
+what produced it** — the exact gap the `source` block exists to close, reopened
+from a direction the original design did not anticipate. `_source` now asks the
+engine what it resolved (without loading it: a 17-50s model load per report
+cell would be paid on every preset sweep).
+`test_a_ptify_run_records_which_weights_produced_it` pins it.
+
+**A checkpoint is validated by SIZE ONLY unless you check its digest.** The
+inference library's floor (>160MB) catches a truncated download and nothing
+else, so *any* other ~172MB `.pth` left in `checkpoints/` loads without
+complaint and scores a model nobody can identify — a real number from unknown
+weights. `weights.verify()` checks size **and** sha256 where a digest is known,
+and it runs on every conventional resolution, not just after a download.
+Deliberate asymmetry: the **ByteDance** spec carries `sha256=None` because its
+digest has never been verified on this machine, and inventing one would turn
+the working default engine into a hard failure for everybody. **Do not guess
+it** — digest the real Zenodo file first. An explicitly-passed `--checkpoint`
+also skips the digest, since a second training run has a different one by
+definition.
+
+**A missing MODEL is not a corrupt UPLOAD, and three handlers will say it is.**
+`PtifyWeightsMissing` subclasses `FileNotFoundError` and `CheckpointInvalid`
+subclasses `ValueError`, so both fall into handlers written for bad audio.
+Uncaught, absent weights are reported as `undecodable_audio` (422) — telling a
+client its file was corrupt and to check ffmpeg — and, because the *engine
+cache* calls `load()` outside the pipeline's mapping, as `internal_error` (500)
+in `inproc.py` and `arq_queue.py`. Both are now `engine_unavailable` (503).
+The distinction is the difference between "page someone about a server bug" and
+"supply the checkpoint". `CheckpointInvalid` exists as a **type** precisely so
+this is not decided by matching on message text.
+
+**`ENGINES` drives `--compare` as well as `--engine`.** Adding a third name to
+`evaluation/__main__.py`'s list would silently make `python -m evaluation
+--compare` a three-engine run that **aborts partway through** on any machine
+without the ptify checkpoint — after ByteDance had already spent its ~2.6h.
+`COMPARE_ENGINES` is now separate, and `--compare-engines a,b` opts in. An
+explicit list beats skipping absent engines: a comparison table with fewer
+columns on one machine than another is the artifact that gets screenshotted
+and misread.
 
 **A SUMMED loss hides the result: velocity is 92% of it and barely moves.**
 `compute_losses` returns `total = onset + offset + frame + velocity`, and the
@@ -413,6 +511,22 @@ rescales velocities to best-fit the reference — so the metric returns the onse
 figure rather than failing visibly. `velocity_metric_valid: false` in the
 manifest says so; use onset and offset only.
 
+**OPEN, found in Phase 17c, NOT caused by it: `python -m notation` crashes on
+short audio with a raw music21 traceback.**
+
+    StreamException: cannot place element <music21.note.Note C>
+    with start/end -1.0/0.0 within any measures
+
+A note quantises to a **negative** start and `makeMeasures` rejects it.
+Reproduced on `master` with `--engine bytedance`, so it predates Phase 17 and
+is not engine-specific — it was found only because 17c exercised the notation
+CLI on a 10s synthetic file. Two things make it worth fixing: this CLI prints
+one-line `error:` messages everywhere else, so a traceback is a break in
+contract; and `api/pipeline.py` maps the same failure to `engraving_failed`,
+meaning an API job hits it too. Suspect `notation/quantise.py`'s beat grid with
+`BEAT_LAG_SEC` subtracting past zero on a file whose first onset is early.
+Deliberately left alone in Phase 17 rather than widening that phase's scope.
+
 **Verovio is NOT thread-safe, and its error message blames the wrong thing.**
 It binds to whichever thread touches it first and fails on every thread after
 that: `loadData` returns False for MusicXML that is **perfectly valid** (the
@@ -581,7 +695,7 @@ fetched; the 14 paired tracks (58 min, 30,356 notes) carry the ByteDance run.
 | engine | MAESTRO | MAPS | drop |
 |---|---|---|---|
 | ByteDance | 0.969 | **0.787** | **−0.183** |
-| **PTify 16b** (fine-tuned) | 0.963 | **0.840** | **−0.124** |
+| **PTify 16b** (`--engine ptify`) | 0.963 | **0.840** | **−0.124** |
 | Basic Pitch | 0.730 | **0.727** | −0.003 |
 
 **Phase 16b closed 32% of that gap.** Room/detune augmentation for 6,555 steps
@@ -1029,6 +1143,28 @@ target is no longer a proxy:
 - **`benchmarks/real/maps-*.json` is the scoreboard.** A custom model is
   scored by the same harness on the same corpus, joined by
   `report.compare_reports()` on (engine, case, preset) — never by position.
+
+**SUPERSEDED IN PHASE 17: custom rows no longer say `bytedance`.** The old
+convention ("custom rows keep the engine's name so they key-join against the
+baseline") was right while the fine-tuned weights had **no identity** — they
+were "the bytedance architecture with a file passed in", recorded only by
+`checkpoint_sha256` in the `source` block. Phase 17 gave them a name, so a row
+labelled `bytedance` that `ptify` produced is now a lie in the data, which is
+the class of failure all of §4 is about. New ptify runs write
+`"engine": "ptify"`.
+
+The two committed 16b reports — `maps-paired-ptify-clean.json` and
+`maestro-ptify-clean.json` — still carry `engine: "bytedance"` and were left
+**byte-identical**: they are honest records of how they were produced, and
+re-running them would cost ~4.4h to produce slightly different numbers (thread
+count and FP reduction order) in place of a cited result. To diff against them:
+
+```python
+report.compare_reports(old, new, engine_alias={"ptify": "bytedance"})
+```
+
+It remaps the **join key only** — stored rows are untouched, and the printed
+label shows `ptify->bytedance` so the table says what was actually compared.
 
 **Beat ByteDance's 0.787 on MAPS, not its 0.969 on MAESTRO.** The second number
 is its training distribution and beating it is open research; the first is the

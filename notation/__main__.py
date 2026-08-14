@@ -15,6 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from transcriber.engine import ENGINE_NAMES
 from transcriber.midi import read_midi, write_midi
 
 from .quantise import (
@@ -40,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-o", "--output", type=Path, default=None,
                     help="output basename (default: alongside the input)")
     ap.add_argument("--engine", default="bytedance",
-                    choices=["bytedance", "basicpitch"],
+                    choices=list(ENGINE_NAMES),
                     help="transcription engine, for audio input")
     ap.add_argument("--tempo", type=float, default=None,
                     help="fixed BPM; skips beat tracking")
@@ -93,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         tr = read_midi(args.input)
     elif suffix in AUDIO_SUFFIXES:
         from transcriber.engine import get_engine
+        from transcriber.ptify import PtifyWeightsMissing
 
         print(f"Input    : {args.input}")
         print(f"Engine   : {args.engine}")
@@ -102,6 +104,12 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             print("\ncancelled", file=sys.stderr)
             return 130
+        except PtifyWeightsMissing as exc:
+            # Before the generic handler: the message already says what is
+            # missing and how to supply it, and prefixing it with "could not
+            # transcribe" would describe a step that never began.
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         except Exception as exc:  # noqa: BLE001
             print(f"error: could not transcribe {args.input.name}: "
                   f"{type(exc).__name__}: {exc}", file=sys.stderr)

@@ -183,10 +183,16 @@ def run_real_audio(
     configuration that can measure real-world degradation.
 
     `checkpoint_path` scores custom weights through this same harness. Rows
-    keep `engine_name` as their label, so a custom run key-joins against the
-    baseline under `report.compare_reports` — which joins on
-    (engine, case, preset) — and the differing weights are recorded by the
-    output filename and the report's environment block instead.
+    keep `engine_name` as their label, so the weights behind a row are recorded
+    by `checkpoint_sha256` in the report's `source` block rather than by the
+    row itself.
+
+    NOTE (Phase 17): rows from `--engine ptify` therefore say `ptify`, not
+    `bytedance`, and so do NOT key-join against a bytedance baseline —
+    `report.compare_reports` joins on (engine, case, preset). Pass
+    `engine_alias={"ptify": "bytedance"}` to diff against Phase 16b's two
+    committed ptify reports, which were produced before `ptify` was an engine
+    and carry `engine: "bytedance"`.
     """
     import librosa
     import soundfile as sf

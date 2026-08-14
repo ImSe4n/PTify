@@ -125,6 +125,17 @@ class EngineOut(BaseModel):
     native_sample_rate: int
     default: bool = False
 
+    #: Whether this engine can actually run right now. False means the server
+    #: knows the engine but cannot serve it -- `ptify` needs a checkpoint that
+    #: is not bundled. A client greying out an option needs a structured field
+    #: for this; parsing it out of `notes` would be worse.
+    available: bool = True
+
+    #: Whether the engine needs weights that are not shipped with the app. It
+    #: is a property of the ENGINE, unlike `available`, which is a property of
+    #: this deployment right now.
+    requires_weights: bool = False
+
     #: Free text, because the honest answer is not a single number. HANDOFF is
     #: emphatic that ByteDance's 0.969 on MAESTRO is flattered by MAESTRO being
     #: its training distribution, and that the two engines move in OPPOSITE

@@ -96,6 +96,7 @@ def create_app(
                 "auth is DISABLED - every request runs as an anonymous "
                 "principal. Set PTIFY_API_KEY to require a key."
             )
+        _warn_if_default_engine_unavailable(settings)
         try:
             yield
         finally:
@@ -171,6 +172,34 @@ def _reset_sse_exit_event() -> None:
         # A future sse_starlette may drop the global entirely, which is the
         # fix rather than a problem. Never let this stop the app starting.
         log.debug("could not reset sse_starlette exit event", exc_info=True)
+
+
+def _warn_if_default_engine_unavailable(settings) -> None:
+    """Say so at startup if the DEFAULT engine cannot run.
+
+    Same reasoning as the auth warning above: silence is how a broken
+    configuration ships. An operator who sets PTIFY_DEFAULT_ENGINE=ptify
+    without the checkpoint would otherwise learn about it from a 503 on every
+    job, and the server had the information at startup.
+
+    Deliberately a warning and NOT a startup failure -- the other engines still
+    work, and refusing to boot would turn a degraded deployment into an outage.
+    """
+    from transcriber.engine import normalise_engine_name
+
+    if normalise_engine_name(settings.default_engine) != "ptify":
+        return
+    try:
+        from transcriber.ptify import resolve_checkpoint
+
+        resolve_checkpoint()
+    except FileNotFoundError as exc:
+        log.warning(
+            "PTIFY_DEFAULT_ENGINE=ptify but its checkpoint was not found, so "
+            "every job using the default engine will fail with "
+            "engine_unavailable (503). %s",
+            str(exc).splitlines()[0],
+        )
 
 
 #: Codes the pipeline raises, mapped to HTTP status. Anything unlisted is a

@@ -138,6 +138,8 @@ def run(
 def _transcribe(spec: JobSpec, report: ProgressFn, engine, cancelled):
     """Run the engine, mapping library failures onto API error codes."""
     from transcriber.engine import get_engine
+    from transcriber.ptify import PtifyWeightsMissing
+    from transcriber.weights import CheckpointInvalid
 
     if engine is None:
         try:
@@ -160,6 +162,15 @@ def _transcribe(spec: JobSpec, report: ProgressFn, engine, cancelled):
         tr = engine.transcribe_file(path, progress=relay)
     except PipelineError:
         raise
+    except (PtifyWeightsMissing, CheckpointInvalid) as exc:
+        # BEFORE the ValueError and catch-all branches below, and both are
+        # subclasses of what those branches catch (FileNotFoundError and
+        # ValueError respectively). Left to fall through, absent or corrupt
+        # WEIGHTS would be reported as `undecodable_audio` -- blaming the
+        # client's audio for a server-side model problem and sending them off
+        # to check ffmpeg. It is a capability failure: 503, like a missing
+        # dependency.
+        raise PipelineError("engine_unavailable", str(exc)) from exc
     except ValueError as exc:
         # "Audio is too short to transcribe" and out-of-range pitches from a
         # misindexed model both land here.
