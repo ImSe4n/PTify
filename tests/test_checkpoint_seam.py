@@ -69,6 +69,46 @@ def test_basicpitch_rejects_a_checkpoint_rather_than_ignoring_it(tmp_path):
         get_engine("basicpitch", checkpoint_path=tmp_path / "custom.pth")
 
 
+# --- note-end threshold (Phase 19) ----------------------------------------
+
+
+def test_the_library_still_exposes_the_attribute_we_calibrate():
+    """The calibration is applied by SETTING an attribute on the library's
+    model, because it takes no threshold arguments. If upstream renames it,
+    the assignment would create a dead attribute and every note would silently
+    revert to the 0.1 default -- a measured 0.19 swing in +offset F1 with
+    nothing raised. `load()` asserts this; the name is pinned here too, so the
+    breakage is a test failure rather than a scoring mystery.
+    """
+    import inspect
+
+    from piano_transcription_inference.inference import PianoTranscription
+
+    src = inspect.getsource(PianoTranscription.__init__)
+    assert "self.frame_threshold" in src
+    assert "self.onset_threshold" in src
+
+
+@pytest.mark.parametrize("bad", [0.0, -0.1, 1.5])
+def test_an_out_of_range_threshold_is_rejected(bad):
+    # 0.0 admits every frame and would run notes together; >1 admits none and
+    # every note collapses to the minimum length. Both decode without error.
+    from transcriber.bytedance import ByteDanceEngine
+
+    with pytest.raises(ValueError):
+        ByteDanceEngine(frame_threshold=bad)
+
+
+def test_the_two_engines_carry_different_calibrations():
+    """Not cosmetic: they are different models. ByteDance's +offset peaks at
+    0.05 and degrades below it; PTify's is still climbing at 0.01, because
+    augmented training left its frame activations lower."""
+    from transcriber.bytedance import ByteDanceEngine
+    from transcriber.ptify import PtifyEngine
+
+    assert ByteDanceEngine().frame_threshold > PtifyEngine().frame_threshold
+
+
 # --- the guards, which are the whole point --------------------------------
 
 def test_a_missing_checkpoint_raises_instead_of_downloading(tmp_path):

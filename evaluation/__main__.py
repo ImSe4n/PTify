@@ -248,7 +248,27 @@ def _source(args, n_items: int) -> dict:
     if path:
         out["checkpoint"] = str(path)
         out["checkpoint_sha256"] = _digest(Path(path))
+
+    # The note-end threshold belongs here for the same reason the checkpoint
+    # does: it changes the numbers. Measured in Phase 19, it moved +offset F1
+    # by 0.19 on one track without touching a single onset -- so two reports
+    # from identical weights are not comparable unless both name it. Read off
+    # the class default rather than by constructing an engine, which would
+    # cost a 17-50s model load per report cell.
+    thr = _frame_threshold(getattr(args, "engine", None))
+    if thr is not None:
+        out["frame_threshold"] = thr
     return out
+
+
+def _frame_threshold(engine_name: str):
+    """The note-end threshold an engine will decode with, without loading it."""
+    from transcriber import config
+
+    return {
+        "bytedance": config.BYTEDANCE_FRAME_THRESHOLD,
+        "ptify": config.PTIFY_FRAME_THRESHOLD,
+    }.get(engine_name)
 
 
 def _resolved_checkpoint(engine_name: str):

@@ -11,22 +11,35 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 18 — DONE. The offset anomaly is explained AND turned out to hide a real regression; the notation crash is fixed; MAPS velocity F1 is now enforced as unusable.** |
-| **Branch** | `phase-18-measurement-honesty`, branched off `phase-17-ptify-engine` (which is **not yet merged to `master`** — verify with `git log --oneline master..HEAD` rather than trusting this line) |
-| **Tests** | 839 passing, ~121s, no model or network needed |
-| **Next** | A second training run targeting the **offset head** (§9), or Phase 5 auth/persistence. Neither is blocked |
-| **Needs you** | **The `model-v1` release asset is the wrong file**, so `--fetch-ptify` 404s for every user. See the §4 entry — it is a GitHub upload, not a code change |
+| **Last completed** | **Phase 19 — DONE. PTify's note truncation was mostly a DECODING bug, not the weights. Recalibrated: mean +offset 0.406 → 0.503 with onsets untouched, no retraining.** |
+| **Branch** | `phase-19-decode-calibration`, off `master` (Phases 17 and 18 merged as PR #14 — verify with `git log --oneline master..HEAD`) |
+| **Tests** | 839 + Phase 19's, ~2 min, no model or network needed |
+| **Next** | A second training run targeting the **frame head** (§9), or Phase 5 auth/persistence. Neither is blocked |
+
+**Phase 19 in one paragraph.** Phase 18 handed over a plan — raise the offset
+term in the loss — and **the plan was wrong**. The 16b log already showed the
+offset head was the second-*best* learner (−22.7%, ratio to onset flat across
+all 6,555 steps), so the training loss never saw this problem. Note durations
+are not set by the offset head at all: they are decided at decode time by
+`frame_threshold` on the **frame** head, which the library hardcodes at 0.1 for
+its own pretrained weights. PTify's augmented frame head sits lower, so the
+stock value clipped every note to about a third of its length. Recalibrating to
+0.01 (ByteDance keeps 0.05, where it peaks) recovers mean +offset F1 across four
+MAPS tracks from **0.406 to 0.503**, with **onset F1 and note counts identical
+at every point**. About two-thirds of the gap was decode; the remaining third is
+a real frame-head regression, which is now the next run's target. **~10h of GPU
+quota was nearly spent on the wrong hypothesis** — check the decode path before
+the loss.
 
 **Phase 18 in one paragraph.** Three open items, none needing a GPU. The
 "unexplained" offset anomaly (§6) is now explained twice over: `offset_f1`'s
 tolerance is duration-dependent, so MAPS and MAESTRO score offsets in different
 regimes and **are not comparable** — *and* one track of inference showed PTify
-truncates notes to about a third of their true length, which is a genuine
-regression the MAESTRO number was hiding. The notation crash (§4) was fixed, and
-reproducing it exposed a quieter second bug: the same negative value wrote
-**negative onsets into exported MIDI** with nothing raised. MAPS velocity F1 —
-documented as meaningless since 13b and never enforced — now reports `n/a`
-instead of silently restating the onset figure.
+truncates notes to about a third of their true length. The notation crash (§4)
+was fixed, and reproducing it exposed a quieter second bug: the same negative
+value wrote **negative onsets into exported MIDI** with nothing raised. MAPS
+velocity F1 — documented as meaningless since 13b and never enforced — now
+reports `n/a` instead of silently restating the onset figure.
 
 **The engine was verified to BE the measured model.** Scoring
 `--engine ptify` over the 14 MAPS paired tracks reproduces Phase 16b's report
@@ -291,6 +304,43 @@ engine what it resolved (without loading it: a 17-50s model load per report
 cell would be paid on every preset sweep).
 `test_a_ptify_run_records_which_weights_produced_it` pins it.
 
+**Note DURATIONS are set by a hardcoded library threshold, not by the offset
+head — and a fine-tuned checkpoint invalidates it.** `RegressionPostProcessor`
+ends a note when the **frame** head falls below `frame_threshold`, which
+`piano_transcription_inference` fixes at 0.1 in `__init__` and exposes through
+no argument. That value is calibrated for ByteDance's *pretrained* weights.
+16b's augmented frame head sits lower, so the stock threshold released every
+PTify note at roughly a third of its true length — while the training loss
+looked fine, because the offset head it did not use fell 22.7%.
+
+Three things follow, all of which cost time to work out:
+
+- **Chasing this in training would have been wrong.** The obvious reading of
+  "offsets got worse" is "train the offset head harder". The offset head was
+  already improving and does not decide durations. **~10h of GPU quota was
+  nearly spent on that.** Check the decode path before the loss.
+- **The threshold is now a measured constant** (§5) and is applied by *setting
+  an attribute on the library's model*, since it takes no argument.
+  `ByteDanceEngine.load()` **raises** if that attribute ever disappears
+  upstream — a silent rename would revert every note to 0.1 and evaporate the
+  calibration with nothing logged. `test_the_library_still_exposes_the_attribute_we_calibrate`
+  pins the name independently.
+- **Every committed PTify baseline was scored at the old 0.1** and carries no
+  `frame_threshold` in its `source` block, because the field did not exist.
+  Their `+offset` numbers therefore measure a **mis-tuned decoder**, not the
+  model's duration accuracy. They were left as-is — re-running is ~4.4h to
+  restate a known-superseded number — but **do not compare a new `+offset`
+  against them.** Onset numbers are unaffected and remain comparable.
+
+**A threshold tuned on ONE track picks the wrong value.** The four calibration
+tracks disagree, and `scn15_11` reverses direction entirely — it peaks at 0.07
+and degrades as the threshold drops, while the other three improve all the way
+down. Calibrating on `grieg_butterfly` alone (the track the investigation
+started from) selects 0.005 and quietly costs `scn15_11` 0.099. Worse, 0.005
+pushes three of four tracks *past* their reference median, buying mean F1 by
+holding notes too long. Judge a decode parameter on worst-case regret and on
+agreement with reference durations, never on the mean alone.
+
 **A checkpoint is validated by SIZE ONLY unless you check its digest.** The
 inference library's floor (>160MB) catches a truncated download and nothing
 else, so *any* other ~172MB `.pth` left in `checkpoints/` loads without
@@ -304,12 +354,17 @@ it** — digest the real Zenodo file first. An explicitly-passed `--checkpoint`
 also skips the digest, since a second training run has a different one by
 definition.
 
-**`--fetch-ptify` has NEVER worked against the real release, and the code is not
-what is wrong.** Found in Phase 18 by checking the live GitHub API rather than
-trusting this file. HANDOFF used to say "`PTIFY_16B_URL` stays empty until you
-publish it" — **that was stale**: the URL has always been hardcoded to the
-correct pinned release (`transcriber/ptify.py:77-80`) and the release is public.
-What is wrong is the **published asset**:
+**RESOLVED 2026-08-14 — the asset was re-uploaded and `--fetch-ptify` now
+works.** Verified against the live API: `ptify-16b-step6555.pth`,
+172,037,521 bytes, and a ranged GET returns HTTP 206 with that length. Kept
+here because the *lesson* recurs, not the incident.
+
+**`--fetch-ptify` had never worked against the real release, and the code was
+not what was wrong.** Found in Phase 18 by checking the live GitHub API rather
+than trusting this file. HANDOFF used to say "`PTIFY_16B_URL` stays empty until
+you publish it" — **that was stale**: the URL had always been hardcoded to the
+correct pinned release (`transcriber/ptify.py:77-80`) and the release was
+public. What was wrong was the **published asset**:
 
 | | code expects | attached to `model-v1` |
 |---|---|---|
@@ -325,12 +380,25 @@ while 260MB is ~88MB larger, which is what `save_training_state` adds by storing
 pinned sha256, which is the thing that turns "wrong weights" into an error
 instead of a mystery score.
 
-**The fix is a GitHub upload, not a code change** — attach the local
-`checkpoints/ptify-16b-step6555.pth` under exactly that name.
-`test_fetch_url_is_pinned_to_a_release_tag` already pins
-`basename(URL) == PTIFY_16B_NAME`, so the code side cannot drift; nothing in a
-test suite can check what a third party published. **Verify against the API, not
-against this file.**
+The fix was a GitHub upload, not a code change.
+`test_fetch_url_is_pinned_to_a_release_tag` already pinned
+`basename(URL) == PTIFY_16B_NAME`, so the code side could not drift — **and no
+test suite can check what a third party published.** That is the durable
+lesson: for anything living outside the repo, **verify against the API, not
+against this file.** The stale sentence here asserted the opposite of the truth
+in both directions at once.
+
+**A test had ENCODED the broken release as expected behaviour, and fixing the
+release broke the suite.** `test_fetch_ptify_needs_no_input_file` asserted
+`main(["--fetch-ptify"]) == 1`, with the comment *"returns 1 because the
+checkpoint is unpublished"* — so the moment the asset was corrected, a passing
+test started failing while the code got **more** correct. It was also really
+downloading 172MB on every full run, breaking the suite's "no model or network"
+contract and taking 26s to do it (and it would fail offline entirely). Now
+stubbed: what it actually tests is that argparse reaches the handler without a
+positional argument. **When an assertion's justification is a defect somewhere
+else, it will invert the day that defect is fixed** — assert the behaviour you
+want, and isolate the part you do not control.
 
 **A missing MODEL is not a corrupt UPLOAD, and three handlers will say it is.**
 `PtifyWeightsMissing` subclasses `FileNotFoundError` and `CheckpointInvalid`
@@ -729,12 +797,31 @@ order differs, so scores are not bit-identical across machines. Record
 ## 5. Tuning constants are measured, not guessed
 
 `transcriber/config.py` and the module constants in `basicpitch.py` carry the
-measurements that produced them. Two are load-bearing:
+measurements that produced them. Three are load-bearing:
 
 - **`HARMONIC_MAX_RATIO = 0.90`** — swept against cases that pull in opposite
   directions. `repeats` wants it high (its octave partials reach ~0.88);
   `octaves` wants it low (real octaves sit at ~0.98). 0.90 satisfies both;
   0.93 starts eating real octaves. **Re-run `--compare` after changing it.**
+- **`PTIFY_FRAME_THRESHOLD = 0.01` / `BYTEDANCE_FRAME_THRESHOLD = 0.05`** —
+  where a note is judged to have ended. The two engines are different models
+  and need different values; the library's hardcoded 0.1 suits neither. Onset
+  F1 and note count are **identical at every point of every sweep**, so this
+  moves only durations. PTify mean +offset over four MAPS tracks:
+
+  | frame_thr | mean | worst | spread |
+  |---|---|---|---|
+  | 0.10 (library default) | 0.406 | 0.271 | 0.276 |
+  | 0.02 | 0.486 | 0.397 | 0.231 |
+  | **0.01 (chosen)** | **0.503** | **0.460** | **0.168** |
+  | 0.005 | 0.508 | 0.439 | 0.163 |
+
+  **0.005 wins the mean and was rejected**: +0.005 mean for −0.099 on one
+  track, and it pushes three of four tracks past their reference median — mean
+  F1 bought by holding notes too long. Regenerate with
+  `python -m tools.calibrate_frame_threshold --audio-dir <dir> --engine ptify`;
+  `benchmarks/frame-threshold-calibration.json` is the artifact. **Re-run it
+  after any retraining** — a new frame head invalidates the number.
 - **`MIN_REPEAT_SEC` / `ECHO_WINDOW_SEC` / `MERGE_WINDOW_SEC`** — these three
   interact. Attack echoes arrive ~93ms after a strike, which is *longer* than
   the 90ms that genuine fast repeats need, so onset distance alone cannot
@@ -835,9 +922,23 @@ environment block and `checkpoint_sha256` every other benchmark carries.
 **This was predicted the wrong way round, which is why it is worth stating
 plainly.** The obvious hypothesis was that reverb augmentation would smear decay
 and make the model hold notes *longer*. It does the opposite. The likely reason
-is that a wet room makes a note's true release unobservable, so the offset head
-learns to fire early rather than late — but that is now a hypothesis about a
-*measured* effect, not a story standing in for one.
+is that a wet room makes a note's true release unobservable, so the head hedges
+toward releasing early — but that is now a hypothesis about a *measured* effect,
+not a story standing in for one.
+
+**PHASE 19: most of this was DECODING, not weights, and it is now fixed.** Note
+ends are decided by `frame_threshold` on the **frame** head — not the offset
+head — and `piano_transcription_inference` hardcodes 0.1, calibrated for its own
+pretrained weights. Applying it to a model fine-tuned away from them clipped
+every note. Recalibrated to **0.01** for PTify (ByteDance stays at 0.05, where
+it peaks), which recovers mean +offset F1 over four tracks from **0.406 to
+0.503** with **onsets and note counts completely unchanged**. See §5 for the
+sweep and why the best-mean value was rejected.
+
+That closes roughly two-thirds of the gap. **A real weights-level regression
+remains**: PTify's best (0.503) still trails ByteDance's ~0.65, so the frame
+head genuinely degraded in 16b. That is what a second training run should
+target — §9.
 
 **What this means for the numbers.** The MAESTRO `+offset` *rise* is the
 artifact — short references sit on the 50ms floor, where truncation is invisible
@@ -940,29 +1041,47 @@ both.
 
 ## 9. What the next phase should know
 
-### The offset head is the second run's target (found in Phase 18)
+### The FRAME head is the second run's target (corrected in Phase 19)
 
-The 16b run improved onsets and **measurably degraded durations**: PTify's
-median predicted note is 0.127s against ByteDance's 0.269s and a reference
-0.350s (§6 has the full table and the tolerance arithmetic). That is a real
-regression, not a metric artifact — the *MAESTRO* offset gain is the artifact.
+**This section previously named the offset head. That was wrong**, and it is
+worth keeping the correction visible because the reasoning was superficially
+sound: velocity is 92% of the summed loss, so the offset term looked starved.
+Two things refute it, both free to check:
 
-This gives the next run something better to change than "more steps":
+1. **The offset head was the second-best learner** in 16b (−22.7% across the
+   run; onset −28.0%, frame −16.3%, velocity −1.0%), and its ratio to the onset
+   loss was **flat from step 0 to 6,555**. Nothing diverged.
+2. **The offset head does not decide note durations.** `frame_threshold` on the
+   **frame** head does, at decode time (§4).
 
-- **`compute_losses` sums the four heads equally**, and §4 already records that
-  velocity is ~92% of the total and swamps the signal. The offset term is
-  correspondingly small. Weighting it up is a one-line change with a measurable
-  target, and it is *cheap to evaluate*: durations show up on a single track in
-  ~6 minutes, so a candidate checkpoint can be triaged long before a 1.8h pass.
-- **Watch `offset` separately in `train_log.jsonl`.** It is already logged per
-  head. Nothing in 16b was watching it, which is why a 53% duration shift
-  reached a published report unnoticed.
+So the real target is the **frame** head — the weakest learner of the four, and
+the one whose activations dropped enough to break the stock threshold. Phase 19
+recovered what decoding could recover; what remains is genuine:
+
+| | mean +offset over 4 MAPS tracks |
+|---|---|
+| PTify at the library default (0.1) | 0.406 |
+| PTify recalibrated (0.01) | **0.503** |
+| ByteDance recalibrated (0.05) | **~0.65** |
+
+That last row is the gap a retrain has to close, and it is a **frame-head**
+gap. Concretely, for the next run:
+
+- **Weight the frame term up, or watch it separately.** `train_log.jsonl`
+  already records every head; nothing in 16b was watching frame, which is how a
+  53% duration shift reached a published report.
+- **Recalibrate the threshold on the new checkpoint before scoring it** —
+  `python -m tools.calibrate_frame_threshold`. A retrained frame head
+  invalidates 0.01, and scoring through a stale threshold would misattribute a
+  decode artifact to the weights. That is precisely the mistake this phase
+  undid.
 - **Do not chase the MAESTRO `+offset` number.** It rose while durations got
-  worse. Optimising against it optimises for the artifact.
+  worse; optimising against it optimises for the artifact.
 
-Cheap triage recipe, since `--audio-dir` is flat and directory-scoped: copy one
-`.wav`/`.mid` pair into a temp directory and score that. One track answers the
-duration question; the corpus is only needed for a publishable figure.
+Cheap triage, since `--audio-dir` is flat and directory-scoped: copy a couple of
+`.wav`/`.mid` pairs into a temp directory. Durations show on one track in ~6
+minutes, so a candidate is triaged long before a 1.8h pass — **but calibrate on
+several tracks, never one** (§5 records how one track picks the wrong value).
 
 ### Finishing Phase 13's deferred matrix (optional, ~20h)
 The `clean` cell exists for both engines. The remaining 7 presets × 2 engines

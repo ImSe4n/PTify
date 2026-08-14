@@ -221,11 +221,30 @@ def test_fetch_refuses_to_overwrite_a_wrong_checkpoint(tmp_path, monkeypatch,
     assert "is not the expected" in capsys.readouterr().err
 
 
-def test_fetch_ptify_needs_no_input_file():
+def test_fetch_ptify_needs_no_input_file(monkeypatch):
     """It is a maintenance command, not a transcription. Requiring a positional
-    audio argument would be nonsense."""
-    from transcriber.__main__ import main
+    audio argument would be nonsense.
 
-    # Returns 1 because the checkpoint is unpublished, NOT because argparse
-    # rejected a missing input.
-    assert main(["--fetch-ptify"]) == 1
+    REGRESSION: this used to assert `== 1` with the comment "returns 1 because
+    the checkpoint is unpublished" -- it was pinning a BROKEN GITHUB RELEASE as
+    expected behaviour, so it started failing the moment the asset was fixed.
+    It also really downloaded 172MB, breaking the suite's no-network contract
+    (26s, and it would fail offline).
+
+    What is under test is argparse: `--fetch-ptify` must reach the handler
+    without a positional argument. The fetch itself is stubbed, because whether
+    a third party's release is currently well-formed is not this test's
+    business -- and cannot be asserted from inside a test suite anyway.
+    """
+    import transcriber.__main__ as m
+
+    called = {}
+
+    def fake_fetch():
+        called["yes"] = True
+        return 0
+
+    monkeypatch.setattr(m, "_fetch_ptify", fake_fetch)
+
+    assert m.main(["--fetch-ptify"]) == 0
+    assert called.get("yes"), "argparse never reached the fetch handler"

@@ -162,11 +162,6 @@ asset](https://github.com/ImSe4n/PTify/releases/tag/model-v1) and is verified
 by **sha256** on every load — the inference library checks size alone, so a
 different 172MB `.pth` would otherwise be scored as this model.
 
-> **Known issue: `--fetch-ptify` currently returns 404.** The file attached to
-> the `model-v1` release is not the one this code expects, so the download fails
-> until it is re-uploaded. Until then, point `PTIFY_CHECKPOINT` at a local copy
-> or drop it in `checkpoints/`. `--doctor` reports which of those it found.
-
 The engine looks in `$PTIFY_CHECKPOINT`, then `checkpoints/`, then
 `~/.ptify/checkpoints/`, and **raises if it finds nothing** — it never quietly
 falls back to ByteDance's pretrained weights, because that would report the
@@ -342,13 +337,29 @@ augmentation on one free-tier GPU session — 15% of a single epoch. See
 `training/` and `benchmarks/training/`.
 
 **What it costs, stated because the headline hides it: PTify's note durations
-are worse than ByteDance's.** Measured on one MAPS track, median predicted note
-length is 0.127s against ByteDance's 0.269s and a true 0.350s — it releases
-notes about three times too early. Onsets are unaffected (they are scored on a
-flat 50ms tolerance with no duration term), so the +5.3 stands; but if you need
-accurate note *lengths* rather than accurate note *starts*, ByteDance is
-currently the better engine. Sheet-music output leans on durations, which is
-why `notation/` quantises against a beat grid rather than printing them raw.
+are less accurate than ByteDance's.** Onsets are unaffected — they are scored on
+a flat 50ms tolerance with no duration term — so the +5.3 stands; but if you
+need accurate note *lengths* rather than accurate note *starts*, ByteDance is
+still the better engine.
+
+Most of that gap turned out to be a **decoding** bug rather than the model. A
+note ends when the frame head's activation falls below `frame_threshold`, and
+`piano_transcription_inference` hardcodes 0.1 — a value calibrated for its own
+pretrained weights. PTify's fine-tuned frame head sits lower, so the stock
+threshold released every note about three times too early. Each engine now
+carries its own calibrated value (`transcriber/config.py`), which recovers mean
++offset F1 across four MAPS tracks from **0.406 to 0.503** with onsets and note
+counts completely unchanged. Re-derive it with:
+
+```bash
+python -m tools.calibrate_frame_threshold --audio-dir recordings/maps_paired \
+    --engine ptify --limit 4
+```
+
+A real gap remains — ByteDance still reaches ~0.65 — so the frame head did
+genuinely regress during fine-tuning. Note that `benchmarks/real/*ptify*.json`
+predate this fix and were scored at the old threshold, so their `+offset`
+figures understate the engine.
 
 A useful check on the harness itself: ByteDance's published MAESTRO note F1 is
 0.9677, and this corpus measures **0.9693** — agreement to within 0.002,

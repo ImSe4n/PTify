@@ -76,8 +76,10 @@ def test_the_inner_engine_is_never_built_without_a_checkpoint(tmp_path, monkeypa
     built = {}
 
     class FakeInner:
-        def __init__(self, threads=None, checkpoint_path=None):
+        def __init__(self, threads=None, checkpoint_path=None,
+                     frame_threshold=None, onset_threshold=None):
             built["checkpoint_path"] = checkpoint_path
+            built["frame_threshold"] = frame_threshold
             self.checkpoint_path = checkpoint_path
             self.device = "cpu"
 
@@ -91,6 +93,48 @@ def test_the_inner_engine_is_never_built_without_a_checkpoint(tmp_path, monkeypa
 
     assert built["checkpoint_path"] is not None
     assert built["checkpoint_path"] == ckpt
+
+
+# --- note-end threshold (Phase 19) ----------------------------------------
+#
+# A note ENDS when the frame head drops below `frame_threshold`. The library
+# hardcodes 0.1 for its own pretrained weights; PTify's augmented frame head
+# sits lower, so that value released notes at a third of their true length.
+
+
+def test_ptify_does_not_inherit_bytedances_note_end_threshold():
+    # Composition means class-level defaults do NOT flow down -- the inner
+    # engine must be told explicitly. Measured on the default: PTify's median
+    # note was 0.127s against a 0.350s reference.
+    from transcriber import config
+    from transcriber.bytedance import ByteDanceEngine
+
+    assert PtifyEngine().frame_threshold == config.PTIFY_FRAME_THRESHOLD
+    assert ByteDanceEngine().frame_threshold != PtifyEngine().frame_threshold
+
+
+def test_ptify_passes_its_own_threshold_down_to_the_inner_engine(
+        tmp_path, monkeypatch):
+    # The threshold is useless if it stops at PtifyEngine. Composition is the
+    # reason this needs its own test: nothing about constructing the inner
+    # engine would fail if the argument were dropped.
+    built = {}
+
+    class FakeInner:
+        def __init__(self, threads=None, checkpoint_path=None,
+                     frame_threshold=None, onset_threshold=None):
+            built["frame_threshold"] = frame_threshold
+            self.checkpoint_path = checkpoint_path
+            self.device = "cpu"
+
+        def load(self):
+            pass
+
+    monkeypatch.setattr(ptify, "ByteDanceEngine", FakeInner)
+    PtifyEngine(checkpoint_path=_fake_ckpt(tmp_path / "e.pth"),
+                frame_threshold=0.02).load()
+
+    assert built["frame_threshold"] == 0.02
 
 
 def test_resolve_never_returns_none():
@@ -200,7 +244,8 @@ def test_the_result_is_restamped_with_ptify(tmp_path, monkeypatch):
     transcription claims to have come from the stock model — the provenance
     error in the opposite direction."""
     class FakeInner:
-        def __init__(self, threads=None, checkpoint_path=None):
+        def __init__(self, threads=None, checkpoint_path=None,
+                     frame_threshold=None, onset_threshold=None):
             self.checkpoint_path = checkpoint_path
             self.device = "cpu"
 
@@ -278,7 +323,8 @@ def test_an_explicit_checkpoint_skips_the_digest_check(tmp_path, monkeypatch):
     built = {}
 
     class FakeInner:
-        def __init__(self, threads=None, checkpoint_path=None):
+        def __init__(self, threads=None, checkpoint_path=None,
+                     frame_threshold=None, onset_threshold=None):
             built["path"] = checkpoint_path
             self.checkpoint_path = checkpoint_path
             self.device = "cpu"

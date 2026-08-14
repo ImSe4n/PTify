@@ -68,23 +68,43 @@ HARMONIC_SIMULTANEITY_SEC = 0.05  # partials start with their fundamental
 # value tuned for ByteDance's pretrained weights was being applied to a model
 # fine-tuned away from them.
 #
-# Measured, ENSTDkCl-grieg_butterfly, 937 reference notes (median 0.350s).
-# Onset F1 and note count are IDENTICAL at every row -- this parameter moves
-# only where notes end:
+# Onset F1 and note count are IDENTICAL at every row of every sweep below --
+# this parameter moves only where notes END.
 #
-#   frame_thr   ByteDance median / +offset   PTify median / +offset
-#     0.10        0.269  0.6445               0.127  0.2706
-#     0.05        0.281  0.6507  <- best      0.155  0.3134
-#     0.02        0.293  0.6382               0.216  0.3968
-#     0.01        0.300  0.6184               0.292  0.4610  <- best
+# ByteDance, ENSTDkCl-grieg_butterfly (reference median 0.350s):
 #
-# The two models want DIFFERENT values, which is the whole point: augmented
-# training left PTify's frame activations systematically lower (a wet room
-# makes "still sounding" ambiguous), so ByteDance's threshold clips its notes
-# short. ByteDance degrades below 0.05; PTify is still improving at 0.01.
+#   frame_thr   median   +offset
+#     0.10       0.269    0.6445
+#     0.05       0.281    0.6507   <- best; degrades on either side
+#     0.02       0.293    0.6382
+#     0.01       0.300    0.6184
+#
+# PTIFY IS A DIFFERENT MODEL AND WANTS A DIFFERENT VALUE. Augmented training
+# left its frame activations systematically lower -- a wet room makes "still
+# sounding" ambiguous, so the head hedges toward releasing early -- and
+# ByteDance's threshold therefore clips its notes to a third of their length.
+#
+# PTify, mean +offset F1 over FOUR MAPS tracks (both mic distances, chosen to
+# include the piece that behaved oppositely in Phase 18):
+#
+#   frame_thr   mean    worst   spread   per-track medians vs their references
+#     0.10      0.406   0.271   0.276    every track far short
+#     0.05      0.440   0.313   0.282
+#     0.02      0.486   0.397   0.231
+#     0.01      0.503   0.460   0.168    <- CHOSEN
+#     0.005     0.508   0.439   0.163    best mean, but see below
+#
+# **0.005 wins the mean and is still the wrong choice.** It is +0.005 mean over
+# 0.01 while costing `scn15_11` 0.099, and it pushes three of the four tracks
+# PAST their reference median -- 0.382 against 0.350, 0.607 against 0.464 --
+# i.e. it buys mean F1 by holding notes too LONG. At 0.01 `scn15_11` lands on
+# its reference median exactly (0.293 vs 0.293) and the others straddle it.
+# Chosen on worst-case regret and on agreement with reference durations, not
+# on the mean. Calibrating on one track would have picked 0.005: the single
+# track from the original sweep improves monotonically all the way down.
 #
 # Re-run tools/calibrate_frame_threshold.py after retraining -- a checkpoint
-# with different frame-head calibration invalidates these numbers.
+# with a differently-calibrated frame head invalidates these numbers.
 BYTEDANCE_FRAME_THRESHOLD = 0.05
 PTIFY_FRAME_THRESHOLD = 0.01
 
