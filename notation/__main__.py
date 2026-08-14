@@ -141,12 +141,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Tempo    : {grid.bpm:.1f} BPM (tracked, "
               f"{len(grid.beats)} beats)")
 
-    sc, stats = transcription_to_score(
-        tr, grid,
-        beats_per_bar=args.beats_per_bar,
-        title=args.title or args.input.stem,
-        composer=args.composer,
-    )
+    # Engraving is the one step that used to let a traceback escape: every
+    # other stage here reports a one-line 'error:', and music21 raises from
+    # deep inside makeNotation for input this CLI accepted happily.
+    try:
+        sc, stats = transcription_to_score(
+            tr, grid,
+            beats_per_bar=args.beats_per_bar,
+            title=args.title or args.input.stem,
+            composer=args.composer,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: could not build a score: {type(exc).__name__}: {exc}",
+              file=sys.stderr)
+        return 1
 
     print(f"Measures : {stats.n_measures}")
     print(f"Split    : MIDI {stats.split_point} "
