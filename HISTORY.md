@@ -1698,7 +1698,7 @@ agreement.
   and `engine_unavailable` mapping
 - `--engine ptify` in the transcriber and notation CLIs; `--fetch-ptify`;
   a `--doctor` section covering present / absent / **wrong-digest**
-- 733 → 825 tests
+- 733 → 827 tests
 
 **The design decision the phase turns on: compose, do not subclass.**
 `PtifyEngine` differs from `ByteDanceEngine` in one property — `name`. A

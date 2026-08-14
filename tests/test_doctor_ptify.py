@@ -119,15 +119,64 @@ def test_doctor_still_reports_the_bytedance_checkpoint_separately(capsys):
 
 # --- --fetch-ptify --------------------------------------------------------
 
-def test_fetch_says_so_when_the_checkpoint_is_not_published(capsys):
-    """The URL is empty until a release exists. That must be a clear message,
-    not a failure from deep inside urllib."""
+def test_fetch_url_is_pinned_to_a_release_tag():
+    """Never `latest`. A moving URL means two clones of the same commit can
+    fetch different weights and score differently, with nothing in either
+    report to explain it -- and the pinned sha256 would then fail in a way that
+    looks like corruption."""
+    url = ptify.PTIFY_16B_URL
+    assert url.startswith("https://")
+    assert "/releases/download/" in url
+    assert "/latest/" not in url
+    # The asset must be named what the resolver searches for, or a fetched
+    # file lands somewhere the engine will not look.
+    assert url.rsplit("/", 1)[1] == ptify.PTIFY_16B_NAME
+
+
+def test_fetch_reports_a_missing_release_asset_clearly(monkeypatch, capsys):
+    """A 404 means the tag or asset is not published, not that the user did
+    something wrong. It must name the URL it tried rather than leaving them to
+    suspect their network.
+
+    The failure is INJECTED: a test that actually reached github.com would be
+    slow, would fail offline, and would change behaviour the day the asset is
+    published.
+    """
+    import urllib.error
+
     from transcriber.__main__ import _fetch_ptify
+
+    def not_found(*a, **k):
+        raise urllib.error.HTTPError(ptify.PTIFY_16B_URL, 404, "Not Found",
+                                     {}, None)
+
+    monkeypatch.setattr(weights.urllib.request, "urlretrieve", not_found)
 
     assert _fetch_ptify() == 1
     err = capsys.readouterr().err
-    assert "not published yet" in err
+    assert "was not found" in err
+    assert ptify.PTIFY_16B_URL in err
     assert ptify.CHECKPOINT_ENV in err
+
+
+def test_fetch_never_leaves_a_partial_file_behind(monkeypatch, tmp_path):
+    """A truncated download that survived would pass the library's size-only
+    check on the next run and be scored as the real model."""
+    import urllib.error
+
+    from transcriber.__main__ import _fetch_ptify
+
+    def die_midway(url, dest, reporthook=None):
+        with open(dest, "wb") as fh:
+            fh.write(b"\0" * 1024)      # a partial file exists...
+        raise urllib.error.URLError("connection reset")   # ...then the failure
+
+    monkeypatch.setattr(weights.urllib.request, "urlretrieve", die_midway)
+    monkeypatch.setattr(ptify, "_home_dir", lambda: tmp_path / "dl")
+
+    assert _fetch_ptify() == 1
+    assert not list((tmp_path / "dl").glob("*.pth"))
+    assert not list((tmp_path / "dl").glob("*.part"))
 
 
 def test_fetch_is_a_no_op_when_already_present(tmp_path, monkeypatch, capsys):

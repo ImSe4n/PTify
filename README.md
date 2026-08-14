@@ -151,15 +151,25 @@ MAESTRO — which is ByteDance's own training distribution and therefore the
 number that flatters it.
 
 ```bash
+python -m transcriber --fetch-ptify     # download the weights (172MB, once)
 python -m transcriber song.wav --engine ptify
 python -m transcriber --doctor          # says whether the checkpoint is usable
 ```
 
 **Its checkpoint is not in the repository** (172MB; `.gitignore` covers
-`*.pth`). The engine looks in `$PTIFY_CHECKPOINT`, then `checkpoints/`, then
+`*.pth`). It ships as a [release
+asset](https://github.com/ImSe4n/PTify/releases/tag/model-v1) and is verified
+by **sha256** on every load — the inference library checks size alone, so a
+different 172MB `.pth` would otherwise be scored as this model.
+
+The engine looks in `$PTIFY_CHECKPOINT`, then `checkpoints/`, then
 `~/.ptify/checkpoints/`, and **raises if it finds nothing** — it never quietly
 falls back to ByteDance's pretrained weights, because that would report the
 baseline's score under PTify's name.
+
+The weights are **CC BY-NC-SA 4.0** (research and non-commercial): they are
+fine-tuned from ByteDance's Apache-2.0 checkpoint on MAESTRO, which carries a
+share-alike term. The code in this repository stays MIT.
 
 Both scored 8/8 on a real C major scale recording, with onsets agreeing to
 within ~10ms. The difference showed in velocity: ByteDance reported 47-54

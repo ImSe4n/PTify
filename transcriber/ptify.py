@@ -62,18 +62,22 @@ from .events import Transcription
 CHECKPOINT_ENV = "PTIFY_CHECKPOINT"
 
 #: The Phase 16b artifact. The digest is the one recorded in the `source` block
-#: of `benchmarks/real/maps-paired-ptify-clean.json` and
-#: `maestro-ptify-clean.json`, so the file this engine loads is provably the
-#: file that produced those published scores.
+#: of `benchmarks/real/maps-paired-ptify-clean.json`, `maestro-ptify-clean.json`
+#: and `maps-paired-ptify17-clean.json`, so the file this engine loads is
+#: provably the file that produced those published scores.
 #:
-#: `url` is EMPTY on purpose: the checkpoint has not been published yet, and an
-#: invented URL would fail deep inside urllib instead of saying so. `download()`
-#: raises a clear "not been published" error until this is filled in.
+#: The URL is PINNED to a release tag, never to `latest`. A moving URL would
+#: mean two clones of the same commit could fetch different weights and score
+#: differently, with nothing in either report to explain it — and the digest
+#: below would start failing for reasons that look like corruption.
 PTIFY_16B_SHA256 = (
     "17286ad93c5806e02a59caf0333769d9bea9f4f3e53abd7360be8cabe9d4accd"
 )
 PTIFY_16B_NAME = "ptify-16b-step6555.pth"
-PTIFY_16B_URL = ""
+PTIFY_16B_URL = (
+    "https://github.com/ImSe4n/PTify/releases/download/"
+    "model-v1/ptify-16b-step6555.pth"
+)
 
 
 def _home_dir() -> Path:

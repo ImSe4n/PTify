@@ -39,7 +39,9 @@ def _fetch_ptify() -> int:
     surprise this project's long runs cannot absorb.
     """
     from . import weights
-    from .ptify import PTIFY_16B_NAME, resolve_checkpoint, spec
+    from .ptify import (
+        CHECKPOINT_ENV, PTIFY_16B_NAME, resolve_checkpoint, spec,
+    )
 
     try:
         existing = resolve_checkpoint()
@@ -72,6 +74,16 @@ def _fetch_ptify() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"error: download failed: {type(exc).__name__}: {exc}",
               file=sys.stderr)
+        if getattr(exc, "code", None) == 404:
+            # The URL is pinned to a release tag. A 404 means the tag or asset
+            # is not published (or was renamed), NOT that the user did anything
+            # wrong -- so say which URL was tried rather than leaving them to
+            # guess at their network.
+            print(f"       The release asset was not found:\n"
+                  f"         {spec().url}\n"
+                  f"       If you have the file, point at it with "
+                  f"{CHECKPOINT_ENV}=<path>\n"
+                  f"       or copy it into checkpoints/.", file=sys.stderr)
         return 1
 
     print(f"Wrote {path}")

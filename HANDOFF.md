@@ -13,7 +13,7 @@ State of the codebase, the traps in it, and what the next phase needs.
 |---|---|
 | **Last completed** | **Phase 17 — DONE. The 16b model ships as `--engine ptify`, working in the transcriber CLI, notation, the evaluation harness and the HTTP API.** |
 | **Branch** | `phase-17-ptify-engine`, branched off `master` (verified current: `git log --oneline master..HEAD` was empty at the start) |
-| **Tests** | 825 passing, ~120s, no model or network needed |
+| **Tests** | 827 passing, ~125s, no model or network needed |
 | **Next** | **Phase 18** — the offset anomaly (§6) or a second training run (§9). Both are open; neither is blocked |
 
 **The engine was verified to BE the measured model.** Scoring
