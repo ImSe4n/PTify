@@ -1675,6 +1675,107 @@ codebase.
 
 ---
 
+## 2026-08-14 — Phase 17: shipping the model as an engine
+
+The 16b weights beat ByteDance by 5.3 onset F1 on MAPS and could be reached by
+exactly one command: `python -m evaluation --checkpoint <path>`. They could not
+transcribe a file, could not be requested over HTTP, and could not engrave a
+score. This phase spent the `get_engine()` seam that was built for it.
+
+Done in seven sub-phases, each tested and committed on its own, per the working
+agreement.
+
+**Completed**
+- `transcriber/ptify.py` — `PtifyEngine`, `resolve_checkpoint()`,
+  `PtifyWeightsMissing`, and the 16b spec pinned to the sha256 recorded in the
+  published benchmark JSONs
+- `transcriber/engine.py` — `ENGINE_NAMES` + `normalise_engine_name()`, now the
+  single authority behind three CLIs and two API gates
+- `transcriber/weights.py` — generalised into `Checkpoint` / `download()` /
+  `verify()` / `sha256_file()`, with `ensure_checkpoint()` unchanged on top
+- `evaluation/report.py` — `engine_alias` join-key remap
+- API — `available` / `requires_weights` on `/v1/engines`, a startup warning,
+  and `engine_unavailable` mapping
+- `--engine ptify` in the transcriber and notation CLIs; `--fetch-ptify`;
+  a `--doctor` section covering present / absent / **wrong-digest**
+- 733 → 821 tests
+
+**The design decision the phase turns on: compose, do not subclass.**
+`PtifyEngine` differs from `ByteDanceEngine` in one property — `name`. A
+subclass is the obvious implementation and is quietly catastrophic:
+`ByteDanceEngine.load()` downloads the **pretrained** weights whenever
+`checkpoint_path is None`, so any refactor that failed to set the path would
+transcribe with the stock model while stamping `engine: "ptify"` on the result.
+The baseline published as the fine-tuned result, with nothing raised.
+Composition — an inner engine only ever built with an already-resolved path —
+makes that branch unreachable.
+
+That is the **fifth** appearance of this codebase's most persistent hazard,
+after: no seam at all, an undersized file, a wrong key set, and a redundant
+engine. Every previous instance was found by accident. This one was designed
+against in advance, and then *verified* by sabotage: `resolve_checkpoint` was
+temporarily changed to return `None`, and
+`test_ptify_never_falls_back_to_pretrained` failed with the intended
+diagnostic before the code was restored. A gate that has never been seen to
+fail is not evidence of anything.
+
+**Size is not identity.** The library validates a checkpoint by size alone
+(>160MB), so a *different* 172MB `.pth` in `checkpoints/` loads happily and
+scores a model nobody can name. `verify()` now checks sha256 too — but only
+where a digest is genuinely known. The ByteDance spec keeps `sha256=None`
+because its digest has never been computed here, and inventing one would turn
+the working default engine into a hard failure for every user.
+
+**Issues found**
+- **A missing model reported as corrupt audio.** `PtifyWeightsMissing` is a
+  `FileNotFoundError`, so it landed in `api/pipeline.py`'s catch-all and became
+  `undecodable_audio` (422) — telling the client its upload was broken and to
+  check ffmpeg, for a file the *server* was missing.
+- **And as `internal_error` (500).** Worse, and the reason the plan's gate was
+  written around the error code: the engine **cache** calls `load()`, so the
+  failure never reaches the pipeline's mapping at all and hit the catch-all in
+  `inproc.py` and `arq_queue.py`. 500 says "server bug"; this is "supply the
+  checkpoint". Both are now `engine_unavailable` (503).
+- **A first fix that sniffed the error message** for `"sha256"` to tell bad
+  weights from bad audio. Replaced with a typed `CheckpointInvalid(ValueError)`
+  — behaviour must not depend on the wording of a message someone will reword.
+- **`ENGINES` also drove `--compare`.** Adding `ptify` to it would have made a
+  bare `--compare` a three-engine run that aborts partway through on any
+  machine without the checkpoint, after ByteDance had already spent ~2.6h.
+  Split into `COMPARE_ENGINES` with an opt-in `--compare-engines`.
+- **A dead cache key.** `_DEVICE_CACHE` had a writer using a bare engine name
+  and a reader using an `(engine, checkpoint)` tuple, so the warm entry could
+  never be hit — a `--checkpoint` run silently loaded a second 172MB model just
+  to re-read one string. One `_device_key()` now.
+- **A test that loaded the real model.** The first version of
+  `test_ptify_is_accepted_at_submit` submitted a job that a machine holding the
+  checkpoint would actually run, making the suite behave differently depending
+  on whose laptop it was. Pinned to the no-weights fixture.
+- **cp1252 again.** An em-dash in a new error string printed as `?` on the
+  Windows console — the trap already recorded in §9. All printed literals are
+  now ASCII; docstrings are not.
+- **Pre-existing, left alone:** `python -m notation` on short audio crashes with
+  a raw `music21` `StreamException` (a note quantised to a negative start).
+  Reproduced on `master` with `--engine bytedance`, so it is not Phase 17's —
+  recorded in HANDOFF §4 for whoever owns `notation/` next.
+
+**The convention this phase overturned.** Custom benchmark rows used to be
+labelled `bytedance` so they key-joined against the baseline. That was correct
+while the weights had no identity; once `ptify` is a real engine, a row saying
+`bytedance` that `ptify` produced is a lie in the data. New runs write `ptify`;
+`compare_reports(engine_alias={"ptify": "bytedance"})` bridges to the two
+committed 16b reports, which were left byte-identical rather than re-run.
+
+**Next**
+- The **offset anomaly** is still unexplained and still must not be quoted as a
+  win (HANDOFF §6).
+- A second training run is optional. Peak GPU was 4.99 GB of 14.56 — the batch
+  size was inherited from an AMP-era OOM fix that fp32 did not need, so the next
+  session gets more from raising the batch than from adding steps to a converged
+  curve.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

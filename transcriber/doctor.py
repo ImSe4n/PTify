@@ -47,6 +47,64 @@ def _rule(title: str) -> None:
     print(f"\n{title}\n" + "-" * len(title))
 
 
+def _report_ptify_checkpoint() -> None:
+    """Three states, and the third is the one worth having a check for.
+
+    ABSENT is expected and fine — ptify is optional and the file is 172MB, so
+    it is not in the repository.
+
+    PRESENT-BUT-WRONG-DIGEST is the state nothing else would tell you about.
+    The inference library validates a checkpoint by SIZE alone, so any other
+    ~172MB .pth left in `checkpoints/` loads without complaint and scores a
+    model nobody can identify. This is the cheapest place to find that out —
+    `--doctor` is the documented first stop, and the alternative is discovering
+    it from a benchmark number that looks plausible.
+    """
+    try:
+        from . import weights
+        from .ptify import (
+            CHECKPOINT_ENV, PTIFY_16B_NAME, PtifyWeightsMissing,
+            resolve_checkpoint, spec,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"  {WARN} could not check: {type(exc).__name__}: {exc}")
+        return
+
+    try:
+        path = resolve_checkpoint()
+    except PtifyWeightsMissing:
+        print(f"  {WARN} not present. The ptify engine is OPTIONAL; the other")
+        print("         engines work without it.")
+        print(f"         Expected: {PTIFY_16B_NAME} (172MB, not in the repo)")
+        print(f"         Set {CHECKPOINT_ENV}=<path>, or drop it in checkpoints/")
+        return
+    except Exception as exc:  # noqa: BLE001
+        # A diagnostic that raises is worse than useless: it hides every check
+        # after it, including the summary that says whether the app works.
+        print(f"  {WARN} could not resolve: {type(exc).__name__}: {exc}")
+        return
+
+    try:
+        weights.verify(path, spec())
+    except weights.CheckpointInvalid as exc:
+        # The failure this section exists for: a real file, right size, wrong
+        # model. Nothing else in the stack would say so.
+        print(f"  {FAIL} present but NOT the Phase 16b checkpoint:")
+        print(f"       {path}")
+        # The exception already explains what is wrong and why it matters;
+        # re-stating it here produced a duplicated paragraph.
+        for line in str(exc).splitlines():
+            print(f"         {line.strip()}")
+        return
+    except Exception as exc:  # noqa: BLE001
+        print(f"  {WARN} could not verify: {type(exc).__name__}: {exc}")
+        return
+
+    print(f"  {OK} present and verified ({path.stat().st_size / 1e6:.0f} MB)")
+    print(f"       {path}")
+    print("       sha256 matches the weights behind the published MAPS result")
+
+
 def run() -> int:
     print("=" * 62)
     print(" Piano Transcriber - environment check")
@@ -101,7 +159,7 @@ def run() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"  {FAIL} torch unusable: {type(exc).__name__}")
 
-    _rule("Model checkpoint")
+    _rule("Model checkpoint (bytedance)")
     try:
         from .weights import checkpoint_path, is_present
 
@@ -115,6 +173,9 @@ def run() -> int:
             print("         weights.py works around that.")
     except Exception as exc:  # noqa: BLE001
         print(f"  {WARN} could not check: {exc}")
+
+    _rule("Model checkpoint (ptify)")
+    _report_ptify_checkpoint()
 
     _rule("Summary")
     if missing_required:

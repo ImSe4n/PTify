@@ -33,6 +33,7 @@ python -m transcriber song.mp3 -o out.mid         # choose the output path
 python -m transcriber song.wav --notes            # print the detected notes
 python -m transcriber song.wav --verify           # read the MIDI back and check it
 python -m transcriber song.mp3 --engine basicpitch
+python -m transcriber song.mp3 --engine ptify     # the fine-tuned model
 python -m transcriber --doctor                    # check the environment
 ```
 
@@ -116,6 +117,13 @@ Everything has a working default; a fresh checkout needs no environment at all.
 | `PTIFY_MAX_AUDIO_SECONDS` | `900` | a cost limit, not a technical one |
 | `PTIFY_JOB_TTL_SECONDS` | `3600` | finished jobs and artifacts expire |
 | `PTIFY_QUEUE` | `inproc` | or `arq` (needs Redis; not installed) |
+| `PTIFY_DEFAULT_ENGINE` | `bytedance` | or `basicpitch`, `ptify` |
+| `PTIFY_CHECKPOINT` | *(unset)* | where the ptify weights live |
+
+`GET /v1/engines` reports `available: false` for an engine whose weights are
+missing, so a client can grey it out rather than submitting a job that fails.
+A job requesting one gets `engine_unavailable` (503) — **not** a 500, and not
+an error blaming the audio.
 
 **Auth is off unless a key is set**, and the server logs a warning at startup
 when it is — silence is how something ships open by accident. Phase 5 replaces
@@ -127,13 +135,31 @@ and make both slower rather than raising throughput.
 
 ## Engines
 
-| | ByteDance *(default)* | Basic Pitch |
-|---|---|---|
-| Piano-specific | yes | no (multi-instrument) |
-| Sustain pedal | **yes** | no |
-| Velocity | **real dynamics** | near-constant |
-| Speed (CPU) | ~1.1x real time | ~0.02x real time |
-| Published note F1 | 0.9677 | — |
+| | ByteDance *(default)* | Basic Pitch | PTify |
+|---|---|---|---|
+| Piano-specific | yes | no (multi-instrument) | yes |
+| Sustain pedal | **yes** | no | **yes** |
+| Velocity | **real dynamics** | near-constant | **real dynamics** |
+| Speed (CPU) | ~1.1x real time | ~0.02x real time | ~1.1x real time |
+| MAPS onset F1 | 0.787 | 0.727 | **0.840** |
+| Weights bundled | downloaded | bundled | **no — see below** |
+
+**PTify is ByteDance's architecture with our own weights.** Same speed, same
+capabilities; fine-tuned here with room/detune augmentation for 6,555 steps.
+It wins by **5.3 onset F1 on MAPS**, the cross-dataset target, and loses 0.6 on
+MAESTRO — which is ByteDance's own training distribution and therefore the
+number that flatters it.
+
+```bash
+python -m transcriber song.wav --engine ptify
+python -m transcriber --doctor          # says whether the checkpoint is usable
+```
+
+**Its checkpoint is not in the repository** (172MB; `.gitignore` covers
+`*.pth`). The engine looks in `$PTIFY_CHECKPOINT`, then `checkpoints/`, then
+`~/.ptify/checkpoints/`, and **raises if it finds nothing** — it never quietly
+falls back to ByteDance's pretrained weights, because that would report the
+baseline's score under PTify's name.
 
 Both scored 8/8 on a real C major scale recording, with onsets agreeing to
 within ~10ms. The difference showed in velocity: ByteDance reported 47-54
@@ -176,6 +202,7 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `transcriber/events.py` | `NoteEvent`, `PedalEvent`, `Transcription` |
 | `transcriber/bytedance.py` | Default engine (pedal + velocity) |
 | `transcriber/basicpitch.py` | Fast ONNX engine + harmonic filtering |
+| `transcriber/ptify.py` | The fine-tuned engine + checkpoint resolution |
 | `transcriber/midi.py` | MIDI read/write; pedal as CC64 |
 | `transcriber/weights.py` | Windows-safe checkpoint download |
 | `transcriber/doctor.py` | Environment diagnostics |
@@ -208,7 +235,10 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 
 Adding an engine means subclassing `TranscriptionEngine` (implement `name`,
 `load`, `transcribe_file`, `device`) and adding a branch to `get_engine()`. That
-seam is deliberate — a custom-trained model plugs in the same way.
+seam is deliberate — and Phase 17 spent it: `transcriber/ptify.py` is a
+custom-trained model plugged in exactly that way. It **composes**
+`ByteDanceEngine` rather than subclassing it, for a reason recorded in
+HANDOFF §4.
 
 ## Benchmarking
 
@@ -326,7 +356,7 @@ under sustain pedal.
 - [x] **Phase 14.5** — smoke run on Kaggle GPU: loop, checkpointing, cross-session resume
 - [x] **Phase 16a** — augmentation that fits in a dataloader
 - [x] **Phase 15–16b** — fine-tuned the CRNN with augmentation: **MAPS 0.787 → 0.840 (+5.3), 14/14 tracks**
-- [ ] **Phase 17** — ship the custom model behind `TranscriptionEngine`
+- [x] **Phase 17** — shipped it as `--engine ptify`, working in the CLI, notation and HTTP API
 
 The training goal is **beating ByteDance on your own recordings**, not on the
 MAESTRO benchmark. Models overfit badly to their training audio — published work

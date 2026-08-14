@@ -152,10 +152,12 @@ def download(spec: Checkpoint,
     """
     dest = spec.path
     if not spec.url:
+        # ASCII only: the Windows console is cp1252 and an em-dash prints as a
+        # replacement character (HANDOFF section 9 records this).
         raise RuntimeError(
             f"No download URL is configured for {spec.filename}. It has not "
-            f"been published yet — obtain the file another way and point at it "
-            f"directly."
+            f"been published yet - obtain the file another way and point at "
+            f"it directly."
         )
 
     say = progress or (lambda _m: None)

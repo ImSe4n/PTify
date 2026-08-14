@@ -29,6 +29,55 @@ from .ptify import PtifyWeightsMissing
 AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aiff", ".aif"}
 
 
+def _fetch_ptify() -> int:
+    """Download the fine-tuned checkpoint on request.
+
+    Opt-in rather than automatic. ByteDance's 165MB fetch happens unprompted
+    because it is the default engine and the user chose nothing; a 172MB pull
+    triggered by `--engine ptify` partway through a benchmark is a different
+    matter, and a silent multi-hundred-MB download is exactly the kind of
+    surprise this project's long runs cannot absorb.
+    """
+    from . import weights
+    from .ptify import PTIFY_16B_NAME, resolve_checkpoint, spec
+
+    try:
+        existing = resolve_checkpoint()
+    except FileNotFoundError:
+        existing = None
+
+    if existing is not None:
+        try:
+            weights.verify(existing, spec())
+            print(f"Already present and verified: {existing}")
+            return 0
+        except weights.CheckpointInvalid as exc:
+            # Do NOT overwrite it. A file at that path is something the user
+            # put there, and replacing it silently would destroy evidence of
+            # whatever went wrong.
+            print(f"error: {existing} exists but is not the expected "
+                  f"checkpoint.\n{exc}", file=sys.stderr)
+            return 1
+
+    try:
+        path = weights.download(spec(), progress=print)
+    except RuntimeError as exc:
+        # The URL is empty until the checkpoint is published. Say so plainly
+        # rather than failing somewhere inside urllib.
+        print(f"error: {exc}", file=sys.stderr)
+        print(f"       {PTIFY_16B_NAME} is not published yet. If you have it, "
+              f"point at it with PTIFY_CHECKPOINT=<path> or copy it into "
+              f"checkpoints/.", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: download failed: {type(exc).__name__}: {exc}",
+              file=sys.stderr)
+        return 1
+
+    print(f"Wrote {path}")
+    return 0
+
+
 def _progress_printer():
     """Single-line progress. Long files look like a hang without it."""
     state = {"last": -1.0}
@@ -58,6 +107,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="audio file (mp3/wav/m4a/flac)")
     ap.add_argument("--doctor", action="store_true",
                     help="check the environment and exit")
+    ap.add_argument("--fetch-ptify", action="store_true",
+                    help="download the ptify fine-tuned checkpoint (172MB) "
+                         "and exit")
     ap.add_argument("-o", "--output", type=Path, default=None,
                     help="output .mid path (default: alongside the input)")
     ap.add_argument("--engine", default="bytedance",
@@ -75,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         from .doctor import run
 
         return run()
+
+    if args.fetch_ptify:
+        return _fetch_ptify()
 
     if args.input is None:
         ap.error("an input file is required (or use --doctor)")
