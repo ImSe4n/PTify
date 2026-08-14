@@ -13,6 +13,12 @@ and they have genuinely different strengths:
     Not piano-specific and does not model pedal; reports strong partials as
     separate notes, so it needs harmonic filtering. Useful for quick previews.
 
+  - PTify (Phase 17) — the same CRNN as ByteDance, fine-tuned here with
+    room/detune augmentation. Same speed and same capabilities; +5.3 onset F1
+    over ByteDance on MAPS, concentrated in ambient-mic recordings. Needs a
+    172MB checkpoint that is not bundled, so it RAISES rather than falling
+    back when the weights are absent.
+
 The old live interface was `process(audio, window_start)`. `window_start`
 existed solely to map window-relative onsets onto a live absolute timeline;
 offline it would always be 0.0, so it is gone. Engines now take a file path
@@ -118,6 +124,15 @@ def get_engine(name: str = "bytedance", *,
         from .bytedance import ByteDanceEngine
 
         return ByteDanceEngine(checkpoint_path=checkpoint_path)
+    if key == "ptify":
+        from .ptify import PtifyEngine
+
+        # `checkpoint_path` is ACCEPTED here, unlike for basicpitch: it is the
+        # same architecture, so pointing this engine at a later training run's
+        # weights is meaningful and needs no code change. Left unset, the
+        # engine resolves the shipped Phase 16b checkpoint and verifies its
+        # digest.
+        return PtifyEngine(checkpoint_path=checkpoint_path)
     if key == "basicpitch":
         if checkpoint_path is not None:
             raise ValueError(
@@ -135,4 +150,6 @@ def get_engine(name: str = "bytedance", *,
                 "Install them, or use --engine bytedance."
             ) from exc
         return BasicPitchEngine()
-    raise ValueError(f"Unknown engine {name!r}. Options: bytedance, basicpitch")
+    raise ValueError(
+        f"Unknown engine {name!r}. Options: {', '.join(ENGINE_NAMES)}"
+    )
