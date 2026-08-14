@@ -18,6 +18,9 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+from transcriber.ptify import PtifyWeightsMissing
+from transcriber.weights import CheckpointInvalid
+
 from .jobs import JobSpec, JobState, JobStore
 from .pipeline import PipelineError, run as run_pipeline
 from .queue import JobQueue
@@ -190,6 +193,14 @@ class InProcessQueue(JobQueue):
                 self._store.mark_cancelled(job_id)
             else:
                 self._store.mark_failed(job_id, exc.code, exc.message)
+            return
+        except (PtifyWeightsMissing, CheckpointInvalid) as exc:
+            # The engine CACHE calls load(), so absent or corrupt weights are
+            # raised here rather than inside the pipeline -- which means the
+            # pipeline's mapping never sees them and the catch-all below would
+            # report `internal_error`. It is not a server bug: the operator has
+            # not supplied a model file. Same 503 the pipeline gives.
+            self._store.mark_failed(job_id, "engine_unavailable", str(exc))
             return
         except ValueError as exc:
             # get_engine() rejects an unknown engine name from inside the

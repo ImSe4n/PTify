@@ -51,6 +51,16 @@ CHECKPOINT_NAME = "note_F1=0.9677_pedal_F1=0.9186.pth"
 MIN_VALID_BYTES = 1.6e8  # ~160MB
 
 
+class CheckpointInvalid(ValueError):
+    """A checkpoint file exists but is not the one it claims to be.
+
+    A ValueError subclass so existing `except ValueError` handlers still catch
+    it, but a distinct type so callers that must tell "the weights are wrong"
+    apart from "the audio is wrong" can do so without matching on message text.
+    The API needs exactly that: one is a 503, the other a 422.
+    """
+
+
 @dataclass(frozen=True)
 class Checkpoint:
     """A fetchable set of weights.
@@ -112,7 +122,7 @@ def verify(path: Path, spec: Checkpoint) -> None:
 
     size = path.stat().st_size
     if size < spec.min_bytes:
-        raise ValueError(
+        raise CheckpointInvalid(
             f"{path} is {size / 1e6:.1f}MB, under the "
             f"{spec.min_bytes / 1e6:.0f}MB floor. PianoTranscription treats a "
             f"smaller file as a partial download and silently replaces it with "
@@ -124,7 +134,7 @@ def verify(path: Path, spec: Checkpoint) -> None:
 
     actual = sha256_file(path)
     if actual != spec.sha256:
-        raise ValueError(
+        raise CheckpointInvalid(
             f"{path} has the right size but the WRONG sha256.\n"
             f"  expected {spec.sha256}\n"
             f"  actual   {actual}\n"

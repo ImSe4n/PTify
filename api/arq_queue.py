@@ -82,6 +82,9 @@ async def transcribe_task(ctx: dict, job_id: str, spec_data: dict) -> dict:
     pays the model load once (measured 50.6s cold / 17-19s warm for ByteDance)
     rather than once per job -- the same reasoning as the in-process backend.
     """
+    from transcriber.ptify import PtifyWeightsMissing
+    from transcriber.weights import CheckpointInvalid
+
     from .inproc import _EngineCache
     from .pipeline import PipelineError, run as run_pipeline
 
@@ -117,6 +120,15 @@ async def transcribe_task(ctx: dict, job_id: str, spec_data: dict) -> dict:
         if store is not None:
             store.mark_failed(job_id, exc.code, exc.message)
         return {"job_id": job_id, "state": "failed", "code": exc.code}
+    except (PtifyWeightsMissing, CheckpointInvalid) as exc:
+        # `cache.get()` loads the engine, so weights problems are raised here
+        # rather than inside the pipeline. Same reasoning as inproc.py: an
+        # operator who has not supplied a model file is a 503, not a server
+        # bug reported as internal_error.
+        if store is not None:
+            store.mark_failed(job_id, "engine_unavailable", str(exc))
+        return {"job_id": job_id, "state": "failed",
+                "code": "engine_unavailable"}
     except Exception as exc:  # noqa: BLE001
         log.exception("unhandled failure in arq job %s", job_id)
         if store is not None:
