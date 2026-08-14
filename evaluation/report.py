@@ -133,6 +133,12 @@ def rows_from_json(path: str | Path) -> list[BenchmarkRow]:
     data = load_json(path)
     rows = []
     for record in data.get("rows", []):
+        # `velocity_f1` is null for a reference with no dynamics. Reports
+        # written before Phase 18 carry neither the null nor the flag, so
+        # absence must read as "valid" — reinterpreting an existing baseline
+        # would silently restate what it measured.
+        vel = record.get("velocity_f1")
+        vel_valid = record.get("velocity_valid", vel is not None)
         result = ScoreResult(
             onset_precision=record.get("onset_p", 0.0),
             onset_recall=record.get("onset_r", 0.0),
@@ -140,12 +146,13 @@ def rows_from_json(path: str | Path) -> list[BenchmarkRow]:
             offset_precision=record.get("offset_f1", 0.0),
             offset_recall=record.get("offset_f1", 0.0),
             offset_f1=record.get("offset_f1", 0.0),
-            velocity_precision=record.get("velocity_f1", 0.0),
-            velocity_recall=record.get("velocity_f1", 0.0),
-            velocity_f1=record.get("velocity_f1", 0.0),
+            velocity_precision=vel or 0.0,
+            velocity_recall=vel or 0.0,
+            velocity_f1=vel or 0.0,
             n_reference=record.get("n_ref", 0),
             n_estimated=record.get("n_est", 0),
             label=record.get("case", ""),
+            velocity_valid=vel_valid,
         )
         rows.append(BenchmarkRow(
             engine=record.get("engine", ""), case=record.get("case", ""),

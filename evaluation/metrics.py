@@ -68,23 +68,41 @@ class ScoreResult:
     n_estimated: int
     label: str = ""
 
+    #: False when the reference carries no real dynamics, which makes
+    #: `velocity_f1` meaningless rather than merely bad. MAPS annotations give
+    #: every note the same velocity, and mir_eval rescales velocities to
+    #: best-fit the reference — so the metric does not fail visibly, it
+    #: silently returns the ONSET figure instead. Measured on the committed
+    #: baselines: velocity_f1 == onset_f1 to full float precision in 14/14 MAPS
+    #: rows, against 0/12 on MAESTRO. Detected from the reference itself rather
+    #: than from a corpus name, because the cause is the data, not the source.
+    velocity_valid: bool = True
+
     def __str__(self) -> str:
+        vel = (f"+velocity {self.velocity_f1:.4f}" if self.velocity_valid
+               else "+velocity n/a (reference has no dynamics)")
         return (
             f"onset F1 {self.onset_f1:.4f}  "
             f"+offset {self.offset_f1:.4f}  "
-            f"+velocity {self.velocity_f1:.4f}  "
+            f"{vel}  "
             f"({self.n_estimated} est / {self.n_reference} ref)"
         )
 
     def as_row(self) -> dict:
-        """Flat dict, for building comparison tables."""
+        """Flat dict, for building comparison tables.
+
+        `velocity_f1` is None when the reference has no dynamics. A number that
+        cannot be interpreted is worse than an absent one: it prints in tables
+        and gets quoted, and this one reads as a plausible ~0.8 score.
+        """
         return {
             "label": self.label,
             "onset_f1": self.onset_f1,
             "onset_p": self.onset_precision,
             "onset_r": self.onset_recall,
             "offset_f1": self.offset_f1,
-            "velocity_f1": self.velocity_f1,
+            "velocity_f1": self.velocity_f1 if self.velocity_valid else None,
+            "velocity_valid": self.velocity_valid,
             "n_ref": self.n_reference,
             "n_est": self.n_estimated,
         }
@@ -161,7 +179,19 @@ def score(
         velocity_f1=float(vel_f),
         n_reference=len(reference.notes), n_estimated=len(estimate.notes),
         label=label,
+        velocity_valid=_has_dynamics(ref_vel),
     )
+
+
+def _has_dynamics(ref_velocities: np.ndarray) -> bool:
+    """Does the reference carry real dynamics?
+
+    One distinct velocity across every note means the annotation never recorded
+    them (MAPS assigns a constant 80). mir_eval rescales velocities to best-fit
+    the reference, so a degenerate reference does not make the metric fail — it
+    makes it return the onset figure under a different name.
+    """
+    return len(np.unique(ref_velocities)) > 1
 
 
 def score_midi_files(
@@ -195,8 +225,17 @@ def format_table(results: list[ScoreResult]) -> str:
         "  " + "-" * (width + 41),
     ]
     for r in results:
+        # A dash, not the number: a degenerate velocity score is the onset
+        # figure wearing a different label, and printing it invites a quote.
+        vel = f"{r.velocity_f1:>7.4f}" if r.velocity_valid else f"{'n/a':>7}"
         lines.append(
             f"  {r.label:<{width}}  {r.onset_f1:>7.4f} {r.offset_f1:>8.4f} "
-            f"{r.velocity_f1:>7.4f}  {r.n_estimated:>4}/{r.n_reference:<6}"
+            f"{vel}  {r.n_estimated:>4}/{r.n_reference:<6}"
         )
+    if any(not r.velocity_valid for r in results):
+        lines.append("")
+        lines.append("  n/a: the reference has no dynamics (every note the "
+                     "same velocity), so")
+        lines.append("       a velocity score would just restate the onset "
+                     "figure.")
     return "\n".join(lines)

@@ -253,21 +253,34 @@ def format_rows(rows: list[BenchmarkRow]) -> str:
         f"{'+offset':>8} {'+vel':>7}  {'miss/extra':>10}",
         "  " + "-" * (width + 48),
     ]
+    any_invalid = any(not r.result.velocity_valid for r in rows)
+
     for r in rows:
         s = r.result
+        # See ScoreResult.velocity_valid: on a reference with no dynamics this
+        # column silently restates the onset figure, so it prints as n/a.
+        vel = f"{s.velocity_f1:>7.3f}" if s.velocity_valid else f"{'n/a':>7}"
         lines.append(
             f"  {r.case:<{width}}  {s.n_reference:>4} {s.n_estimated:>4} "
-            f"{s.onset_f1:>7.3f} {s.offset_f1:>8.3f} {s.velocity_f1:>7.3f}  "
+            f"{s.onset_f1:>7.3f} {s.offset_f1:>8.3f} {vel}  "
             f"{f'-{r.missed} +{r.extra}':>10}"
         )
 
     lines.append("  " + "-" * (width + 48))
+    mean_vel = (f"{'n/a':>7}" if any_invalid
+                else f"{_mean(rows, 'velocity_f1'):>7.3f}")
     lines.append(
         f"  {'MEAN':<{width}}  {'':>4} {'':>4} "
         f"{mean_onset(rows):>7.3f} "
         f"{_mean(rows, 'offset_f1'):>8.3f} "
-        f"{_mean(rows, 'velocity_f1'):>7.3f}"
+        f"{mean_vel}"
     )
+    if any_invalid:
+        lines.append("")
+        lines.append("  n/a: this reference carries no dynamics, so a velocity "
+                     "score would")
+        lines.append("       restate the onset figure rather than measure "
+                     "anything.")
     return "\n".join(lines)
 
 

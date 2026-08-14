@@ -94,6 +94,46 @@ def test_write_then_load_round_trips(tmp_path):
     assert loaded["environment"]["device"] == "cpu"
 
 
+def test_a_pre_phase18_baseline_keeps_its_velocity_number(tmp_path):
+    # The committed baselines predate `velocity_valid` and carry a real
+    # velocity_f1. Absence of the flag must read as "valid": defaulting the
+    # other way would silently reinterpret every published MAESTRO number.
+    from evaluation.report import rows_from_json
+
+    legacy = {
+        "schema": 1, "generated": "x", "source": SOURCE, "environment": {},
+        "rows": [{"engine": "bytedance", "case": "c", "preset": "clean",
+                  "seconds": 1.0, "onset_f1": 0.9, "offset_f1": 0.4,
+                  "velocity_f1": 0.95, "n_ref": 10, "n_est": 10}],
+    }
+    p = tmp_path / "legacy.json"
+    p.write_text(json.dumps(legacy), encoding="utf-8")
+
+    row = rows_from_json(p)[0]
+    assert row.result.velocity_valid is True
+    assert row.result.velocity_f1 == pytest.approx(0.95)
+
+
+def test_a_null_velocity_reloads_as_invalid_rather_than_zero(tmp_path):
+    # Reading null as 0.0 would turn "not measurable" into "measured badly",
+    # which is the same class of lie the null exists to prevent.
+    from evaluation.report import rows_from_json
+
+    rep = {
+        "schema": 1, "generated": "x", "source": SOURCE, "environment": {},
+        "rows": [{"engine": "ptify", "case": "c", "preset": "clean",
+                  "seconds": 1.0, "onset_f1": 0.9, "offset_f1": 0.4,
+                  "velocity_f1": None, "velocity_valid": False,
+                  "n_ref": 10, "n_est": 10}],
+    }
+    p = tmp_path / "new.json"
+    p.write_text(json.dumps(rep), encoding="utf-8")
+
+    row = rows_from_json(p)[0]
+    assert row.result.velocity_valid is False
+    assert row.result.as_row()["velocity_f1"] is None
+
+
 def test_written_json_is_valid_and_indented(tmp_path):
     path = write_json(tmp_path / "b.json", [_row()], source=SOURCE)
     text = path.read_text(encoding="utf-8")

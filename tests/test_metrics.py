@@ -86,6 +86,49 @@ def test_flat_dynamics_lose_velocity_score():
     assert r.velocity_f1 < 0.5
 
 
+# --- references with no dynamics (Phase 18) -------------------------------
+#
+# MAPS annotations give every note the same velocity, and mir_eval rescales
+# velocities to best-fit the reference. So the velocity metric does not fail
+# visibly on that corpus -- it returns the ONSET figure under another name.
+# Measured on the committed baselines: velocity_f1 == onset_f1 to full float
+# precision in 14/14 MAPS rows, against 0/12 on MAESTRO.
+
+
+def test_a_reference_without_dynamics_is_marked_invalid():
+    # HANDOFF has said this since 13b and nothing enforced it, so the
+    # meaningless number stayed in every MAPS row and printed in every table.
+    flat_ref = make([(60, 0.0, 0.5, 80), (62, 0.5, 1.0, 80), (64, 1.0, 1.5, 80)])
+    est = make([(60, 0.0, 0.5, 30), (62, 0.5, 1.0, 90), (64, 1.0, 1.5, 127)])
+    assert score(flat_ref, est).velocity_valid is False
+
+
+def test_a_reference_with_real_dynamics_stays_valid():
+    # The guard must not disarm the metric on MAESTRO, where it is meaningful.
+    ref = make([(60, 0.0, 0.5, 40), (62, 0.5, 1.0, 90), (64, 1.0, 1.5, 120)])
+    assert score(ref, ref).velocity_valid is True
+
+
+def test_a_degenerate_velocity_score_is_not_published_as_a_number():
+    # It is the onset figure wearing a different label. A number that cannot
+    # be interpreted is worse than an absent one: it gets read and quoted.
+    flat_ref = make([(60, 0.0, 0.5, 80), (62, 0.5, 1.0, 80), (64, 1.0, 1.5, 80)])
+    est = make([(60, 0.0, 0.5, 30), (62, 0.5, 1.0, 90), (64, 1.0, 1.5, 127)])
+    r = score(flat_ref, est)
+    assert r.as_row()["velocity_f1"] is None
+    assert r.as_row()["velocity_valid"] is False
+    # and it is exactly the onset figure, which is the whole problem
+    assert r.velocity_f1 == pytest.approx(r.onset_f1)
+
+
+def test_the_table_prints_no_velocity_figure_for_a_flat_reference():
+    flat_ref = make([(60, 0.0, 0.5, 80), (62, 0.5, 1.0, 80), (64, 1.0, 1.5, 80)])
+    est = make([(60, 0.0, 0.5, 30), (62, 0.5, 1.0, 90), (64, 1.0, 1.5, 127)])
+    out = format_table([score(flat_ref, est, label="maps")])
+    assert "n/a" in out
+    assert "no dynamics" in out
+
+
 def test_empty_estimate_scores_zero_without_crashing():
     """'The model found nothing' is a real outcome, not an error."""
     r = score(REF, Transcription())
