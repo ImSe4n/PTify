@@ -49,6 +49,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="limit to specific cases (repeatable)")
     ap.add_argument("--audio-dir", type=Path, default=None,
                     help="score real recordings (needs matching .mid files)")
+    ap.add_argument("--checkpoint", type=Path, default=None, metavar="PATH",
+                    help="score custom ByteDance-architecture weights from "
+                         "training/ instead of the pretrained ones. Rows keep "
+                         "the engine name so they key-join against the "
+                         "baseline; use the filename to tell runs apart")
     ap.add_argument("--json", type=Path, default=None, metavar="PATH",
                     help="write results as JSON. With --all-presets or "
                          "--compare, PATH may contain {engine} and {preset}, "
@@ -76,6 +81,33 @@ def main(argv: list[str] | None = None) -> int:
         print("error: --resume needs --json (it skips runs whose file exists)",
               file=sys.stderr)
         return 1
+
+    # Rejected rather than ignored. Every one of these would otherwise score
+    # the PRETRAINED weights and write a file that looks like a custom result
+    # — the silent-wrong-number failure this whole seam exists to prevent.
+    if args.checkpoint:
+        if not args.audio_dir:
+            print("error: --checkpoint needs --audio-dir. Custom weights are "
+                  "scored on real recordings; the synthetic cases exist to "
+                  "compare engines, not weights.", file=sys.stderr)
+            return 1
+        if args.engine != "bytedance":
+            print(f"error: --checkpoint applies to the bytedance engine only "
+                  f"(got {args.engine!r}). It is the only engine whose "
+                  f"architecture training/ produces weights for.",
+                  file=sys.stderr)
+            return 1
+        if args.compare:
+            print("error: --checkpoint cannot be combined with --compare, "
+                  "which runs every engine. Score the checkpoint on its own "
+                  "and diff with report.compare_reports().", file=sys.stderr)
+            return 1
+        if not args.checkpoint.exists():
+            print(f"error: --checkpoint {args.checkpoint} does not exist. "
+                  f"The library would silently download ByteDance's weights "
+                  f"and report the baseline's score as yours.",
+                  file=sys.stderr)
+            return 1
 
     # A multi-run mode writing to one fixed path would overwrite itself and
     # leave only the last run. Require the placeholder so the loss is caught
@@ -110,6 +142,10 @@ def main(argv: list[str] | None = None) -> int:
         n = len(corpus) if corpus else len(CASES)
         print(f" source : {n} synthetic cases")
     print(f" threads: {config.INFERENCE_THREADS}")
+    if args.checkpoint:
+        # Printed because a custom run and a baseline run are otherwise
+        # indistinguishable from the console, and these runs take hours.
+        print(f" weights: {args.checkpoint} (CUSTOM, not pretrained)")
 
     try:
         if args.compare:
@@ -144,9 +180,37 @@ def _source(args, n_items: int) -> dict:
     real and synthetic scores are not comparable, so nothing may average
     them without noticing."""
     if args.audio_dir:
-        return {"kind": "real", "audio_dir": str(args.audio_dir),
-                "n_items": n_items}
-    return {"kind": "synthetic", "n_items": n_items}
+        out = {"kind": "real", "audio_dir": str(args.audio_dir),
+               "n_items": n_items}
+    else:
+        out = {"kind": "synthetic", "n_items": n_items}
+
+    # Custom rows keep the engine's name so they key-join against the
+    # baseline, which means the ROW cannot say which weights produced it.
+    # Recording the path and its digest here is what keeps the two runs
+    # distinguishable inside the file rather than only by filename.
+    if getattr(args, "checkpoint", None):
+        out["checkpoint"] = str(args.checkpoint)
+        out["checkpoint_sha256"] = _digest(args.checkpoint)
+    return out
+
+
+def _digest(path: Path) -> str:
+    """SHA-256 of a checkpoint, or a marker if it cannot be read.
+
+    Identifies the exact weights behind a score. Read in chunks — these files
+    are ~172MB and this runs before an hours-long benchmark, not in a loop.
+    """
+    import hashlib
+
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(block)
+        return h.hexdigest()
+    except OSError:
+        return "unreadable"
 
 
 #: Device per engine, filled in after a load so the value is real. Reading
@@ -156,21 +220,32 @@ def _source(args, n_items: int) -> dict:
 _DEVICE_CACHE: dict[str, str] = {}
 
 
-def _device_of(engine_name: str) -> str:
+def _device_of(engine_name: str, checkpoint_path=None) -> str:
     """The engine's real device, loading it once if needed.
 
     Cached because get_engine().load() costs ~40s for ByteDance, and every
     cell of a preset sweep would otherwise pay it again just to record the
     same string.
+
+    `checkpoint_path` is forwarded even though only the device string is read
+    from the result. Without it this builds a PRETRAINED engine — which does
+    not corrupt any score, because the engine that transcribes is constructed
+    inside `run_real_audio`, but it does load a second ~172MB model that is
+    not the one being measured. Anyone reading this later would reasonably
+    assume otherwise, and in this project an engine built from the wrong
+    weights is the exact shape of the failure the checkpoint seam exists to
+    prevent. Keyed on both, so a baseline and a custom run do not share a
+    cache entry.
     """
-    if engine_name not in _DEVICE_CACHE:
+    key = (engine_name, str(checkpoint_path) if checkpoint_path else None)
+    if key not in _DEVICE_CACHE:
         try:
-            engine = get_engine(engine_name)
+            engine = get_engine(engine_name, checkpoint_path=checkpoint_path)
             engine.load()
-            _DEVICE_CACHE[engine_name] = engine.device
+            _DEVICE_CACHE[key] = engine.device
         except Exception:
-            _DEVICE_CACHE[engine_name] = "unknown"
-    return _DEVICE_CACHE[engine_name]
+            _DEVICE_CACHE[key] = "unknown"
+    return _DEVICE_CACHE[key]
 
 
 def _run(args, corpus, engine: str, preset: str):
@@ -186,13 +261,14 @@ def _run(args, corpus, engine: str, preset: str):
 
     if args.audio_dir:
         rows = run_real_audio(engine, args.audio_dir, preset,
-                              progress=not args.quiet)
+                              progress=not args.quiet,
+                              checkpoint_path=args.checkpoint)
     else:
         rows = run(engine, preset, cases=corpus, progress=not args.quiet)
 
     if path:
         report.write_json(path, rows, source=_source(args, len(rows)),
-                          device=_device_of(engine))
+                          device=_device_of(engine, args.checkpoint))
         print(f"  wrote {path}", file=sys.stderr)
     return rows
 

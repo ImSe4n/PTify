@@ -195,6 +195,66 @@ def test_rt60_is_reported_from_the_bank():
     assert plan.rt60 == pytest.approx(s.bank.rt60s[plan.ir_index])
 
 
+def test_the_plan_records_which_segment_it_was_drawn_for():
+    s = _sampler(seed=0, clean_prob=0.0)
+    assert [s.plan(i).index for i in (0, 7, 12345)] == [0, 7, 12345]
+
+
+def test_a_clean_plan_records_its_index_too():
+    """The clean branch returns early, so it is the one that forgets."""
+    s = _sampler(seed=0, clean_prob=1.0)
+    assert s.plan(99).index == 99
+
+
+def test_segments_sharing_a_room_get_DIFFERENT_noise():
+    """The noise stream is keyed on the SEGMENT, not on the impulse response.
+
+    Seeding it from `plan.ir_index` meant the bank's size was the only thing
+    that ever varied it: with 24 impulse responses the entire training set
+    held 24 distinct noise vectors, ~146 segments sharing each one
+    byte-for-byte. A fixed additive vector repeated hundreds of times is
+    something a conv stack can learn to subtract, which is the opposite of
+    what noise augmentation is for.
+
+    Determinism looked identical from the outside either way, which is why
+    every existing test passed. This one fails against the old seeding.
+    """
+    s = _sampler(seed=0, clean_prob=0.0, noise_prob=1.0)
+
+    # Two plans IDENTICAL in every field except `index`. Comparing two
+    # naturally-drawn plans cannot prove anything here: they also differ in
+    # cents, wet and snr_db, so their audio differs whatever the noise seed
+    # is, and the test passes against the bug it is meant to catch.
+    base = dict(
+        cents=0.0, ir_index=1, rt60=0.5, wet=0.0, snr_db=20.0,
+        low_gain_db=0.0, high_gain_db=0.0, peak=None, clean=False,
+        source_seconds=SECONDS,
+    )
+    first = AugmentPlan(**base, index=2)
+    second = AugmentPlan(**base, index=68)
+
+    # wet=0 and cents=0, so reverb and detune are no-ops and the ONLY thing
+    # that can differ between these two outputs is the noise draw.
+    a, _ = s.apply(_tone(SECONDS), _labels(), first)
+    b, _ = s.apply(_tone(SECONDS), _labels(), second)
+
+    assert not np.array_equal(a, b), (
+        "two segments drawing the same room received identical noise — the "
+        "stream is keyed on ir_index rather than on the segment"
+    )
+
+
+def test_noise_is_still_reproducible_for_a_given_segment():
+    """Diversity must not have been bought with nondeterminism: a resume
+    replays a segment and has to get the same audio back."""
+    def run():
+        s = _sampler(seed=0, clean_prob=0.0, noise_prob=1.0)
+        plan = s.plan(3)
+        return s.apply(_tone(plan.source_seconds), _labels(), plan)[0]
+
+    assert np.array_equal(run(), run())
+
+
 # --- applying -------------------------------------------------------------
 
 def test_apply_returns_the_exact_segment_length():

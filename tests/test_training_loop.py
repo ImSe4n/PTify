@@ -725,3 +725,64 @@ def test_validation_augmenter_is_pinned_to_epoch_zero():
 
     assert val.plan(5) == build_augmenter(args, epoch=0).plan(5)
     assert val.plan(5) != train_sampler.plan(5)
+
+
+# --- the epoch a resume comes back at -------------------------------------
+#
+# `load_training_state` has always RETURNED the saved epoch, and
+# `test_training_state_round_trips` above asserts the checkpoint carries it —
+# which made this look covered while `train()` discarded the value and reset
+# to 0. A resumed run then re-drew epoch 1's conditions forever and never drew
+# the later epochs' at all: the training distribution narrows silently, with
+# no error and a loss curve that looks entirely normal.
+
+def test_a_fresh_start_begins_at_epoch_one():
+    from training.train import resume_epoch_state
+
+    epoch, loader_epoch = resume_epoch_state(0)
+    assert epoch + 1 == 1, "the loop increments before using the counter"
+    assert loader_epoch == 1, "the loader just built is epoch 1's"
+
+
+def test_a_resume_finishes_the_epoch_it_was_interrupted_in():
+    """Not the NEXT one. A checkpoint saved partway through epoch 5 has more
+    of epoch 5 left to do; skipping to 6 would drop the remainder and shift
+    every subsequent epoch's augmentation by one."""
+    from training.train import resume_epoch_state
+
+    epoch, loader_epoch = resume_epoch_state(5)
+    assert epoch + 1 == 5
+    assert loader_epoch == 5
+
+
+def test_the_first_iteration_after_a_resume_reuses_its_loader():
+    """`loader_epoch` exists so the loop does not immediately rebuild a loader
+    that was just constructed with the right offset — a wasted worker respawn
+    at best, and the wrong offset at worst."""
+    from training.train import resume_epoch_state
+
+    for start in (0, 1, 5, 40):
+        epoch, loader_epoch = resume_epoch_state(start)
+        assert epoch + 1 == loader_epoch
+
+
+def test_epoch_state_never_goes_negative():
+    from training.train import resume_epoch_state
+
+    assert resume_epoch_state(0) == (0, 1)
+
+
+def test_the_checkpoints_epoch_is_what_a_resume_uses(tmp_path):
+    """End to end through a real save/load: the number written is the number
+    that comes back, and it drives the epoch the run continues at."""
+    from training.train import resume_epoch_state
+
+    model = Tiny()
+    save_training_state(tmp_path / "step_9000.pt", note_model=model,
+                        optimizer=_optimizer(model), step=9000, epoch=7)
+
+    info = load_training_state(tmp_path / "step_9000.pt", note_model=Tiny())
+
+    assert info["epoch"] == 7
+    epoch, _ = resume_epoch_state(info["epoch"])
+    assert epoch + 1 == 7, "the run must continue IN epoch 7, not at epoch 1"

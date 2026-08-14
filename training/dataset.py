@@ -196,6 +196,10 @@ class SegmentDataset:
         self.epoch_offset = int(epoch_offset)
         self._decode = decoder or decode_segment
         self._load_labels = label_loader or load_labels_cached
+        # Resolved once, not per item: `signature()` is far too slow to run
+        # 632,783 times an epoch. False for a plain callable augmenter and for
+        # a one-argument `plan`.
+        self._plan_takes_available = _accepts_available_seconds(augment)
 
     def __len__(self) -> int:
         return len(self.segments)
@@ -218,7 +222,27 @@ class SegmentDataset:
             # lets `persistent_workers` stay True — worth 6.5 seg/s/worker,
             # measured, because soxr's lazy init is otherwise repaid on every
             # epoch boundary.
-            plan = self.augment.plan(i + self.epoch_offset)
+            # `available_seconds` is what stops an upshift over-reading past
+            # the end of the track. Without it the sampler cannot clamp, so
+            # `decode_segment` returns short and `fit_length` pads the
+            # shortfall with silence — teaching the model that notes stop
+            # there, which is exactly what the clamp exists to prevent.
+            # `duration` is 0.0 for a Segment built without one, which means
+            # "unknown"; pass None there so the sampler applies no constraint.
+            available = (segment.duration - segment.start
+                         if segment.duration else None)
+            if self._plan_takes_available:
+                plan = self.augment.plan(i + self.epoch_offset,
+                                         available_seconds=available)
+            else:
+                # The protocol is duck-typed on `plan`/`apply`, so an
+                # augmenter may implement a one-argument `plan`.
+                # `available_seconds` is an affordance for the sampler that
+                # can use it, not a requirement on everything that can plan.
+                # Detected by signature rather than by catching TypeError,
+                # which would also swallow a genuine TypeError raised INSIDE
+                # a working plan() and turn a real bug into a silent fallback.
+                plan = self.augment.plan(i + self.epoch_offset)
             seconds = plan.source_seconds
 
         audio = self._decode(
@@ -251,6 +275,30 @@ class SegmentDataset:
     @property
     def _samples(self) -> int:
         return int(round(self.seconds * SAMPLE_RATE))
+
+
+def _accepts_available_seconds(augment) -> bool:
+    """Whether `augment.plan` takes an `available_seconds` keyword.
+
+    The plan/apply protocol is duck-typed, so a caller may supply a `plan`
+    that only takes an index. Asking the signature keeps the optional argument
+    optional without wrapping every call in a `TypeError` handler that would
+    also hide a genuine error raised inside a working `plan`.
+    """
+    import inspect
+
+    plan = getattr(augment, "plan", None)
+    if plan is None:
+        return False
+    try:
+        params = inspect.signature(plan).parameters
+    except (TypeError, ValueError):
+        # Builtins and C-implemented callables have no introspectable
+        # signature. Assume the narrower protocol.
+        return False
+    return "available_seconds" in params or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
 
 
 def _rebase(labels: Transcription, start: float, seconds: float) -> Transcription:

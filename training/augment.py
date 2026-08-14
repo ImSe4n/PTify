@@ -54,6 +54,14 @@ SEEDING DOES NOT USE THE GLOBAL RNG
 -----------------------------------
 See `segment_seed`. Three independent reasons, any one of which is fatal to
 the stateful alternative.
+
+**Every stream is keyed on the SEGMENT.** Both the parameter draw in `plan()`
+and the noise draw in `apply()` hash `(seed, epoch, index)`; `apply`'s is
+XOR-separated so the two are independent. Keying the noise on `plan.ir_index`
+instead — as this module originally did — silently collapsed the noise to one
+vector per impulse response: 24 distinct realisations across the whole
+training set, ~146 segments sharing each. Determinism looked identical from
+the outside, which is why no test caught it.
 """
 
 from __future__ import annotations
@@ -134,6 +142,11 @@ class AugmentPlan:
     source_seconds: float
     #: True when `cents` was reduced because the track ran out of tail.
     cents_clamped: bool = False
+    #: The segment index this plan was drawn for. Carried on the plan so
+    #: `apply` can seed the noise stream per SEGMENT without changing its
+    #: signature — see the comment in `apply`, where keying on `ir_index`
+    #: instead collapsed the noise to one vector per impulse response.
+    index: int = 0
 
 
 class AugmentationSampler:
@@ -235,7 +248,7 @@ class AugmentationSampler:
             return AugmentPlan(
                 cents=0.0, ir_index=0, rt60=0.0, wet=0.0, snr_db=None,
                 low_gain_db=0.0, high_gain_db=0.0, peak=None, clean=True,
-                source_seconds=self.seconds,
+                source_seconds=self.seconds, index=index,
             )
 
         # Triangular, not uniform: most pianos are close to in tune, and a
@@ -269,7 +282,7 @@ class AugmentationSampler:
             wet=wet, snr_db=snr_db, low_gain_db=low_gain_db,
             high_gain_db=high_gain_db, peak=peak, clean=False,
             source_seconds=detune_source_seconds(self.seconds, cents),
-            cents_clamped=clamped,
+            cents_clamped=clamped, index=index,
         )
 
     def _clamp_to_available(
@@ -303,8 +316,20 @@ class AugmentationSampler:
         if plan.clean:
             return _fit(audio, out_samples), labels
 
+        # Keyed on the SEGMENT, not on `plan.ir_index`. Keying on the IR index
+        # meant the bank's 24 entries were the only inputs this stream ever
+        # saw, so the entire training set held exactly 24 distinct noise
+        # vectors and every segment drawing the same room got a byte-identical
+        # one — measured at ~146 segments per vector over a 4,000-segment
+        # sample. A fixed additive vector repeated hundreds of times is
+        # something a conv stack can learn to subtract, which is the opposite
+        # of what noise augmentation is for.
+        #
+        # Still a pure function of (seed, epoch, index), so resume stays exact
+        # and workers stay disjoint. The XOR keeps this stream independent of
+        # the one `plan()` drew from for the same segment.
         rng = np.random.default_rng(
-            segment_seed(self.seed, self.epoch, plan.ir_index) ^ 0x9E3779B9
+            segment_seed(self.seed, self.epoch, plan.index) ^ 0x9E3779B9
         )
 
         out, labels = detune_resample(

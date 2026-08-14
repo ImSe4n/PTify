@@ -11,10 +11,18 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | Phase 16a — augmentation in the dataloader, 20.6 seg/s/worker, −8.1 F1 on ByteDance |
-| **Branch** | `phase-16a-augmentation`, branched off **`phase-14-training`** (see the branch note) |
-| **Tests** | 701 passing, ~95s, no model or network needed |
-| **Next** | **Phase 16b/15** — the GPU run with `--augment` on. First one that can improve something |
+| **Last completed** | **Phase 16b — DONE. MAPS 0.7866 → 0.8395 (+5.3), 14 of 14 tracks. The training track's premise is validated.** |
+| **Branch** | `phase-16b-gpu-run`, branched off `master` (which was up to date — verified, see the branch note) |
+| **Tests** | 733 passing, ~110s, no model or network needed |
+| **Next** | **Phase 17** — ship the model behind `TranscriptionEngine`. A second training run is optional; see §9 |
+
+**The headline this project was built to produce.** Fine-tuning ByteDance's
+CRNN for 6,555 steps with room/detune augmentation beat it on the honest
+target: **+5.3 onset F1 on MAPS**, for **−0.6 on MAESTRO**. The gain is
+concentrated in the **ambient** (3–4m mic) subset, +7.9 against +2.7 close-mic
+— the signature of room robustness rather than a model that got better at
+everything. The 18.3-point generalisation gap is now **12.4**, and Phase 13b's
+12.9-point room penalty is now **7.7**.
 
 **The headline number this project was missing.** ByteDance scores **0.969 on
 MAESTRO and 0.787 on MAPS** — an **18.3-point drop** onto an unfamiliar piano
@@ -46,19 +54,20 @@ streams `GET /v1/jobs/{id}/events`. Artifacts come back from
 it with `pip install -e . --no-deps` then
 `python -m uvicorn api.app:create_app --factory`.
 
-**Branch note — `master` is STALE AGAIN, and this bit Phase 16a.** The advice
-below ("branch off `master`") was written before 14.5 shipped and is now
-wrong. `phase-14-training` carries **six commits that are not on `master`**,
-including all five Kaggle bug fixes — gradient accumulation, the non-finite
-loss guard, `diagnose_nan`, the `weights_only` fix and the RNG device fix.
-Branching 16a off `master` as instructed silently produced a `train.py` with
-none of them; caught only because an edit failed to apply against a file that
-should have contained accumulation. **Merge `phase-14-training` and
-`phase-16a-augmentation` into `master` before starting 16b**, then verify with
-`git log --oneline master..<branch>` rather than trusting this file.
+**Branch note — `master` is CURRENT, and the previous warning here was
+stale.** This section used to say `phase-14-training` carried six commits that
+`master` lacked, and told the next phase to merge before starting. By the time
+16b began, both PR #10 and PR #11 had landed: `git diff master
+phase-16a-augmentation` was empty and all six commits were reachable from
+`master`. Acting on the warning without checking would have meant re-doing a
+merge already done.
 
-Historical: `master` had also been 13 commits behind before Phase 3, missing
-Phases 12 and 13. This is the second occurrence, so check rather than assume.
+The instruction the warning ends with is the part that generalises, so it is
+promoted here: **verify with `git log --oneline master..<branch>` and
+`git diff --stat master <branch>` rather than trusting this file.** `master`
+has been stale twice historically (13 commits behind before Phase 3, missing
+Phases 12–13; and before the PR #10 merge), so check rather than assume in
+either direction.
 
 **Deferred from Phase 13:** the full 8-preset × 2-engine degradation matrix.
 The `clean` baseline for both engines exists; the augmented cells do not. See
@@ -100,6 +109,16 @@ curl -F file=@song.mp3 -F formats=midi,pdf http://127.0.0.1:8000/v1/jobs
 .venv\Scripts\python.exe -m evaluation --audio-dir recordings/maestro_test12 ^
     --engine bytedance --preset clean ^
     --json benchmarks/real/bytedance-clean.json
+
+# score a FINE-TUNED checkpoint through the same harness (Phase 16b).
+# Rows keep the `bytedance` label so they key-join against the baseline;
+# the weights are identified by the filename and by checkpoint_sha256 in
+# the report's `source` block. The path is verified before the library
+# sees it -- see the trap in section 4.
+.venv\Scripts\python.exe -m evaluation --audio-dir recordings/maps_paired ^
+    --engine bytedance --preset clean ^
+    --checkpoint checkpoints/ptify-note-pedal.pth ^
+    --json benchmarks/real/maps-paired-ptify-clean.json
 ```
 
 **Long runs: always pass `--json`, and set `PYTHONUNBUFFERED=1`.** A 2.6h
@@ -120,7 +139,8 @@ overhead). 84.5 min of audio takes **~2.6h**. Budget from 1.87x, not 1.1x. Use
 ```
 transcriber/            audio -> notes -> MIDI
   engine.py             TranscriptionEngine ABC + get_engine() factory
-  bytedance.py          DEFAULT. Piano-specific, models pedal + velocity
+  bytedance.py          DEFAULT. Piano-specific, pedal + velocity.
+                        `checkpoint_path=` scores a fine-tuned checkpoint
   basicpitch.py         Fast ONNX. No pedal. Needs harmonic filtering
   events.py             NoteEvent / PedalEvent / Transcription
   midi.py               read/write, pedal as CC64
@@ -170,6 +190,7 @@ training/               inputs to a training run. No model, no torch at import
   losses.py             the four heads; velocity masked to onset frames
   checkpoint.py         save/resume, RNG capture, atomic write, pruning
   train.py              the fine-tuning loop. `--resume auto`, `--augment`
+  kaggle/               notebooks: smoke_run (14.5), full_run (16b)
 ```
 
 **`training/` is a build-time dependency of a checkpoint, not a runtime
@@ -192,6 +213,81 @@ custom-trained model drops in the same way.
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**A SUMMED loss hides the result: velocity is 92% of it and barely moves.**
+`compute_losses` returns `total = onset + offset + frame + velocity`, and the
+velocity term is intrinsically far larger than the other three. Room
+augmentation barely touches it — a note struck hard is still struck hard in a
+wet room — so it acts as a large constant that swamps the signal. Measured
+over Phase 16b's 6,555 steps: the augmented **total moved −1.4%** while
+**onset+offset+frame moved −14.2%** (frame alone −20.9%). Watching `total`
+made a working run look like a stalled one for hours. **`train_log.jsonl`
+records every head separately for exactly this reason — read those, not
+`*_total`.**
+
+**Establish the noise floor before reading a trend.** In the same run, the
+per-step training loss has a spread of ~0.05 while real validation movement is
+~0.005 — an order of magnitude apart, so no per-step line means anything. The
+20-batch validation itself carries ~±0.003. A mid-run story of "clean
+degrading while augmented improves" was constructed from movements of 0.0004
+and contradicted 1,500 steps later. Two numbers and a direction are not a
+trend.
+
+**A custom checkpoint scored WITHOUT `--checkpoint` silently reports
+ByteDance's number.** `PianoTranscription.__init__` re-downloads any file
+under 160MB (inference.py:31) and loads with `strict=False` (inference.py:54),
+so a missing path, an undersized file or a wrong key set all produce a
+plausible score from the *pretrained* weights rather than an error — and it
+reads as "training didn't help". `transcriber/bytedance.py:_assert_loadable`
+checks all three before the library sees the file, and the CLI refuses
+`--checkpoint` with `basicpitch`, with `--compare`, or without `--audio-dir`
+rather than ignoring it. **Validate the instrument in both directions:**
+scoring the *pretrained* file through `--checkpoint` must reproduce the
+baseline exactly (measured: +0.000), and a genuinely different checkpoint must
+produce a different number (measured: 0.739 vs 0.772 on one MAPS track). A
+seam that only ever reproduces the baseline is indistinguishable from one that
+ignores its argument.
+
+**An `lru_cache` sized for sequential access COLLAPSES under `shuffle=True`.**
+`load_labels_cached` was `maxsize=32` because "a worker only ever cycles
+through a handful of tracks" — true sequentially, false across 962 shuffled
+tracks, where the hit rate is 5.3%. A cold MIDI parse is **378.5ms**, eight
+times the ~48ms a whole segment gets at the ≥15 seg/s/worker budget. Measured
+end to end: **2.4 seg/s/worker thrashing against 29.9 resident** — 6x under
+budget versus comfortably inside it. **Phase 16a's 20.6 seg/s/worker was
+measured on a subset that fitted in 32 slots**, so the number matched the
+budget and still did not describe the real run. `MAX_CACHED_TRACKS` is now
+1024 (~253MB/worker, measured at 0.26MB/track). Cache warm-up parses every
+track once, ~3 min across two workers — so an early throughput reading is
+*expected* to be below the steady state.
+
+**Seeding a per-segment stream on anything but the segment silently collapses
+its range.** `apply()` seeded its noise RNG from `plan.ir_index`, so the 24-IR
+bank meant 24 distinct noise vectors across the entire training set, ~146
+segments sharing each byte-for-byte — something a conv stack can learn to
+subtract. All 38 augmentation tests passed, because determinism looks
+identical either way. The test that catches it must hold every other plan
+field constant and vary `index` alone: comparing two naturally-drawn plans
+also varies cents/wet/snr, so the audio differs regardless and **the test
+passes against the bug**.
+
+**A test on the producer is not a test on the consumer.**
+`load_training_state` returned `epoch` and `test_training_state_round_trips`
+asserted the checkpoint carried it — while `train()` set `epoch = 0` on every
+resume and threw it away. Since augmentation is hashed from
+`(seed, epoch, index)`, a resumed run re-drew epoch 1's conditions forever.
+The arithmetic now lives in `train.resume_epoch_state()`, a pure function,
+because reaching it inside `train()` needs a model, a dataset and a GPU —
+and extracting it immediately exposed an off-by-one (the loop increments
+`epoch` before use, so the counter starts one *below* the epoch to run).
+
+**One epoch is 72 hours, so `epoch_offset` never fires in a real run.** The
+full train split is 564,137 segments = 70,517 steps at effective batch 8; at
+the measured 0.27 steps/s a 10-hour session is **15% of one epoch** and the
+whole 30h weekly quota is 0.41 of one. The `epoch > 1` branch in `train.py` is
+correctness for a future longer run, not something the current runs exercise.
+Do not read the 44%-throughput story below as describing a mechanism these
+runs reach.
 
 **A resample detune's label error GROWS WITH TIME, and 10 cents is already
 too much.** Changing playback rate shifts pitch and time together, so a label
@@ -485,7 +581,26 @@ fetched; the 14 paired tracks (58 min, 30,356 notes) carry the ByteDance run.
 | engine | MAESTRO | MAPS | drop |
 |---|---|---|---|
 | ByteDance | 0.969 | **0.787** | **−0.183** |
+| **PTify 16b** (fine-tuned) | 0.963 | **0.840** | **−0.124** |
 | Basic Pitch | 0.730 | **0.727** | −0.003 |
+
+**Phase 16b closed 32% of that gap.** Room/detune augmentation for 6,555 steps
+moved MAPS +5.3 points for −0.6 on MAESTRO, improving 14 of 14 tracks. Broken
+down by mic distance, which is where the mechanism shows:
+
+| ByteDance → PTify 16b | onset | delta |
+|---|---|---|
+| `ENSTDkCl` close (~50cm) | 0.851 → 0.878 | +0.027 |
+| `ENSTDkAm` ambient (3–4m) | 0.722 → **0.801** | **+0.079** |
+| **room penalty** | 0.129 → **0.077** | **−0.052** |
+
+The ambient subset gains 2.9x the close-mic subset. That asymmetry is the
+evidence the improvement is room robustness and not a general uplift.
+
+**Unexplained, do not quote as a win:** MAESTRO `+offset` rose 0.381 → 0.520
+while MAPS `+offset` FELL 0.607 → 0.431. Nothing targeted offsets, and two
+corpora disagreeing in direction means something systematic is unaccounted
+for. Investigate before relying on either number.
 
 **This is the measurement the whole training track was waiting for.** README
 predicted a ~20-point loss on unfamiliar acoustics from published work; the
@@ -782,9 +897,16 @@ python -m training.train --index benchmarks/maestro_segments_smoke.json \
 
 | | |
 |---|---|
-| throughput | **20.6 seg/s/worker** (budget ≥15), 17.3ms/segment |
+| throughput | 20.6 seg/s/worker as measured then — **superseded, see below** |
 | effect on ByteDance | **0.9733 → 0.8920 onset F1**, −8.1 points, real MAESTRO audio |
 | CPU smoke run | loss 0.9929 → 0.7800, `VAL 0.6965` / `AUG 0.7030`, 172.0 MB deployable |
+
+**Correction from 16b: that 20.6 did not describe a full-corpus run.** It was
+measured on a subset small enough to fit the 32-slot label cache, so it never
+exercised the thrash that a shuffle over 962 tracks causes. Re-measured on
+real MAESTRO audio: **2.4 seg/s/worker** with the old cache, **29.9** with the
+cache sized to the corpus. The −8.1 F1 and the smoke-run figures are
+unaffected — they never depended on cache residency.
 
 ```bash
 python -m training.train --augment --augment-seed 0 \
@@ -809,11 +931,63 @@ the condition does not drift between steps. A clean val curve can improve
 while room robustness goes nowhere; that would otherwise only surface at
 Phase 17's MAPS scoring.
 
-**Next: 16b/15, the real GPU run.** Everything it needs is proven. The open
-question is not plumbing but hyperparameters — how long to train, and whether
-`--augment-max-cents 50` and the 20% clean share are the right trade. Score
-against `benchmarks/real/maps-*.json` with `report.compare_reports()`, and
-remember the target is **beating 0.787 on MAPS, not 0.969 on MAESTRO**.
+### Phase 16b prep is DONE. The run is now measurable — go spend the quota.
+
+The handoff used to say 16b's open question was hyperparameters. It was not:
+**a fine-tuned checkpoint could not be scored at all**, and three defects in
+the augmented path would have quietly degraded the run that produced it. All
+fixed, all on CPU, no quota spent. See §4 for each trap.
+
+| | |
+|---|---|
+| scoring seam | `--checkpoint` through `get_engine` → `run_real_audio` → `ByteDanceEngine` |
+| seam validated | pretrained through the seam = **+0.000 on all 14 MAPS tracks** (0.786612, bitwise identical); a trained checkpoint = **0.739 vs 0.772** |
+| noise diversity | 24 realisations → one per segment |
+| resume | `epoch` restored, so conditions do not reset to epoch 1 |
+| dataloader | **2.4 → 29.9 seg/s/worker** (label cache was thrashing under shuffle) |
+| tests | 701 → 729, ~109s |
+
+**Run it with `training/kaggle/full_run.ipynb`.** It changes exactly one thing
+against 14.5's known-good configuration — `--augment` — and uses the full
+index rather than the smoke subset:
+
+```bash
+python -m training.train --augment --augment-seed 0 \
+    --index benchmarks/maestro_segments.json --audio-root <mount> \
+    --out /kaggle/working/checkpoints \
+    --device cuda --no-amp --batch-size 2 --accum-steps 4 --workers 2 \
+    --steps 10000 --log-every 50 --validate-every 500 \
+    --save-every-seconds 1800 --resume auto
+```
+
+`--steps 10000` is ~10.3h at 0.27 steps/s. **Do not change a second variable
+on the first run** — §4 records five failures that came from doing exactly
+that. `--augment-max-cents` and the 20% clean share are genuinely open, but
+they are *second-run* questions: answering them needs run 1's scoreboard to
+compare against, and each costs another ~10h of a 30h weekly quota.
+
+Then score it, ~1.8h per pass at ~1.87x real time:
+
+```bash
+set PYTHONUNBUFFERED=1
+python -m evaluation --audio-dir recordings/maps_paired ^
+    --engine bytedance --preset clean --checkpoint <ckpt> ^
+    --json benchmarks/real/maps-paired-ptify-clean.json
+```
+
+and diff with `report.compare_reports()` against
+`benchmarks/real/maps-paired-bytedance-clean.json` (**0.7866**, 14 rows).
+Re-run against `recordings/maestro_test12` too and diff against
+`bytedance-clean.json` (0.9693): **some MAESTRO loss is the expected price**,
+bounded by the 20% clean passthrough. A large MAESTRO collapse means the
+pretrained weights were damaged and points at the learning rate, not at the
+augmentation.
+
+Custom rows deliberately keep the `bytedance` engine label so they key-join
+against the baseline; the weights are identified by the filename and by
+`checkpoint` / `checkpoint_sha256` in the report's `source` block.
+
+**The target is beating 0.787 on MAPS, not 0.969 on MAESTRO.**
 
 What Phase 14 leaves ready:
 

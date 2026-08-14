@@ -1407,6 +1407,274 @@ number — `PRESETS`, `apply_preset` and `pitch_shift` are untouched, and
 
 ---
 
+## 2026-08-13 — Phase 16b: making the run measurable before running it
+
+The handoff said the open question for 16b was hyperparameters. It was not.
+**A fine-tuned checkpoint could not be scored at all**, and three defects in
+the augmented path would have silently degraded the run that produced it. All
+of this is CPU work, so none of it cost GPU quota — and all of it had to
+happen before the quota was spent, because a 10-hour run you cannot measure is
+10 hours wasted.
+
+**Delivered:** the `--checkpoint` seam end to end, three correctness fixes, a
+dataloader throughput fix worth 12x, `training/kaggle/full_run.ipynb`, and 28
+tests (701 → 729, ~109s, still no model/network/GPU).
+
+### The seam HANDOFF said existed, and did not
+
+HANDOFF §9 said a custom model "drops in as a third `TranscriptionEngine`" and
+that "that seam is why `get_engine()` exists". The seam exists for *engines*;
+there was none for *weights*. `ByteDanceEngine.load()` called
+`PianoTranscription(device=...)` with no `checkpoint_path`, and
+`python -m evaluation` had no flag to supply one.
+
+`--checkpoint` now threads through `get_engine` → `run_real_audio` →
+`ByteDanceEngine`. Two decisions worth recording:
+
+- **Custom rows keep the `bytedance` label.** `report._key` joins on
+  `(engine, case, preset)`, so relabelling them `ptify` would have made
+  `compare_reports()` print two disjoint sets of added/removed keys instead of
+  deltas. The weights are identified by the output filename and by a new
+  `checkpoint` + `checkpoint_sha256` pair in the report's provenance block.
+- **Everything that cannot use it is rejected, not ignored.** `--checkpoint`
+  with `basicpitch`, with `--compare`, without `--audio-dir`, or pointing at a
+  missing file all fail before any inference runs. Each would otherwise have
+  scored the *pretrained* weights and written a file that reads like a custom
+  result.
+
+`_assert_loadable` re-checks the 160MB floor and the `note_model`/`pedal_model`
+keys at the point of use, because `PianoTranscription` re-downloads anything
+smaller and loads with `strict=False` — both failures produce ByteDance's
+numbers under your filename rather than an error.
+
+**Validated as an instrument before being trusted.** Scoring the *pretrained*
+checkpoint through `--checkpoint` over the full 14-track MAPS corpus
+reproduces the baseline exactly: **+0.000 on every track**, mean 0.786612
+against 0.786612, onset F1 bitwise identical on all 14 keys, and the rows
+key-joining correctly under `compare_reports`.
+
+Then the opposite control, which matters just as much — a 4-step CPU-trained
+checkpoint through the same path scores **0.739 against the pretrained
+0.772**. Custom weights are demonstrably being loaded rather than silently
+replaced. A seam that only ever reproduced the baseline would be
+indistinguishable from one that ignores its argument, so both directions were
+needed.
+
+### The noise had 24 distinct values, not 632,783
+
+`apply()` seeded its noise RNG from `segment_seed(seed, epoch, plan.ir_index)`
+— **the impulse-response index, not the segment index.** The IR bank holds 24
+entries, so the entire training set contained exactly 24 noise vectors, each
+shared byte-for-byte by ~146 segments. Verified directly: segments 2 and 68
+both draw `ir_index 7` and their noise arrays compare equal element-for-element.
+
+A fixed additive vector repeated hundreds of times is something a conv stack
+can learn to subtract, which is the opposite of what noise augmentation is
+for. Determinism looked identical from the outside either way, which is why
+all 38 existing augmentation tests passed.
+
+The plan now carries the segment index and the stream is keyed on it. Worth
+noting how nearly the *test* failed too: the first version compared two
+naturally-drawn plans, which also differ in cents, wet and snr_db — so their
+audio differed regardless of the noise seed, and the test **passed against the
+bug**. Only holding every other field constant and varying `index` alone
+isolates it. Counterfactually verified in both directions.
+
+### `epoch` was saved on every checkpoint and thrown away on every resume
+
+`load_training_state` returned it; `train()` set `epoch = 0` unconditionally.
+Since the augmentation condition is hashed from `(seed, epoch, index)`, a
+resumed run would re-draw epoch 1's conditions forever and never draw the
+later epochs' at all — the distribution narrows silently, with no error and a
+normal-looking loss curve.
+
+`test_training_state_round_trips` asserts the checkpoint *carries* `epoch`,
+which made this look covered while the consumer ignored it. That is the most
+misleading kind of coverage: a test on the producer standing in for a test on
+the consumer.
+
+The arithmetic is now `resume_epoch_state()`, a pure function, because
+reaching it inside `train()` needs a model, a dataset and a GPU. Extracting it
+immediately exposed an off-by-one in the first fix — the loop increments
+`epoch` before use, so the counter has to start one *below* the epoch to run,
+or a resume during epoch 5 continues at 6 and skips the remainder.
+
+**This cannot bite in Phase 16b**, and the docs now say so: one epoch of the
+full index is 70,517 steps ≈ **72 hours** at 0.27 steps/s, so a 10-hour
+session is 15% of a single epoch and the whole 30h weekly quota is 0.41 of
+one. The `epoch_offset` machinery is correctness for a future longer run.
+
+### The dataloader budget was broken, and the 16a number could not have caught it
+
+`load_labels_cached` was `lru_cache(maxsize=32)`, justified by "a worker only
+ever cycles through a handful of tracks before moving on" — true under
+sequential access, false under `shuffle=True` across 962 tracks, where the
+simulated hit rate is 5.3%.
+
+Measured on real MAESTRO MIDI, a cold parse is **378.5ms**, against the ~48ms
+a whole segment gets at the ≥15 seg/s/worker budget. A miss is eight times the
+entire budget. Measured end to end by thrashing a real cache over real audio
+(2 slots over 12 tracks reproduces 32 over 962):
+
+| maxsize | hit rate | ms/item | seg/s/worker |
+|---|---|---|---|
+| 2 | 42% | 409.9 | **2.4** — 6x under budget |
+| 32 | 69% | 132.5 | 7.5 |
+| resident | 93% | 33.5 | **29.9** — steady state |
+
+**Phase 16a's 20.6 seg/s/worker was measured on a subset small enough to fit
+in 32 slots**, so it never exercised the thrash it was meant to certify. This
+is the same lesson as 16a's `persistent_workers` finding, one level down: the
+measurement matched the budget and still did not describe the real run.
+
+Raised to 1024 (0.26MB/track measured → ~253MB per worker, against Kaggle's
+13GB). Cache warm-up still parses every track once, ~3 minutes across two
+workers — 0.5% of a 10-hour session, and the reason an early throughput
+reading reads lower than the steady state. The dataloader now has **28x
+headroom** over the 0.27 steps/s the GPU actually consumes.
+
+### A clamp that had never once fired
+
+`AugmentationSampler._clamp_to_available` reduces an upshift that would
+over-read past the end of a track — but `SegmentDataset` never passed
+`available_seconds`, so it was unreachable from the training path.
+`decode_segment` clamped silently and `fit_length` padded the shortfall with
+zeros instead: the invented silence the clamp exists to prevent.
+
+`Segment` now carries `duration` (defaulted, so the JSON schema is unchanged).
+**Measured impact: 274 of 564,137 train segments = 0.05%** — 28.5% of *tracks*
+have a short final tail, but only their last segment is affected, and sampling
+is per segment. Two lines to restore a guarantee the code already claimed.
+
+Detection is by signature rather than by catching `TypeError`, which would
+also have swallowed a genuine error raised *inside* a working `plan()` and
+turned a real bug into a silent fallback.
+
+### One correction to the handoff
+
+**`master` was not stale.** HANDOFF §1 warned that six phase-14 commits lived
+only on a branch and told the next phase to merge before starting. Both merges
+had already landed — `git diff master phase-16a-augmentation` is empty and all
+six commits are reachable via PR #10. The warning was verified before being
+acted on, which is what §1 itself now says to do.
+
+### The GPU run: 6,555 steps, and a metric that was hiding the result
+
+Ran on a Kaggle T4 with `--augment` as the single change from 14.5's
+known-good configuration, on the full 962-track index. Stopped at step 6,555
+of 10,000 once the curve had flattened. Log committed at
+`benchmarks/training/16b-step6555.jsonl`.
+
+**`total` was the wrong number to watch, and it was the number being watched.**
+Velocity is **92% of the loss** and barely moves under room augmentation — a
+note struck hard is still struck hard in a wet room, and the velocity loss is
+masked to onset frames anyway. That one flat head masked everything else:
+
+| augmented head | step 500 → 6500 | |
+|---|---|---|
+| frame | 0.03742 → 0.02961 | **−20.9%** |
+| offset | 0.01934 → 0.01794 | **−7.2%** |
+| onset | 0.00972 → 0.00948 | −2.4% |
+| velocity | 0.65637 → 0.65676 | +0.1% (92% of total) |
+| **onset+offset+frame** | 0.06648 → 0.05703 | **−14.2%** |
+
+So the augmented total moved −1.4% while the three heads that actually drive
+note F1 moved **−14.2%**. Frame improving 21% is the most encouraging signal
+in the run: frame prediction is "which notes are sounding", and smeared note
+boundaries are exactly what reverb does. Offset improving 7.2% matters
+independently, because `+offset` (0.381) is this project's documented weak
+spot and the input to `notation/`.
+
+*This was reported wrongly for most of the run.* The totals were narrated live
+as "barely moving", and a mid-run reading of "VAL degrading while AUG
+improves" was built from movements of 0.0004 — inside a noise band that had
+not been established. Two corrections followed from the data itself: step 4000
+put VAL below its earlier best, and the per-head breakdown at the end showed
+the totals had never been the informative number. **Establish the noise floor
+before narrating a trend, and decompose a summed loss before trusting it.**
+
+**Converged early.** 56% of the augmented improvement landed in the first
+1,000 steps; the last six validation points sit within 0.0019 (sd 0.0007), and
+step 6500 rose on both metrics. The remaining 3,445 steps were forecast to buy
+~0.002 — inside the noise — so the run was stopped and the quota kept.
+
+**Peak GPU was 4.99 GB of a T4's 14.56.** `--batch-size 2 --accum-steps 4` was
+tuned in 14.5 to survive an OOM *under AMP* and was carried into an fp32 run
+that did not need it. A future run should raise the batch before spending more
+quota on steps.
+
+**Reproducible across three sessions.** A manual interrupt and a Kaggle
+container recycle split the run into three; at matched steps the validation
+numbers agree to ~0.0007. That is the hash-seeded augmentation and the
+restored RNG state doing exactly what they were built for — and the epoch fix
+above is why the resumed segments drew the right conditions.
+
+### The result: 0.7866 → 0.8395 on MAPS, 14 of 14 tracks
+
+**+5.3 onset F1 points**, scored through the same harness that produced every
+baseline, joined by `compare_reports` on (engine, case, preset).
+
+| | ByteDance | PTify 16b | delta |
+|---|---|---|---|
+| **MAPS paired (14 tracks)** | 0.7866 | **0.8395** | **+0.053** |
+| MAPS ambient (3–4m mics) | 0.7222 | **0.8012** | **+0.079** |
+| MAPS close (~50cm) | 0.8510 | 0.8778 | +0.027 |
+| MAESTRO (regression guard) | 0.9693 | 0.9633 | −0.006 |
+
+**The gain is concentrated where the theory says it should be.** The ambient
+subset — the same performances at 3–4m instead of ~50cm — gained **2.9x** what
+the close-mic subset did. That is the signature of room robustness, not of a
+model that simply got better at everything, and it is the strongest evidence
+the improvement is causal rather than incidental.
+
+Consequently the **room-acoustics penalty measured in Phase 13b falls from
+12.9 points to 7.7**, and the **MAESTRO→MAPS generalisation gap closes from
+18.3 to 12.4 — 32% of it**, for one 10-hour session at lr 5e-5 on 15% of a
+single epoch.
+
+**The price was 0.6 points on MAESTRO**, consistent across all 12 tracks
+(−0.001 to −0.009). That is the trade the 20% clean passthrough exists to
+bound, and it cost about a ninth of what it bought. No sign of the pretrained
+weights being damaged.
+
+**An unexplained result, flagged rather than claimed.** MAESTRO `+offset` rose
+**0.3807 → 0.5196 (+13.9)** while MAPS `+offset` FELL 0.6069 → 0.4314. Nothing
+in this phase targeted offsets, and two corpora moving in opposite directions
+on the same metric means something systematic is happening that is not yet
+understood. Offset accuracy is this project's documented weak spot and the
+input to `notation/`, so it is worth investigating — but it is not a result to
+report as an improvement until the disagreement is explained.
+
+### Getting the artifact off Kaggle, and a fourth disguise of the same trap
+
+Kaggle's file browser, `FileLink`, and the Output panel all failed on this
+session (404s and a "databundle source" error), and the console silently
+dropped output lines throughout — including several validation lines and a
+`saved step_N.pt`. **The scrollback is not a record; `train_log.jsonl` is.**
+The checkpoint eventually came out through `kaggle datasets create`.
+
+A resumable `step_*.pt` (260MB, carries optimizer + RNG state) is not
+loadable by `PianoTranscription`, and the 172MB deployable is only written
+when the loop exits normally — which an interrupted run never does. So
+`training/deployable.py` converts one to the other, re-attaching the untrained
+pedal weights from the pretrained file exactly as `save_deployable` does.
+
+Then, setting up the scoring, the "silent wrong weights" failure appeared for
+a **fourth** time in this phase: `_device_of()` built a second engine without
+the checkpoint purely to read `.device` off it, so it loaded ByteDance's
+pretrained weights. Caught only because the seam prints its checkpoint path on
+startup and the MAESTRO run printed the wrong one. It corrupted no score — the
+engine that transcribes is built separately inside `run_real_audio` — but it
+loaded a 172MB model that was not the one being measured. Fixed, with the
+device cache now keyed on `(engine, checkpoint)` so a baseline and a custom
+run cannot share an entry.
+
+That trap has now appeared as: no seam at all, an undersized file, a wrong key
+set, and a redundant engine. It is the single most persistent hazard in this
+codebase.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

@@ -175,16 +175,23 @@ def run_real_audio(
     audio_dir: Path,
     preset: str = "clean",
     progress: bool = True,
+    checkpoint_path=None,
 ) -> list[BenchmarkRow]:
     """Score real recordings that have matching .mid ground truth.
 
     Expects `name.wav` (or .mp3/.flac) beside `name.mid`. This is the only
     configuration that can measure real-world degradation.
+
+    `checkpoint_path` scores custom weights through this same harness. Rows
+    keep `engine_name` as their label, so a custom run key-joins against the
+    baseline under `report.compare_reports` — which joins on
+    (engine, case, preset) — and the differing weights are recorded by the
+    output filename and the report's environment block instead.
     """
     import librosa
     import soundfile as sf
 
-    engine = get_engine(engine_name)
+    engine = get_engine(engine_name, checkpoint_path=checkpoint_path)
     audio_dir = Path(audio_dir)
 
     pairs = _find_pairs(audio_dir)
