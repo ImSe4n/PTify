@@ -53,6 +53,14 @@ class ScoreStats:
     #: risking a file that disagrees with the engraved page.
     notes: list[QuantisedNote] = field(default_factory=list, repr=False)
 
+    #: What `notation.analysis` found. `key` is None when detection was off or
+    #: the material was too chromatic to call -- which is a real answer, not a
+    #: failure, and the CLI reports it as such.
+    key: object | None = None
+    n_trills: int = 0
+    n_staccato: int = 0
+    time_signature: str = "4/4"
+
 
 def _split_point(notes: list[QuantisedNote]) -> int:
     """Choose the treble/bass boundary from the pitch distribution.
@@ -96,14 +104,22 @@ def _group_into_chords(
     return sorted(groups.items())
 
 
-def _fill_part(part, notes: list[QuantisedNote], clef_obj) -> None:
+def _fill_part(part, notes: list[QuantisedNote], clef_obj,
+               trill_starts: set = None, staccato: set = None) -> None:
     """Append notes to a music21 Part, inserting rests for gaps.
 
     Notes are *inserted* at explicit offsets rather than appended in sequence,
     so an overlapping or out-of-order group cannot shift everything after it.
     music21 fills the remaining gaps with rests when the measures are made.
+
+    `trill_starts` is a set of grid positions carrying a trill; `staccato` is a
+    set of ids() of the QuantisedNotes to mark. Both are keyed that way because
+    grouping into chords loses the original indices.
     """
-    from music21 import chord, note as m21note
+    from music21 import articulations, chord, expressions, note as m21note
+
+    trill_starts = trill_starts or set()
+    staccato = staccato or set()
 
     part.insert(0, clef_obj)
 
@@ -119,10 +135,19 @@ def _fill_part(part, notes: list[QuantisedNote], clef_obj) -> None:
             el = chord.Chord(pitches)
         el.quarterLength = length
 
-        # Average velocity of the group -> MusicXML dynamics on export.
+        # PLAYBACK velocity only -- this exports as MusicXML <sound dynamics>,
+        # NOT as an engraved p/f marking. The comment here used to claim it
+        # produced dynamics on the page; it never did. Printed dynamics come
+        # from `analysis.detect_dynamics` and are inserted in build_score.
         el.volume.velocity = int(
             sum(g.velocity for g in group) / len(group)
         )
+
+        if round(start, 6) in trill_starts:
+            el.expressions.append(expressions.Trill())
+        if any(id(g) in staccato for g in group):
+            el.articulations.append(articulations.Staccato())
+
         part.insert(start, el)
 
 
@@ -132,9 +157,19 @@ def build_score(
     beats_per_bar: int = 4,
     title: str = "",
     composer: str = "",
+    key_estimate=None,
+    time_signature: str = "",
+    trill_starts: set = None,
+    staccato: set = None,
+    dynamics_marks: list = None,
 ):
-    """Assemble a two-staff piano score from quantised notes."""
-    from music21 import clef, instrument, layout, metadata, meter, stream, tempo
+    """Assemble a two-staff piano score from quantised notes.
+
+    The optional arguments carry `notation.analysis` results. All default to
+    off, so a caller that does no analysis gets exactly the previous score.
+    """
+    from music21 import clef, instrument, key as m21key, layout, metadata, \
+        meter, stream, tempo
 
     sc = stream.Score()
     sc.insert(0, metadata.Metadata())
@@ -149,13 +184,30 @@ def build_score(
     lh = stream.Part(id="bass")
     rh.insert(0, instrument.Piano())
 
-    ts = meter.TimeSignature(f"{beats_per_bar}/4")
-    rh.insert(0, ts)
-    lh.insert(0, meter.TimeSignature(f"{beats_per_bar}/4"))
+    # A real meter string, so 6/8 and 2/2 are expressible. The denominator used
+    # to be hardcoded to /4, which silently turned 6/8 into 6/4.
+    ts_string = time_signature or f"{beats_per_bar}/4"
+    rh.insert(0, meter.TimeSignature(ts_string))
+    lh.insert(0, meter.TimeSignature(ts_string))
     rh.insert(0, tempo.MetronomeMark(number=round(bpm, 2)))
 
-    _fill_part(rh, treble, clef.TrebleClef())
-    _fill_part(lh, bass, clef.BassClef())
+    # Inserted on BOTH staves: a key signature on one staff of a grand staff is
+    # a malformed score. music21 respells accidentals from this, which is what
+    # stops every black key printing as a sharp.
+    if key_estimate is not None and key_estimate.confident:
+        for part in (rh, lh):
+            part.insert(0, m21key.Key(key_estimate.tonic, key_estimate.mode))
+
+    _fill_part(rh, treble, clef.TrebleClef(), trill_starts, staccato)
+    _fill_part(lh, bass, clef.BassClef(), trill_starts, staccato)
+
+    # Dynamics belong to the piece, not to a hand. They go on the bass staff by
+    # convention for piano music (printed between the staves).
+    if dynamics_marks:
+        from music21 import dynamics as m21dyn
+
+        for start, mark in dynamics_marks:
+            lh.insert(start, m21dyn.Dynamic(mark))
 
     # makeNotation fills rests, splits notes across barlines and adds ties.
     # Without it Verovio receives bars that do not add up and silently drops
@@ -169,28 +221,80 @@ def build_score(
     return sc
 
 
+def _trill_positions(qnotes, ornaments) -> set:
+    """Grid positions of the notes that replaced a trill run.
+
+    Matched by pitch and time rather than by index: `apply_ornaments` rebuilt
+    the list, and quantisation then moved every onset onto the grid.
+    """
+    out = set()
+    for o in ornaments:
+        for q in qnotes:
+            if q.pitch != o.pitch or q.source is None:
+                continue
+            if abs(q.source.onset - o.onset) < 1e-6:
+                out.add(round(q.start_beats, 6))
+                break
+    return out
+
+
 def transcription_to_score(
     tr: Transcription,
     grid: BeatGrid | None = None,
     beats_per_bar: int = 4,
     title: str = "",
     composer: str = "",
+    analyse: bool = True,
+    time_signature: str = "",
 ):
     """`Transcription` -> (score, stats), quantising against `grid`.
 
     When no grid is supplied a constant-tempo one is used. That is the correct
     fallback for MIDI input, where there is no audio to beat-track.
+
+    `analyse=False` turns off key/ornament/articulation/dynamics detection and
+    reproduces the pre-Phase-20 score exactly. It exists so a caller that wants
+    only the literal notes -- and any test pinning the old behaviour -- can say
+    so explicitly.
     """
     if grid is None:
         grid = grid_from_tempo(120.0, tr.duration or 1.0, beats_per_bar)
 
-    qnotes = quantise_notes(tr.notes, grid, tr.pedals)
+    from . import analysis
+
+    # ORDER IS LOAD-BEARING, and this is the only place it is visible.
+    #
+    # Ornaments are detected on the RAW notes, because quantisation destroys
+    # the evidence: a trill alternates at 15-20 notes/sec and the default grid
+    # is a sixteenth (125ms at 120 BPM), so a real trill collapses onto a
+    # handful of grid slots. Measured: 12 notes at 17/sec -> 6 grid positions.
+    # `test_a_trill_is_not_detectable_after_quantisation` pins this.
+    key_estimate = analysis.detect_key(tr.notes) if analyse else None
+    ornaments = analysis.detect_trills(tr.notes) if analyse else []
+    notes_for_grid = analysis.apply_ornaments(tr.notes, ornaments)
+
+    qnotes = quantise_notes(notes_for_grid, grid, tr.pedals)
+
+    # Articulation is the other way round: "staccato" compares the played
+    # duration against the NOTATED one, which does not exist until the note is
+    # on the grid.
+    staccato_idx = analysis.detect_staccato(qnotes, grid) if analyse else set()
+    staccato_ids = {id(qnotes[i]) for i in staccato_idx}
+    dynamics_marks = analysis.detect_dynamics(qnotes) if analyse else []
+
+    trill_starts = _trill_positions(qnotes, ornaments)
+
     sc = build_score(
         qnotes,
         bpm=grid.bpm,
         beats_per_bar=grid.beats_per_bar,
         title=title,
         composer=composer,
+        key_estimate=key_estimate,
+        time_signature=time_signature,
+        trill_starts=trill_starts,
+        staccato=staccato_ids,
+        dynamics_marks=dynamics_marks,
     )
 
     n_measures = 0
@@ -204,5 +308,9 @@ def transcription_to_score(
         split_point=_split_point(qnotes),
         uncertain_fraction=uncertain_fraction(qnotes),
         notes=qnotes,
+        key=key_estimate,
+        n_trills=len(ornaments),
+        n_staccato=len(staccato_ids),
+        time_signature=time_signature or f"{grid.beats_per_bar}/4",
     )
     return sc, stats

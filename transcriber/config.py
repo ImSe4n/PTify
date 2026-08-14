@@ -57,6 +57,64 @@ HARMONIC_SIMULTANEITY_SEC = 0.05  # partials start with their fundamental
 # ByteDance does not need harmonic filtering — it is piano-specific and was
 # measured reporting no onsets at all while a note merely rang under pedal.
 
+# --- Notation analysis (notation/analysis.py) ---
+# These decide what gets PRINTED, not what gets detected. The bias throughout
+# is conservative: a symbol that was not played rewrites the music, which is
+# worse than printing the notes literally. Under-calling is recoverable by
+# reading the notes; over-calling is not.
+
+# Krumhansl-Schmuckler correlation below which no key signature is printed.
+# Measured on synthetic material: an unambiguous D major scale correlates at
+# 0.905, and its runner-up (the relative B minor) at 0.76. Chromatic or atonal
+# writing has no correct key, and forcing one misspells every accidental on
+# the page — so a weak reading prints C major (no signature) instead.
+KEY_MIN_CORRELATION = 0.55
+KEY_MIN_NOTES = 8          # fewer than this is not evidence of a key at all
+
+# --- Trills ---
+# A trill alternates between two ADJACENT pitches: a semitone or a tone. A
+# wider interval is a tremolo, which is notated differently.
+TRILL_MAX_INTERVAL = 2
+
+# Maximum gap between consecutive onsets within a trill. MEASURED over the
+# ground-truth MIDI of 6 MAPS tracks: 1,543 consecutive adjacent-pitch onset
+# pairs under 0.5s apart, distributed
+#
+#     p5 0.050s (20.0/sec)   p25 0.070s (14.2/sec)   p75 0.148s (6.8/sec)
+#     p10 0.061s (16.3/sec)  p50 0.098s (10.2/sec)
+#
+# so real trill-speed alternation sits between roughly 7 and 20 notes/sec.
+# 0.16s (6.3/sec) is just outside p75: it admits the genuine trill range while
+# excluding the slow alternating figures a reader expects written out in full.
+TRILL_MAX_ONSET_GAP_SEC = 0.16
+
+# Four notes is two full there-and-back alternations. Three is a turn or an
+# ordinary neighbour-note figure, and calling those trills would rewrite very
+# common ornamental writing.
+TRILL_MIN_ALTERNATIONS = 4
+
+# --- Staccato ---
+# Ratio of played duration to NOTATED duration below which a note is marked
+# staccato. The conventional performance value is about one half of the
+# written value; 0.5 would therefore fire on ordinary detached playing, so the
+# threshold sits well below it and only catches genuinely clipped notes.
+# Never applied to a note whose duration is uncertain — see analysis.py.
+STACCATO_MAX_RATIO = 0.35
+
+# --- Dynamics ---
+# Averaged over this many consecutive notes before a marking is emitted, so a
+# single accent does not print a dynamic.
+DYNAMICS_WINDOW_NOTES = 12
+
+# (upper bound, marking) — the usual MIDI convention. This is a MAPPING, not a
+# measurement: no ground truth in this project labels dynamics, so unlike the
+# constants above it cannot be tuned against anything. Said plainly so nobody
+# looks for the sweep that produced it.
+DYNAMIC_LEVELS = (
+    (24, "pp"), (40, "p"), (56, "mp"),
+    (72, "mf"), (88, "f"), (104, "ff"), (128, "fff"),
+)
+
 # --- Note-end decoding (ByteDance architecture: bytedance + ptify) ---
 # A note ENDS when the FRAME head's activation falls below this. It is not the
 # offset head that decides duration, which is why 16b's offset loss falling
