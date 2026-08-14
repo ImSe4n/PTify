@@ -18,9 +18,13 @@ import sys
 import time
 from pathlib import Path
 
-from .engine import get_engine
+from .engine import ENGINE_NAMES, get_engine
 from .events import midi_to_name
 from .midi import read_midi, write_midi
+# Import-safe: ptify.py pulls in no heavy dependency at module level (torch is
+# imported inside ByteDanceEngine.load()), so naming the exception here does
+# not slow down `--doctor` or a basicpitch run.
+from .ptify import PtifyWeightsMissing
 
 AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aiff", ".aif"}
 
@@ -57,8 +61,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-o", "--output", type=Path, default=None,
                     help="output .mid path (default: alongside the input)")
     ap.add_argument("--engine", default="bytedance",
-                    choices=["bytedance", "basicpitch"],
-                    help="transcription model (default: bytedance)")
+                    choices=list(ENGINE_NAMES),
+                    help="transcription model (default: bytedance). ptify is "
+                         "the fine-tuned model and needs its checkpoint; see "
+                         "--doctor")
     ap.add_argument("--notes", action="store_true",
                     help="print the detected notes")
     ap.add_argument("--verify", action="store_true",
@@ -99,6 +105,13 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.perf_counter()
     try:
         tr = engine.transcribe_file(str(args.input), progress=_progress_printer())
+    except PtifyWeightsMissing as exc:
+        # Caught BEFORE the generic handler below, which would prefix this with
+        # "could not transcribe ... PtifyWeightsMissing:" and bury a message
+        # that already says exactly what to do. It is not a transcription
+        # failure -- the engine never started.
+        print(f"\nerror: {exc}", file=sys.stderr)
+        return 1
     except ImportError as exc:
         # Optional engine dependencies are imported lazily inside load(), so
         # a missing package surfaces here rather than from get_engine().
