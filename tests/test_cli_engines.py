@@ -219,6 +219,39 @@ def test_a_bytedance_run_records_no_checkpoint(tmp_path):
     assert "checkpoint" not in src
 
 
+def test_a_report_records_the_note_end_threshold_that_produced_it(tmp_path):
+    # Same reason as `checkpoint`: it changes the numbers. Measured in Phase 19
+    # at 0.19 +offset F1 on one track with onsets untouched, so two reports off
+    # identical weights are not comparable unless both name it.
+    import argparse
+
+    from evaluation.__main__ import _source
+    from transcriber import config
+
+    for engine, expected in (("bytedance", config.BYTEDANCE_FRAME_THRESHOLD),
+                             ("ptify", config.PTIFY_FRAME_THRESHOLD)):
+        src = _source(argparse.Namespace(audio_dir=tmp_path, checkpoint=None,
+                                         engine=engine), 14)
+        assert src["frame_threshold"] == expected
+
+
+def test_the_threshold_lookup_never_loads_a_model(tmp_path, monkeypatch):
+    # A 17-50s load to fill in one provenance field would be paid on every
+    # cell of a preset sweep -- the same trap `_resolved_checkpoint` documents.
+    import argparse
+
+    from evaluation.__main__ import _source
+
+    def explode(*a, **k):  # pragma: no cover - must never run
+        raise AssertionError("_source constructed an engine")
+
+    monkeypatch.setattr("transcriber.bytedance.ByteDanceEngine.load", explode)
+
+    src = _source(argparse.Namespace(audio_dir=tmp_path, checkpoint=None,
+                                     engine="bytedance"), 12)
+    assert "frame_threshold" in src
+
+
 def test_provenance_failure_does_not_discard_a_finished_run(tmp_path,
                                                             monkeypatch):
     """A run that got this far HAS working weights. Failing to NAME them is a

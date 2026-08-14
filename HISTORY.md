@@ -1930,6 +1930,98 @@ against the API, not against the handoff.**
 
 ---
 
+## 2026-08-14 — Phase 19: the truncation was decoding, not training
+
+Phase 18 measured PTify emitting notes a third of their true length and handed
+the next phase a plan: raise the offset term in the loss, since velocity is 92%
+of the total and the offset head looked starved. **That plan was wrong, and
+checking it before spending the quota is the whole story of this phase.**
+
+**The 16b training log had already ruled it out.** Per-head movement across the
+run: onset −28.0%, **offset −22.7%**, frame −16.3%, velocity −1.0%. The offset
+head was the second-best learner, and the offset/onset loss ratio was flat from
+step 0 to 6,555 — no divergence at any point. The training loss never saw this
+problem, which is exactly why a retrain aimed at it would have burned ~10 hours
+of a 30-hour weekly quota and produced a checkpoint with the same defect.
+
+**Note durations are not set by the offset head at all.** They are set at
+decode time: `RegressionPostProcessor` ends a note when the **frame** head
+drops below `frame_threshold`, which `piano_transcription_inference` hardcodes
+at 0.1 in `__init__` and exposes through no argument. That value is calibrated
+for ByteDance's *pretrained* weights. 16b's augmented frame head — the weakest
+learner of the four — sits lower, so the stock threshold clipped every note.
+
+A sweep confirmed it in ~15 minutes by running the forward pass once per model
+and re-decoding the same activations at each threshold:
+
+| frame_thr | ByteDance median / +offset | PTify median / +offset |
+|---|---|---|
+| 0.10 | 0.269 / 0.6445 | 0.127 / 0.2706 |
+| 0.05 | 0.281 / **0.6507** | 0.155 / 0.3134 |
+| 0.01 | 0.300 / 0.6184 | 0.292 / **0.4610** |
+
+**Onset F1 and note count are identical at every row** — this parameter moves
+only where notes end. The two models want different values, which is the point:
+ByteDance peaks at 0.05 and degrades below it while PTify keeps improving.
+
+**Calibrating on one track would have picked the wrong number.** Four MAPS
+tracks were swept, deliberately including `scn15_11` — the piece that moved
+*opposite* to the others in Phase 18. It reverses here too: it peaks at 0.07
+and degrades as the threshold falls, while the other three improve monotonically
+down to 0.005. The best *mean* is 0.005 (0.5083 against 0.01's 0.5029), and it
+was **rejected**: +0.005 mean costs `scn15_11` 0.099, and it pushes three of the
+four tracks *past* their own reference median (0.382 vs 0.350; 0.607 vs 0.464).
+It buys mean F1 by holding notes too long. At 0.01, `scn15_11` lands on its
+reference median exactly (0.293 vs 0.293) and worst-case regret is minimised.
+
+Result: mean +offset over four tracks **0.406 → 0.503**, from existing weights,
+with no retraining. That closes roughly two-thirds of the gap to ByteDance's
+~0.65. **The remaining third is a genuine weights-level regression** in the
+frame head — which is now the second run's actual target, and a much better one
+than "more steps".
+
+**Completed**
+- `transcriber/config.py` — `BYTEDANCE_FRAME_THRESHOLD`, `PTIFY_FRAME_THRESHOLD`,
+  `ONSET_THRESHOLD`, each carrying its sweep and the rejected alternative
+- `transcriber/bytedance.py` — thresholds as constructor arguments, range-checked,
+  applied to the library model after construction, with a `RuntimeError` if the
+  attribute ever disappears upstream
+- `transcriber/ptify.py` — passes its own threshold down explicitly; composition
+  means class defaults do not flow through
+- `evaluation/__main__.py` — `frame_threshold` in every report's `source` block,
+  read from config without constructing an engine
+- `tools/calibrate_frame_threshold.py` — one forward pass, N decodes
+- `benchmarks/frame-threshold-calibration.json` — the artifact, with provenance
+
+**Consequence for existing artifacts.** Every committed PTify baseline was
+scored at the implicit 0.1 and carries no `frame_threshold`, so its `+offset`
+measures a mis-tuned decoder. Left byte-identical rather than spending ~4.4h to
+restate a superseded number — but a new `+offset` must not be compared against
+them. Onset numbers are unaffected.
+
+**Fixing the GitHub release broke a test, which was the test's fault.** The
+`model-v1` asset was corrected this session (Phase 18 found the wrong file
+attached). `test_fetch_ptify_needs_no_input_file` then failed — it had asserted
+`main(["--fetch-ptify"]) == 1` with the comment *"returns 1 because the
+checkpoint is unpublished"*, i.e. it pinned a **broken external state** as
+expected behaviour. It had also been really downloading 172MB on every full
+suite run, against a suite whose contract is "no model or network needed", and
+would have failed outright offline. Rewritten to stub the fetch and assert what
+it actually names: that argparse reaches the handler without a positional
+argument. When an assertion's justification is a defect elsewhere, it inverts
+the day that defect is fixed.
+
+**Verified end to end through the real engine path**, not the sweep harness:
+`get_engine("ptify")` on `ENSTDkCl-grieg_butterfly` now yields median 0.292s
+against a 0.350s reference, up from 0.127s, with the note count unchanged at
+933.
+
+**Next**
+- A second training run, targeting the **frame** head.
+- Phase 5 (auth + persistence) remains the app-track blocker.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

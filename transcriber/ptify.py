@@ -178,10 +178,26 @@ class PtifyEngine(TranscriptionEngine):
     supports_pedal = True
 
     def __init__(self, threads: int = config.INFERENCE_THREADS,
-                 checkpoint_path: str | Path | None = None):
+                 checkpoint_path: str | Path | None = None,
+                 frame_threshold: float | None = None,
+                 onset_threshold: float | None = None):
         self._threads = threads
         self._requested = checkpoint_path
         self._inner: ByteDanceEngine | None = None
+        # Passed EXPLICITLY to the inner engine rather than inherited from it.
+        # Composition is deliberate (see the module docstring), and the cost of
+        # that choice is that class-level defaults do not flow down: an
+        # unset threshold here would silently take ByteDance's 0.05, which
+        # measured 0.127s median notes against a 0.350s reference.
+        self._frame_threshold = (
+            config.PTIFY_FRAME_THRESHOLD if frame_threshold is None
+            else float(frame_threshold)
+        )
+        self._onset_threshold = onset_threshold
+
+    @property
+    def frame_threshold(self) -> float:
+        return self._frame_threshold
 
     @property
     def name(self) -> str:
@@ -216,7 +232,9 @@ class PtifyEngine(TranscriptionEngine):
         # `checkpoint_path is None` branch -- the one that downloads
         # ByteDance's pretrained weights -- is unreachable from here.
         self._inner = ByteDanceEngine(threads=self._threads,
-                                      checkpoint_path=path)
+                                      checkpoint_path=path,
+                                      frame_threshold=self._frame_threshold,
+                                      onset_threshold=self._onset_threshold)
         self._inner.load()
 
     def transcribe_file(
