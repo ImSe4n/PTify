@@ -66,14 +66,45 @@ class ByteDanceEngine(TranscriptionEngine):
     native_sample_rate = 16000
     supports_pedal = True
 
+    #: Overridden by PtifyEngine's engine — see config.PTIFY_FRAME_THRESHOLD.
+    default_frame_threshold = config.BYTEDANCE_FRAME_THRESHOLD
+
     def __init__(self, threads: int = config.INFERENCE_THREADS,
-                 checkpoint_path: str | Path | None = None):
+                 checkpoint_path: str | Path | None = None,
+                 frame_threshold: float | None = None,
+                 onset_threshold: float | None = None):
         self._threads = threads
         self._model = None
         self._device = "cpu"
         self._checkpoint_path = (
             Path(checkpoint_path) if checkpoint_path else None
         )
+        self._frame_threshold = (
+            self.default_frame_threshold if frame_threshold is None
+            else float(frame_threshold)
+        )
+        self._onset_threshold = (
+            config.ONSET_THRESHOLD if onset_threshold is None
+            else float(onset_threshold)
+        )
+        if not 0.0 < self._frame_threshold <= 1.0:
+            raise ValueError(
+                "frame_threshold must be in (0, 1], got "
+                f"{self._frame_threshold}"
+            )
+        if not 0.0 < self._onset_threshold <= 1.0:
+            raise ValueError(
+                f"onset_threshold must be in (0, 1], got {self._onset_threshold}"
+            )
+
+    @property
+    def frame_threshold(self) -> float:
+        """Where a note is judged to have ended. Recorded, not just applied.
+
+        A score is not reproducible without it: it moved this engine's +offset
+        F1 by 0.19 on one track without changing a single onset.
+        """
+        return self._frame_threshold
 
     @property
     def name(self) -> str:
@@ -129,6 +160,24 @@ class ByteDanceEngine(TranscriptionEngine):
             checkpoint_path=(str(self._checkpoint_path)
                              if self._checkpoint_path else None),
         )
+
+        # The library takes no threshold arguments -- it hardcodes them in
+        # __init__ and reads them back in transcribe() when it builds the
+        # RegressionPostProcessor. Setting them here is the only seam, and it
+        # is why these are assigned AFTER construction rather than passed in.
+        #
+        # Asserted rather than assumed: a silent rename upstream would leave
+        # this writing a dead attribute and the calibration would evaporate
+        # with nothing raised, which is precisely the class of failure the
+        # threshold sweep existed to find.
+        for attr in ("frame_threshold", "onset_threshold"):
+            if not hasattr(self._model, attr):
+                raise RuntimeError(
+                    f"piano_transcription_inference no longer exposes "
+                    f"{attr!r}; note-end calibration would be silently lost"
+                )
+        self._model.frame_threshold = self._frame_threshold
+        self._model.onset_threshold = self._onset_threshold
 
     def transcribe_file(
         self, path: str, progress: ProgressCallback | None = None

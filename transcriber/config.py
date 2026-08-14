@@ -56,3 +56,39 @@ HARMONIC_SIMULTANEITY_SEC = 0.05  # partials start with their fundamental
 
 # ByteDance does not need harmonic filtering — it is piano-specific and was
 # measured reporting no onsets at all while a note merely rang under pedal.
+
+# --- Note-end decoding (ByteDance architecture: bytedance + ptify) ---
+# A note ENDS when the FRAME head's activation falls below this. It is not the
+# offset head that decides duration, which is why 16b's offset loss falling
+# 22.7% did not stop the shipped model from truncating notes.
+#
+# `piano_transcription_inference` hardcodes 0.1 and exposes no way to change
+# it (inference.py sets self.frame_threshold in __init__). Basic Pitch's engine
+# has always taken thresholds as constructor arguments; this one did not, so a
+# value tuned for ByteDance's pretrained weights was being applied to a model
+# fine-tuned away from them.
+#
+# Measured, ENSTDkCl-grieg_butterfly, 937 reference notes (median 0.350s).
+# Onset F1 and note count are IDENTICAL at every row -- this parameter moves
+# only where notes end:
+#
+#   frame_thr   ByteDance median / +offset   PTify median / +offset
+#     0.10        0.269  0.6445               0.127  0.2706
+#     0.05        0.281  0.6507  <- best      0.155  0.3134
+#     0.02        0.293  0.6382               0.216  0.3968
+#     0.01        0.300  0.6184               0.292  0.4610  <- best
+#
+# The two models want DIFFERENT values, which is the whole point: augmented
+# training left PTify's frame activations systematically lower (a wet room
+# makes "still sounding" ambiguous), so ByteDance's threshold clips its notes
+# short. ByteDance degrades below 0.05; PTify is still improving at 0.01.
+#
+# Re-run tools/calibrate_frame_threshold.py after retraining -- a checkpoint
+# with different frame-head calibration invalidates these numbers.
+BYTEDANCE_FRAME_THRESHOLD = 0.05
+PTIFY_FRAME_THRESHOLD = 0.01
+
+# Left at the library default. The sweep above changed frame_threshold alone
+# and note counts never moved, so onset detection was not the variable under
+# test and there is no measurement here to justify departing from 0.3.
+ONSET_THRESHOLD = 0.3
