@@ -13,8 +13,18 @@ State of the codebase, the traps in it, and what the next phase needs.
 |---|---|
 | **Last completed** | **Phase 17 — DONE. The 16b model ships as `--engine ptify`, working in the transcriber CLI, notation, the evaluation harness and the HTTP API.** |
 | **Branch** | `phase-17-ptify-engine`, branched off `master` (verified current: `git log --oneline master..HEAD` was empty at the start) |
-| **Tests** | 821 passing, ~95s, no model or network needed |
+| **Tests** | 825 passing, ~120s, no model or network needed |
 | **Next** | **Phase 18** — the offset anomaly (§6) or a second training run (§9). Both are open; neither is blocked |
+
+**The engine was verified to BE the measured model.** Scoring
+`--engine ptify` over the 14 MAPS paired tracks reproduces Phase 16b's report
+**exactly: +0.000 on all 14 rows, largest absolute delta 0.000000**, with
+threads/device/torch/numpy matching. Both reports record the same
+`checkpoint_sha256`. That check is the point of the phase: shipping an engine
+that scores *slightly differently* from the published number would mean the
+thing users run is not the thing the README describes, and nothing else would
+have caught it. `benchmarks/real/maps-paired-ptify17-clean.json` is the
+artifact; diff it with `engine_alias={"ptify": "bytedance"}`.
 
 **Phase 17 in one paragraph.** `transcriber/ptify.py` adds a third
 `TranscriptionEngine`. It **composes** `ByteDanceEngine` rather than
@@ -257,6 +267,17 @@ composition is what makes that branch unreachable.
 `ensure_checkpoint` to raise and asserting it never fires — and was verified to
 FAIL against a deliberately sabotaged `resolve_checkpoint`.
 `test_ptify_is_not_a_bytedance_subclass` pins the structure itself.
+
+**A report records the ENGINE, never the weights — so an engine that resolves
+its own checkpoint writes `checkpoint: null`.** `_source()` only recorded
+provenance when `--checkpoint` was passed explicitly, but `--engine ptify`
+finds its weights from `PTIFY_CHECKPOINT` / `checkpoints/` / `~/.ptify/`. The
+first 17g run therefore produced 1.8h of scoring in a file that **could not say
+what produced it** — the exact gap the `source` block exists to close, reopened
+from a direction the original design did not anticipate. `_source` now asks the
+engine what it resolved (without loading it: a 17-50s model load per report
+cell would be paid on every preset sweep).
+`test_a_ptify_run_records_which_weights_produced_it` pins it.
 
 **A checkpoint is validated by SIZE ONLY unless you check its digest.** The
 inference library's floor (>160MB) catches a truncated download and nothing

@@ -230,14 +230,44 @@ def _source(args, n_items: int) -> dict:
     else:
         out = {"kind": "synthetic", "n_items": n_items}
 
-    # Custom rows keep the engine's name so they key-join against the
-    # baseline, which means the ROW cannot say which weights produced it.
-    # Recording the path and its digest here is what keeps the two runs
-    # distinguishable inside the file rather than only by filename.
-    if getattr(args, "checkpoint", None):
-        out["checkpoint"] = str(args.checkpoint)
-        out["checkpoint_sha256"] = _digest(args.checkpoint)
+    # A row records WHICH ENGINE produced it, never which weights. Recording
+    # the path and its digest here is the only thing that makes two runs of
+    # the same engine distinguishable inside the file rather than by filename.
+    #
+    # `--checkpoint` is not the only way weights get chosen: `--engine ptify`
+    # resolves its own (PTIFY_CHECKPOINT, then checkpoints/, then ~/.ptify/).
+    # Recording only the explicit flag wrote `checkpoint: null` for a run whose
+    # weights were entirely determined by the environment -- a report that
+    # cannot say what produced it, which is the failure this block exists to
+    # prevent. Ask the ENGINE what it loaded.
+    # getattr for both: `args` is a plain namespace here and callers (including
+    # tests) do not all set every field. A provenance block must never be the
+    # thing that raises at the end of an hours-long run.
+    path = (getattr(args, "checkpoint", None)
+            or _resolved_checkpoint(getattr(args, "engine", None)))
+    if path:
+        out["checkpoint"] = str(path)
+        out["checkpoint_sha256"] = _digest(Path(path))
     return out
+
+
+def _resolved_checkpoint(engine_name: str):
+    """The weights an engine will load of its own accord, or None.
+
+    Deliberately does NOT construct or load the engine: this runs while
+    building a report, and a 17-50s model load to fill in a provenance field
+    would be paid on every cell of a preset sweep.
+    """
+    if engine_name != "ptify":
+        return None
+    try:
+        from transcriber.ptify import resolve_checkpoint
+
+        return resolve_checkpoint()
+    except Exception:  # noqa: BLE001
+        # Provenance is diagnostic. A run that got this far HAS working
+        # weights; failing to name them must not discard hours of scoring.
+        return None
 
 
 def _digest(path: Path) -> str:

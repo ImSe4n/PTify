@@ -1698,7 +1698,7 @@ agreement.
   and `engine_unavailable` mapping
 - `--engine ptify` in the transcriber and notation CLIs; `--fetch-ptify`;
   a `--doctor` section covering present / absent / **wrong-digest**
-- 733 → 821 tests
+- 733 → 825 tests
 
 **The design decision the phase turns on: compose, do not subclass.**
 `PtifyEngine` differs from `ByteDanceEngine` in one property — `name`. A
@@ -1758,6 +1758,32 @@ the working default engine into a hard failure for every user.
   a raw `music21` `StreamException` (a note quantised to a negative start).
   Reproduced on `master` with `--engine bytedance`, so it is not Phase 17's —
   recorded in HANDOFF §4 for whoever owns `notation/` next.
+
+**The verification run (17g).** Scoring `--engine ptify` over the 14 MAPS
+paired tracks — ~1.8h — reproduced the 16b report **exactly**: +0.000 on every
+row, largest absolute delta 0.000000, with thread count, device and library
+versions all matching. The engine we ship *is* the model behind the published
++5.3, and both reports now carry the same `checkpoint_sha256` to prove it.
+
+The verdict was computed, not eyeballed, and the check was validated in both
+directions **before** the real data arrived: it passes on identical input and
+fails on a single row perturbed by 0.002. That perturbation is invisible in the
+printed table, which still shows `MEAN DELTA +0.000` at three decimal places —
+a human comparing the two tables by eye would have called them identical.
+
+**And the run found a bug in the reporting, not the engine.** The first 17g
+report came back with `checkpoint: null`. `_source()` only recorded provenance
+when `--checkpoint` was passed explicitly, but `--engine ptify` resolves its
+own weights from the environment — so 1.8h of scoring landed in a file that
+could not say what produced it. A row records the engine, never the weights,
+so that block is the *only* place the information lives. This is the same
+"which weights actually ran" hazard as the other four, arriving from a
+direction the original design never considered: not wrong weights this time,
+but unattributable ones. Fixed by asking the engine what it resolved — without
+constructing it, since a 17-50s load to fill in one provenance field would be
+paid on every cell of a preset sweep. The scores were valid, so the existing
+report's source block was regenerated in place rather than spending another
+1.8h; the 14 row values were asserted byte-identical across the rewrite.
 
 **The convention this phase overturned.** Custom benchmark rows used to be
 labelled `bytedance` so they key-joined against the baseline. That was correct

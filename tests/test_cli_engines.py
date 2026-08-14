@@ -163,6 +163,83 @@ def test_device_cache_key_is_built_in_one_place():
     assert _device_key("bytedance") != _device_key("bytedance", "a.pth")
 
 
+# --- provenance ----------------------------------------------------------
+
+def test_a_ptify_run_records_which_weights_produced_it(tmp_path, monkeypatch):
+    """REGRESSION (found by the 17g run itself).
+
+    `_source` only recorded a checkpoint when `--checkpoint` was passed, but
+    `--engine ptify` resolves its own weights from the environment. The first
+    17g report therefore came back with `checkpoint: null` -- 1.8h of scoring
+    in a file that could not say what produced it. A row records the ENGINE,
+    never the weights, so this block is the only place that information lives.
+    """
+    import argparse
+
+    from evaluation.__main__ import _source
+
+    ckpt = tmp_path / "ptify.pth"
+    ckpt.write_bytes(b"some weights")
+    monkeypatch.setenv("PTIFY_CHECKPOINT", str(ckpt))
+
+    src = _source(argparse.Namespace(audio_dir=tmp_path, checkpoint=None,
+                                     engine="ptify"), 14)
+
+    assert src["checkpoint"] == str(ckpt)
+    assert len(src["checkpoint_sha256"]) == 64
+
+
+def test_an_explicit_checkpoint_still_wins(tmp_path, monkeypatch):
+    import argparse
+
+    from evaluation.__main__ import _source
+
+    explicit = tmp_path / "explicit.pth"
+    explicit.write_bytes(b"chosen")
+    resolved = tmp_path / "resolved.pth"
+    resolved.write_bytes(b"ambient")
+    monkeypatch.setenv("PTIFY_CHECKPOINT", str(resolved))
+
+    src = _source(argparse.Namespace(audio_dir=tmp_path, checkpoint=explicit,
+                                     engine="ptify"), 14)
+
+    assert src["checkpoint"] == str(explicit)
+
+
+def test_a_bytedance_run_records_no_checkpoint(tmp_path):
+    """The pretrained engine has no custom weights to name, and inventing a
+    field would imply one was chosen."""
+    import argparse
+
+    from evaluation.__main__ import _source
+
+    src = _source(argparse.Namespace(audio_dir=tmp_path, checkpoint=None,
+                                     engine="bytedance"), 12)
+
+    assert "checkpoint" not in src
+
+
+def test_provenance_failure_does_not_discard_a_finished_run(tmp_path,
+                                                            monkeypatch):
+    """A run that got this far HAS working weights. Failing to NAME them is a
+    diagnostic problem and must not raise away hours of scoring."""
+    import argparse
+
+    from evaluation import __main__ as ev
+
+    def explode():
+        raise RuntimeError("resolution broke")
+
+    monkeypatch.setattr("transcriber.ptify.resolve_checkpoint",
+                        lambda *a, **k: explode())
+
+    src = ev._source(argparse.Namespace(audio_dir=tmp_path, checkpoint=None,
+                                        engine="ptify"), 14)
+
+    assert src["n_items"] == 14
+    assert "checkpoint" not in src
+
+
 # --- the missing-weights message reaches the user -------------------------
 
 def test_transcriber_cli_prints_the_weights_message_not_a_traceback(
