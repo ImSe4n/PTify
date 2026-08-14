@@ -11,10 +11,22 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 17 — DONE. The 16b model ships as `--engine ptify`, working in the transcriber CLI, notation, the evaluation harness and the HTTP API.** |
-| **Branch** | `phase-17-ptify-engine`, branched off `master` (verified current: `git log --oneline master..HEAD` was empty at the start) |
-| **Tests** | 827 passing, ~125s, no model or network needed |
-| **Next** | **Phase 18** — the offset anomaly (§6) or a second training run (§9). Both are open; neither is blocked |
+| **Last completed** | **Phase 18 — DONE. The offset anomaly is explained AND turned out to hide a real regression; the notation crash is fixed; MAPS velocity F1 is now enforced as unusable.** |
+| **Branch** | `phase-18-measurement-honesty`, branched off `phase-17-ptify-engine` (which is **not yet merged to `master`** — verify with `git log --oneline master..HEAD` rather than trusting this line) |
+| **Tests** | 839 passing, ~121s, no model or network needed |
+| **Next** | A second training run targeting the **offset head** (§9), or Phase 5 auth/persistence. Neither is blocked |
+| **Needs you** | **The `model-v1` release asset is the wrong file**, so `--fetch-ptify` 404s for every user. See the §4 entry — it is a GitHub upload, not a code change |
+
+**Phase 18 in one paragraph.** Three open items, none needing a GPU. The
+"unexplained" offset anomaly (§6) is now explained twice over: `offset_f1`'s
+tolerance is duration-dependent, so MAPS and MAESTRO score offsets in different
+regimes and **are not comparable** — *and* one track of inference showed PTify
+truncates notes to about a third of their true length, which is a genuine
+regression the MAESTRO number was hiding. The notation crash (§4) was fixed, and
+reproducing it exposed a quieter second bug: the same negative value wrote
+**negative onsets into exported MIDI** with nothing raised. MAPS velocity F1 —
+documented as meaningless since 13b and never enforced — now reports `n/a`
+instead of silently restating the onset figure.
 
 **The engine was verified to BE the measured model.** Scoring
 `--engine ptify` over the 14 MAPS paired tracks reproduces Phase 16b's report
@@ -292,6 +304,34 @@ it** — digest the real Zenodo file first. An explicitly-passed `--checkpoint`
 also skips the digest, since a second training run has a different one by
 definition.
 
+**`--fetch-ptify` has NEVER worked against the real release, and the code is not
+what is wrong.** Found in Phase 18 by checking the live GitHub API rather than
+trusting this file. HANDOFF used to say "`PTIFY_16B_URL` stays empty until you
+publish it" — **that was stale**: the URL has always been hardcoded to the
+correct pinned release (`transcriber/ptify.py:77-80`) and the release is public.
+What is wrong is the **published asset**:
+
+| | code expects | attached to `model-v1` |
+|---|---|---|
+| filename | `ptify-16b-step6555.pth` | **`step_6555.pt`** |
+| size | 172,037,521 | **260,690,320** |
+
+The name mismatch makes the documented URL a hard **404** for every user. The
+size says it is the wrong *artifact*: the local file is the deployable form
+(verified — top-level `['model']`, subkeys `['note_model', 'pedal_model']`),
+while 260MB is ~88MB larger, which is what `save_training_state` adds by storing
+`optimizer.state_dict()` — two Adam momentum buffers per parameter. It is the
+**raw training checkpoint**, not the inference one. Loading it would fail the
+pinned sha256, which is the thing that turns "wrong weights" into an error
+instead of a mystery score.
+
+**The fix is a GitHub upload, not a code change** — attach the local
+`checkpoints/ptify-16b-step6555.pth` under exactly that name.
+`test_fetch_url_is_pinned_to_a_release_tag` already pins
+`basename(URL) == PTIFY_16B_NAME`, so the code side cannot drift; nothing in a
+test suite can check what a third party published. **Verify against the API, not
+against this file.**
+
 **A missing MODEL is not a corrupt UPLOAD, and three handlers will say it is.**
 `PtifyWeightsMissing` subclasses `FileNotFoundError` and `CheckpointInvalid`
 subclasses `ValueError`, so both fall into handlers written for bad audio.
@@ -508,24 +548,58 @@ out so `benchmark._find_pairs` can pair it.
 **MAPS annotations carry NO velocity, so the velocity F1 from that corpus is
 meaningless.** Every reference note is given the same velocity, and `mir_eval`
 rescales velocities to best-fit the reference — so the metric returns the onset
-figure rather than failing visibly. `velocity_metric_valid: false` in the
-manifest says so; use onset and offset only.
+figure rather than failing visibly. Proof that this is what happens, not just
+what could: in the committed baselines `velocity_f1 == onset_f1` to **full float
+precision in 14/14 MAPS rows**, against **0/12** on MAESTRO.
 
-**OPEN, found in Phase 17c, NOT caused by it: `python -m notation` crashes on
-short audio with a raw music21 traceback.**
+**Phase 18 enforces it rather than only documenting it.** This warning existed
+since 13b and nothing acted on it, so the meaningless number stayed in every
+MAPS row and printed in every table — where it reads as a plausible ~0.8 score.
+`ScoreResult.velocity_valid` is now detected **from the reference itself**
+(`metrics._has_dynamics`: one distinct velocity across every note), not from a
+corpus name or a manifest lookup, because the cause is the data. An invalid
+score writes `velocity_f1: null` and prints `n/a`. The raw field is still
+populated — nothing is discarded — but it cannot be read off a table by
+accident. **Reports written before Phase 18 have no flag and are read as valid**,
+because reinterpreting a published baseline would be its own kind of lie.
+
+**`offset_f1` is not comparable across corpora with different note-duration
+distributions.** Its tolerance is `max(50ms, 0.2 × reference duration)`, so a
+corpus of short notes is scored on absolute accuracy and a corpus of long notes
+on a relative window. MAESTRO scores 81.6% of notes on the flat floor; MAPS
+40.9%. A model whose predicted durations shift therefore moves the two corpora
+in **opposite directions**, which is precisely how Phase 16b's offset numbers
+came to look like an unexplained contradiction for two phases. See §6. The same
+warning does not apply to `onset_f1`, which has a flat 50ms tolerance and no
+duration term.
+
+**A note before the first tracked beat gets a NEGATIVE position, and the crash
+was the harmless half. FIXED in Phase 18** (found in 17c, predates it).
 
     StreamException: cannot place element <music21.note.Note C>
     with start/end -1.0/0.0 within any measures
 
-A note quantises to a **negative** start and `makeMeasures` rejects it.
-Reproduced on `master` with `--engine bytedance`, so it predates Phase 17 and
-is not engine-specific — it was found only because 17c exercised the notation
-CLI on a 10s synthetic file. Two things make it worth fixing: this CLI prints
-one-line `error:` messages everywhere else, so a traceback is a break in
-contract; and `api/pipeline.py` maps the same failure to `engraving_failed`,
-meaning an API job hits it too. Suspect `notation/quantise.py`'s beat grid with
-`BEAT_LAG_SEC` subtracting past zero on a file whose first onset is early.
-Deliberately left alone in Phase 17 rather than widening that phase's scope.
+**`BEAT_LAG_SEC` was the wrong suspect** — the previous revision of this entry
+blamed it, and `quantise.py:199` already drops negative beats from the grid, so
+it cannot be the cause. The real one: on short audio **librosa's first tracked
+beat lands well after t=0**, so any earlier note extrapolates below beat zero
+through `beat_position` (`quantise.py:96-100`). That negative return is
+deliberate and is pinned by an existing test; `quantise_notes` then clamped only
+**length**, never **start**.
+
+**The quiet half matters more.** `quantised_to_transcription` converts beats
+back to seconds, so the same value wrote a note at **−0.5s into the exported
+MIDI** — `--formats midi`, no exception, no warning. The crash announces itself;
+this ships bad data silently. It was found only by looking for it.
+
+Fixed by translating the whole piece by `-min(start_beats)` when that is
+negative. **Not by clamping each start to 0.0** — the tempting one-liner
+collapses distinct pre-grid onsets onto one position and merges them into a
+chord nobody played. `test_shifting_pre_grid_notes_preserves_the_spacing_between_them`
+pins that distinction; all three regression tests were verified to FAIL against
+the unfixed code. The CLI also now catches engraving failures and prints the
+house one-line `error:`, so the *next* music21 raise is not a traceback either —
+that guard is tested by injection, independently of this bug.
 
 **Verovio is NOT thread-safe, and its error message blames the wrong thing.**
 It binds to whichever thread touches it first and fails on every thread after
@@ -711,10 +785,73 @@ down by mic distance, which is where the mechanism shows:
 The ambient subset gains 2.9x the close-mic subset. That asymmetry is the
 evidence the improvement is room robustness and not a general uplift.
 
-**Unexplained, do not quote as a win:** MAESTRO `+offset` rose 0.381 → 0.520
-while MAPS `+offset` FELL 0.607 → 0.431. Nothing targeted offsets, and two
-corpora disagreeing in direction means something systematic is unaccounted
-for. Investigate before relying on either number.
+**EXPLAINED IN PHASE 18 — and the answer is that the comparison was never
+valid.** MAESTRO `+offset` rose 0.381 → 0.520 while MAPS `+offset` FELL
+0.607 → 0.431. This used to read "unexplained, do not quote as a win";
+the direction disagreement is now accounted for, and it is a property of the
+**instrument**, not of the model.
+
+`offset_f1` scores a note as correct when its end falls within
+`max(50ms, 0.2 × reference duration)` — mir_eval's `offset_ratio=0.2` default,
+`evaluation/metrics.py:147-150`. The two corpora sit in different regimes of
+that rule (measured from the local reference MIDI, no inference needed):
+
+| | MAPS paired | MAESTRO test12 |
+|---|---|---|
+| reference notes | 30,356 | 52,478 |
+| median duration | **0.314 s** | **0.080 s** |
+| share scored on the flat 50 ms floor | **40.9%** | **81.6%** |
+
+MAESTRO is 4x shorter at the median, so it is overwhelmingly scored on
+*absolute* offset accuracy; MAPS is mostly scored on a *relative* window that is
+often far wider. **Any change in predicted note durations therefore moves the
+two corpora in opposite directions** — which is exactly what was observed.
+
+**The consequence that generalises: `offset_f1` is not comparable across
+corpora with different duration distributions.** Not "hard to compare" —
+not comparable. The two numbers answer different questions.
+
+**But the metric artifact is only half of it. PTify genuinely truncates notes,
+and that IS a regression.** Measured on `ENSTDkCl-grieg_butterfly` (the largest
+offset drop, −0.370), one track, ~6 min of inference — median predicted note
+duration:
+
+| | median | mean | vs reference |
+|---|---|---|---|
+| reference | 0.350 s | 0.436 s | — |
+| ByteDance | 0.269 s | 0.366 s | −23% |
+| **PTify 16b** | **0.127 s** | 0.194 s | **−64%** |
+
+PTify's notes are **53% shorter than ByteDance's** and about a third of their
+true length; the share under 100ms goes 0% (reference) → 15.2% (ByteDance) →
+25.3% (PTify). This makes the arithmetic exact: for a typical 0.350s MAPS note
+the offset tolerance is 70ms, ByteDance misses by 81ms — just over the line,
+hence ~0.66 — and PTify misses by **223ms, 3.2x the tolerance**, hence the
+collapse to ~0.27.
+
+`benchmarks/offset-duration-analysis.json` is the artifact, with the same
+environment block and `checkpoint_sha256` every other benchmark carries.
+
+**This was predicted the wrong way round, which is why it is worth stating
+plainly.** The obvious hypothesis was that reverb augmentation would smear decay
+and make the model hold notes *longer*. It does the opposite. The likely reason
+is that a wet room makes a note's true release unobservable, so the offset head
+learns to fire early rather than late — but that is now a hypothesis about a
+*measured* effect, not a story standing in for one.
+
+**What this means for the numbers.** The MAESTRO `+offset` *rise* is the
+artifact — short references sit on the 50ms floor, where truncation is invisible
+or even flattering — so it must not be quoted as a win. The MAPS `+offset`
+*fall* is real: durations genuinely degraded. Onset F1 and the +5.3 headline are
+untouched, because onset scoring has a flat 50ms tolerance and no duration term.
+**PTify's note durations are worse than ByteDance's, and that is a real cost of
+the 16b run that the headline does not show.**
+
+Supporting structure, from the committed rows alone: the regression tracks the
+**repertoire, not the room**. `bk_xmas1` and `grieg_butterfly` each lose
+0.31–0.38 at *both* mic distances while `scn15_11` gains at both — if this were
+a room effect the Cl/Am pairs would split, and they do not. PTify also emits
+**2,681 fewer notes** overall (33,598 → 30,917) while onset F1 rises.
 
 **This is the measurement the whole training track was waiting for.** README
 predicted a ~20-point loss on unfamiliar acoustics from published work; the
@@ -802,6 +939,30 @@ both.
 - Sub-phases are pushed and tested individually before moving on.
 
 ## 9. What the next phase should know
+
+### The offset head is the second run's target (found in Phase 18)
+
+The 16b run improved onsets and **measurably degraded durations**: PTify's
+median predicted note is 0.127s against ByteDance's 0.269s and a reference
+0.350s (§6 has the full table and the tolerance arithmetic). That is a real
+regression, not a metric artifact — the *MAESTRO* offset gain is the artifact.
+
+This gives the next run something better to change than "more steps":
+
+- **`compute_losses` sums the four heads equally**, and §4 already records that
+  velocity is ~92% of the total and swamps the signal. The offset term is
+  correspondingly small. Weighting it up is a one-line change with a measurable
+  target, and it is *cheap to evaluate*: durations show up on a single track in
+  ~6 minutes, so a candidate checkpoint can be triaged long before a 1.8h pass.
+- **Watch `offset` separately in `train_log.jsonl`.** It is already logged per
+  head. Nothing in 16b was watching it, which is why a 53% duration shift
+  reached a published report unnoticed.
+- **Do not chase the MAESTRO `+offset` number.** It rose while durations got
+  worse. Optimising against it optimises for the artifact.
+
+Cheap triage recipe, since `--audio-dir` is flat and directory-scoped: copy one
+`.wav`/`.mid` pair into a temp directory and score that. One track answers the
+duration question; the corpus is only needed for a publishable figure.
 
 ### Finishing Phase 13's deferred matrix (optional, ~20h)
 The `clean` cell exists for both engines. The remaining 7 presets × 2 engines

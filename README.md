@@ -162,6 +162,11 @@ asset](https://github.com/ImSe4n/PTify/releases/tag/model-v1) and is verified
 by **sha256** on every load — the inference library checks size alone, so a
 different 172MB `.pth` would otherwise be scored as this model.
 
+> **Known issue: `--fetch-ptify` currently returns 404.** The file attached to
+> the `model-v1` release is not the one this code expects, so the download fails
+> until it is re-uploaded. Until then, point `PTIFY_CHECKPOINT` at a local copy
+> or drop it in `checkpoints/`. `--doctor` reports which of those it found.
+
 The engine looks in `$PTIFY_CHECKPOINT`, then `checkpoints/`, then
 `~/.ptify/checkpoints/`, and **raises if it finds nothing** — it never quietly
 falls back to ByteDance's pretrained weights, because that would report the
@@ -335,6 +340,15 @@ rather than a general uplift.
 It comes from ~6,500 fine-tuning steps with continuous reverb/detune
 augmentation on one free-tier GPU session — 15% of a single epoch. See
 `training/` and `benchmarks/training/`.
+
+**What it costs, stated because the headline hides it: PTify's note durations
+are worse than ByteDance's.** Measured on one MAPS track, median predicted note
+length is 0.127s against ByteDance's 0.269s and a true 0.350s — it releases
+notes about three times too early. Onsets are unaffected (they are scored on a
+flat 50ms tolerance with no duration term), so the +5.3 stands; but if you need
+accurate note *lengths* rather than accurate note *starts*, ByteDance is
+currently the better engine. Sheet-music output leans on durations, which is
+why `notation/` quantises against a beat grid rather than printing them raw.
 
 A useful check on the harness itself: ByteDance's published MAESTRO note F1 is
 0.9677, and this corpus measures **0.9693** — agreement to within 0.002,
