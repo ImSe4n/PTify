@@ -123,6 +123,69 @@ def test_musicxml_contains_the_notes(tmp_path):
     assert xml.count("<note") >= 8
 
 
+def test_musicxml_carries_the_analysed_markings(tmp_path):
+    """The features exist only if they reach the FILE.
+
+    Detection returning an Ornament proves nothing about the printed page --
+    music21 has to emit the element and the exporter has to keep it. These
+    four tags are what a notation program reads.
+    """
+    from notation.render import render_musicxml
+
+    notes = list(_scale(8))                       # a plain diatonic run
+    t = 6.0                                       # a trill at ~17 notes/sec
+    for i in range(12):
+        notes.append(NoteEvent(72 if i % 2 == 0 else 74, t, t + 0.055, 95))
+        t += 0.06
+    notes.append(NoteEvent(60, 8.0, 8.03, 30))    # a clipped, quiet note
+
+    tr = Transcription(notes=sorted(notes, key=lambda n: n.onset),
+                       duration=9.0, engine="test")
+    sc, stats = transcription_to_score(tr, grid_from_tempo(120.0, 9.0))
+
+    assert stats.n_trills == 1
+    assert stats.n_staccato >= 1
+
+    xml = render_musicxml(sc, tmp_path / "s.musicxml").read_text(
+        encoding="utf-8")
+    assert "<trill-mark" in xml
+    assert "<staccato" in xml
+    assert "<key>" in xml and "<fifths>" in xml
+    assert "<dynamics" in xml
+
+
+def test_analysis_can_be_turned_off(tmp_path):
+    # `analyse=False` must reproduce the pre-Phase-20 score, so a caller that
+    # wants the literal notes -- or a test pinning old behaviour -- can say so.
+    from notation.render import render_musicxml
+
+    tr = Transcription(notes=_scale(), duration=4.0, engine="test")
+    sc, stats = transcription_to_score(tr, grid_from_tempo(120.0, 4.0),
+                                       analyse=False)
+    assert stats.key is None and stats.n_trills == 0
+
+    xml = render_musicxml(sc, tmp_path / "s.musicxml").read_text(
+        encoding="utf-8")
+    assert "<trill-mark" not in xml
+    assert "<dynamics" not in xml
+
+
+def test_a_compound_meter_is_expressible(tmp_path):
+    """REGRESSION: the denominator was hardcoded to /4, so `6/8` engraved as
+    6/4 -- a different bar length, silently."""
+    from notation.render import render_musicxml
+
+    tr = Transcription(notes=_scale(), duration=4.0, engine="test")
+    sc, stats = transcription_to_score(tr, grid_from_tempo(120.0, 4.0),
+                                       time_signature="6/8")
+    assert stats.time_signature == "6/8"
+
+    xml = render_musicxml(sc, tmp_path / "s.musicxml").read_text(
+        encoding="utf-8")
+    assert "<beats>6</beats>" in xml
+    assert "<beat-type>8</beat-type>" in xml
+
+
 def test_svg_is_not_an_empty_page(tmp_path):
     """Verovio returns False from loadData rather than raising, so an
     unchecked failure shows up as a blank page, not an error."""

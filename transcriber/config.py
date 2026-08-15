@@ -57,6 +57,92 @@ HARMONIC_SIMULTANEITY_SEC = 0.05  # partials start with their fundamental
 # ByteDance does not need harmonic filtering — it is piano-specific and was
 # measured reporting no onsets at all while a note merely rang under pedal.
 
+# --- Notation analysis (notation/analysis.py) ---
+# These decide what gets PRINTED, not what gets detected. The bias throughout
+# is conservative: a symbol that was not played rewrites the music, which is
+# worse than printing the notes literally. Under-calling is recoverable by
+# reading the notes; over-calling is not.
+
+# Krumhansl-Schmuckler correlation below which no key signature is printed.
+# Measured on synthetic material: an unambiguous D major scale correlates at
+# 0.905, and its runner-up (the relative B minor) at 0.76. Chromatic or atonal
+# writing has no correct key, and forcing one misspells every accidental on
+# the page — so a weak reading prints C major (no signature) instead.
+KEY_MIN_CORRELATION = 0.55
+KEY_MIN_NOTES = 8          # fewer than this is not evidence of a key at all
+
+# DO NOT add a "prefer the runner-up when it has fewer flats" rule. Tried in
+# Phase 21 and measured; it does not work, and the reason is worth keeping so
+# it is not re-attempted.
+#
+# The failures look tractable: signature errors are dominated by delta = -1
+# (one flat too many) -- 15 of 17 modal misses and 4 of 8 tonal ones -- and
+# **the true signature is in the top-3 alternatives for 21 of 24 misses**, so
+# the information really is present and only the ranking is wrong.
+#
+# But the correlation gap that would have to trigger the correction does not
+# separate. When the top pick is CORRECT the median gap to the runner-up is
+# 0.174 (p10 0.028); when the top pick is wrong and the runner-up is right the
+# median gap is 0.120 (p90 0.187). Those distributions overlap almost
+# completely. Swept over eps 0.0-0.12 the rule moved accuracy by at most
+# +0.025 -- two scores out of 79 -- and non-monotonically (it helps at 0.02,
+# hurts at 0.08, helps again at 0.12), which is the signature of noise rather
+# than signal. Any rule that fixes the 18 wrong cases breaks a comparable
+# share of the 55 correct ones.
+
+# --- Trills ---
+# A trill alternates between two ADJACENT pitches: a semitone or a tone. A
+# wider interval is a tremolo, which is notated differently.
+TRILL_MAX_INTERVAL = 2
+
+# Maximum gap between consecutive onsets within a trill. MEASURED over the
+# ground-truth MIDI of 6 MAPS tracks: 1,543 consecutive adjacent-pitch onset
+# pairs under 0.5s apart, distributed
+#
+#     p5 0.050s (20.0/sec)   p25 0.070s (14.2/sec)   p75 0.148s (6.8/sec)
+#     p10 0.061s (16.3/sec)  p50 0.098s (10.2/sec)
+#
+# so real trill-speed alternation sits between roughly 7 and 20 notes/sec.
+# 0.16s (6.3/sec) is just outside p75: it admits the genuine trill range while
+# excluding the slow alternating figures a reader expects written out in full.
+TRILL_MAX_ONSET_GAP_SEC = 0.16
+
+# Four notes is two full there-and-back alternations. Three is a turn or an
+# ordinary neighbour-note figure, and calling those trills would rewrite very
+# common ornamental writing.
+TRILL_MIN_ALTERNATIONS = 4
+
+# --- Staccato ---
+# Ratio of played duration to NOTATED duration below which a note is marked
+# staccato. The conventional performance value is about one half of the
+# written value; 0.5 would therefore fire on ordinary detached playing, so the
+# threshold sits well below it and only catches genuinely clipped notes.
+# Never applied to a note whose duration is uncertain — see analysis.py.
+#
+# UNCHANGED in Phase 21, deliberately. The Phase 21 benchmark found the
+# detector fired on almost nothing (0 of 937 notes on Grieg's "Butterfly"),
+# but the cause was the DENOMINATOR, not this value: the notated duration was
+# read from the quantised length, which had already absorbed the shortness.
+# With the inter-onset interval as the notated slot (analysis.py), a
+# monophonic sweep at 120 BPM cuts exactly where this constant says it should
+# — 0.30 of a beat marks, 0.40 does not — so retuning it would have been
+# tuning around a bug rather than fixing one.
+STACCATO_MAX_RATIO = 0.35
+
+# --- Dynamics ---
+# Averaged over this many consecutive notes before a marking is emitted, so a
+# single accent does not print a dynamic.
+DYNAMICS_WINDOW_NOTES = 12
+
+# (upper bound, marking) — the usual MIDI convention. This is a MAPPING, not a
+# measurement: no ground truth in this project labels dynamics, so unlike the
+# constants above it cannot be tuned against anything. Said plainly so nobody
+# looks for the sweep that produced it.
+DYNAMIC_LEVELS = (
+    (24, "pp"), (40, "p"), (56, "mp"),
+    (72, "mf"), (88, "f"), (104, "ff"), (128, "fff"),
+)
+
 # --- Note-end decoding (ByteDance architecture: bytedance + ptify) ---
 # A note ENDS when the FRAME head's activation falls below this. It is not the
 # offset head that decides duration, which is why 16b's offset loss falling

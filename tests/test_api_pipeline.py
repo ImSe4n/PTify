@@ -140,6 +140,22 @@ def test_score_formats_report_the_pedal_health_metric(tmp_path):
     assert res.summary["bpm"] == pytest.approx(120.0)
 
 
+def test_score_formats_report_the_analysed_musical_facts(tmp_path):
+    # Phase 20: key, metre and marking counts reach the client, so a UI can
+    # print them without re-deriving anything from the note list.
+    st = LocalStorage(tmp_path / "jobs")
+    res = run(_spec(tmp_path, formats=("musicxml",), tempo=120.0),
+              "job1", st, engine=_FakeEngine())
+
+    assert res.summary["time_signature"] == "4/4"
+    assert "trills" in res.summary and "staccato" in res.summary
+    # `key` is always present but may be null -- absent would be ambiguous
+    # with "this build did no analysis".
+    assert "key" in res.summary
+    if res.summary["key"] is not None:
+        assert "confidence" in res.summary["key"]
+
+
 def test_midi_only_job_reports_no_pedalled_fraction(tmp_path):
     # It comes from quantisation, so a job that engraves nothing has no honest
     # value to report. Absent says "not measured"; 0.0 would claim it was

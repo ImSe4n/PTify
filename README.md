@@ -51,7 +51,53 @@ python -m notation song.mid --formats musicxml,pdf,svg,midi
 Audio input is beat-tracked with librosa to build the rhythmic grid; MIDI input
 has no audio to track and uses a constant tempo unless `--tempo` is given.
 
-Each run reports what share of the notes were released under sustain pedal:
+### What the score carries
+
+Beyond the notes themselves, the engraved page includes:
+
+| | |
+|---|---|
+| **Key signature** | Krumhansl-Schmuckler over the note content, **with a confidence** |
+| **Time signature** | any meter — `--time-signature 6/8`, not just `n/4` |
+| **Trills** | rapid alternations printed as one note plus a trill mark |
+| **Staccato** | notes clipped far below their notated value |
+| **Dynamics** | `p`/`mf`/`f` at changes, printed on the page |
+
+```
+Metre    : 4/4
+Key      : D major (confidence 0.86)
+Trills   : 3 (rapid alternations written as trill marks)
+Staccato : 12 notes
+```
+
+**A wrong key signature is worse than none** — it misspells every accidental in
+the piece — so a weak reading prints no signature and says so:
+`Key : unclear (best guess A minor at 0.20)`. Pass `--no-analysis` to engrave
+the notes literally.
+
+Detection is deliberately conservative. A symbol nobody played rewrites the
+music and cannot be recovered from the page; a missing one still leaves the
+notes readable. Thresholds are measured against MAPS ground truth — a trill
+must alternate faster than ~6 notes/sec, the p75 of real adjacent-pitch runs.
+
+**How well does it actually do?** Measured against symbolic ground truth
+(`python -m tools.benchmark_notation`, see [Benchmarking](#benchmarking)):
+
+| | |
+|---|---|
+| **Staccato** | **F1 0.920** (P 0.974 / R 0.873) — on a synthesised performance, so an upper bound |
+| Key signature, tonal repertoire | **0.800** |
+| Key signature, modal repertoire | 0.575 — Krumhansl-Schmuckler models *tonal* key |
+| Trill, isolated | P 1.000 / R 0.667 — one voice, one symbol |
+| Trill, **real repertoire** | **F1 0.337** — real trills sit inside polyphony, which breaks the run |
+| Dynamics | **not scoreable** — no available source has real velocities |
+
+The conservative bias shows up in the shape of those numbers: precision runs
+well ahead of recall throughout, and mordents and turns produce **zero** false
+trills. The gap between isolated and real trill detection is the honest measure
+of the remaining work.
+
+Each run also reports what share of the notes were released under sustain pedal:
 
 ```
 Pedalled : 91% of notes released under sustain - their durations are estimates
@@ -232,6 +278,7 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `api/events.py` | SSE progress, and the heartbeat that makes it usable |
 | `api/security.py` | `get_principal()` seam, rate limit, caps |
 | `notation/quantise.py` | Beat grid, snapping, pedal-confidence flag |
+| `notation/analysis.py` | Key, trills, staccato, dynamics — ornaments detected *before* quantisation |
 | `notation/score.py` | Hand splitting, chord grouping, `music21` score |
 | `notation/render.py` | MusicXML / SVG / PDF writers |
 | `training/targets.py` | Notes → the regression targets the CRNN is trained against |
@@ -365,6 +412,33 @@ A useful check on the harness itself: ByteDance's published MAESTRO note F1 is
 0.9677, and this corpus measures **0.9693** — agreement to within 0.002,
 independently reproducing a published benchmark.
 
+### Scoring the notation, not the notes
+
+`mir_eval` scores notes; it has no concept of a symbol. Whether the key
+signature is right, or a trill was printed where a trill was played, needs a
+different metric:
+
+```bash
+python -m tools.benchmark_notation --n 80 \
+    --json benchmarks/notation-understanding.json
+```
+
+About four minutes on CPU. **Nothing is downloaded** — key ground truth comes
+from the 3,194 scores music21 ships, and ornament ground truth is synthesised
+by expanding notated symbols into the notes a performer plays
+(`music21`'s `.realize()`), which is exact by construction.
+
+The artifact carries its own interpretation, including what it *cannot*
+measure and why. Dynamics are unscoreable here because every available source
+is constant-velocity (MAPS gives every note velocity 80), and meter is
+unscoreable because there is no meter detector — the time signature is a CLI
+argument, so scoring it would measure the input.
+
+This benchmark immediately found a real bug: `detect_staccato` compared played
+duration against the *quantised* length, which had already absorbed the
+shortness, so it returned 0 of 937 notes on a piece built from detached
+figuration. Fixed in Phase 21 — see HANDOFF §4.
+
 Basic Pitch's real-audio errors are mostly **octave confusions**: 95.9% of onsets
 land within 50ms (median error 4.4ms), but only 74.3% match on time *and* pitch.
 
@@ -379,6 +453,7 @@ under sustain pedal.
 - [x] **Phase 2** — core library + CLI (audio → MIDI)
 - [x] **Phase 3** — notation: beats → quantize → hand separation → MusicXML → PDF
 - [x] **Phase 4** — FastAPI backend + job queue
+- [x] **Phase 20** — musical understanding: key signatures, meters, trills, staccato, dynamics
 - [ ] **Phase 5** — Supabase auth and persistence
 - [ ] **Phase 6–8** — React frontend, piano roll, sheet music view
 - [ ] **Phase 9–11** — error handling, deploy, YouTube input
@@ -392,6 +467,9 @@ under sustain pedal.
 - [x] **Phase 16a** — augmentation that fits in a dataloader
 - [x] **Phase 15–16b** — fine-tuned the CRNN with augmentation: **MAPS 0.787 → 0.840 (+5.3), 14/14 tracks**
 - [x] **Phase 17** — shipped it as `--engine ptify`, working in the CLI, notation and HTTP API
+- [x] **Phase 18** — the offset anomaly explained: `offset_f1` is not comparable across corpora
+- [x] **Phase 19** — note truncation was a **decoding** bug, not the weights: +offset 0.406 → 0.503
+- [ ] **Phase 21** — retrain the **frame head**, the one regression Phase 19 could not decode away
 
 The training goal is **beating ByteDance on your own recordings**, not on the
 MAESTRO benchmark. Models overfit badly to their training audio — published work
