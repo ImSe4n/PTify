@@ -2356,6 +2356,75 @@ assumed. Treat it as ±0.05.
 
 ---
 
+## 2026-08-15 — Phase 5a: jobs that outlive the process
+
+Phase 4 left three seams for Phase 5: `get_principal()`, `JobStore`, and
+`Storage`. The handoff names Supabase as the replacement for all three. **5a
+deliberately does not use it**, and the reasoning is worth recording because it
+inverts the stated plan.
+
+What actually blocks the project is not "jobs live in the cloud" — it is **jobs
+live inside one Python process**. Two consequences, both already documented:
+`api/arq_queue.py` is written and tested but **ships unused**, because an arq
+worker is a separate process and cannot see an in-memory dict; and restarting
+the server loses every job, including running ones whose artifacts are already
+on disk. A *file* both processes open fixes both, with **no account, no
+network, and no new dependency** — `sqlite3` is in the standard library.
+
+It is also the more honest first implementation. Supabase now becomes a **third**
+implementation of an interface that two have already proven, rather than the
+first one, written against mocks, whose real path the suite cannot exercise.
+
+**The contract is enforced, not asserted.** `tests/test_api_jobs.py` was
+converted to a parametrised fixture, so **all 13 existing JobStore tests now run
+against both implementations**. That is what makes "same interface" a fact. Two
+new cases were added for the failure modes only a serialising store has:
+`JobSpec.formats` is a **tuple** that JSON round-trips as a list, and `artifacts`
+holds a **list per SVG page** — a store that flattened it would silently truncate
+a multi-page score to page 1.
+
+**Concurrency was the real work.** The in-memory store guards a dict with an
+`RLock`, which suffices for one process. Across processes the lock has to be the
+database's:
+
+- **WAL journal mode**, so a status poll never blocks the worker recording
+  progress
+- **`busy_timeout`**, because the default of 0 turns ordinary contention into
+  `database is locked`
+- **one connection per thread** — a `sqlite3.Connection` is not thread-safe and
+  transcription runs in a worker thread by design
+- **`BEGIN IMMEDIATE` around read-modify-write**, because `update()` reads then
+  writes; with the default deferred transaction two threads both read, both try
+  to upgrade, and one fails *after* its read. The in-memory version gets this
+  free from its lock.
+
+**The guard that matters most is a refusal.** `PTIFY_QUEUE=arq` with no
+`PTIFY_DB_PATH` now raises at startup. Without it the failure is silent and
+misdirecting: jobs sit at `queued` forever while artifacts appear on disk, and
+nothing in that picture points at the store.
+
+**Completed**
+- `api/sqlite_jobs.py` — `SqliteJobStore`, same interface, WAL + per-thread
+  connections + immediate transactions
+- `api/settings.py` — `db_path` / `PTIFY_DB_PATH`; `api/app.py` selects the
+  store and refuses the broken arq combination
+- `tests/test_api_jobs.py` parametrised over both stores; new
+  `tests/test_api_sqlite_jobs.py` for durability, cross-process, concurrency
+- **945 tests pass**, up from 916
+
+**Verified end to end**
+- A **subprocess** — not a thread, which would share the interpreter and prove
+  nothing — sees a job created by the parent, reads its state and spec, and
+  writes back a change the parent then observes.
+- A second `create_app` over the same file reports a job created by the first
+  through the real `/v1/jobs/{id}` route: `succeeded`, `note_count` intact.
+
+**Next**
+- 5b: local HS256 JWT issuer and verifier behind `get_principal()`, so there is
+  something to own a job *as*. Supabase JWTs verify through the same seam later.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

@@ -157,14 +157,36 @@ Everything has a working default; a fresh checkout needs no environment at all.
 | variable | default | |
 |---|---|---|
 | `PTIFY_WORK_DIR` | `var/jobs` | uploads and artifacts |
+| `PTIFY_DB_PATH` | *(unset)* | set it to persist jobs — see below |
 | `PTIFY_API_KEY` | *(unset)* | when set, requires `X-API-Key` |
 | `PTIFY_WORKERS` | `1` | see below |
 | `PTIFY_MAX_UPLOAD_BYTES` | `100MB` | enforced while streaming |
 | `PTIFY_MAX_AUDIO_SECONDS` | `900` | a cost limit, not a technical one |
 | `PTIFY_JOB_TTL_SECONDS` | `3600` | finished jobs and artifacts expire |
-| `PTIFY_QUEUE` | `inproc` | or `arq` (needs Redis; not installed) |
+| `PTIFY_QUEUE` | `inproc` | or `arq` (needs Redis; **requires `PTIFY_DB_PATH`**) |
 | `PTIFY_DEFAULT_ENGINE` | `bytedance` | or `basicpitch`, `ptify` |
 | `PTIFY_CHECKPOINT` | *(unset)* | where the ptify weights live |
+
+#### Persisting jobs
+
+By default jobs live in memory: zero config, and a restart loses them all —
+including running ones whose artifacts are already on disk. Point
+`PTIFY_DB_PATH` at a file and they survive:
+
+```bash
+PTIFY_DB_PATH=var/ptify.db uvicorn api.app:app
+```
+
+SQLite, from the standard library — no server, no account, no new dependency.
+The store is the same interface either way (`api/jobs.py: JobStore`), and one
+parametrised test suite runs against both implementations, so "same interface"
+is checked rather than asserted.
+
+It also makes jobs visible **across processes**, which is what `PTIFY_QUEUE=arq`
+needs: an arq worker is a separate process and cannot see another process's
+memory, so with the in-memory store it would run jobs and write artifacts that
+no API process could report. That combination is refused at startup rather than
+producing jobs stuck at `queued` forever.
 
 `GET /v1/engines` reports `available: false` for an engine whose weights are
 missing, so a client can grey it out rather than submitting a job that fails.

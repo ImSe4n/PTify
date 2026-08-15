@@ -6,6 +6,7 @@ Everything is a plain function with no fixtures, matching the rest of the suite.
 
 from __future__ import annotations
 
+import itertools
 import time
 
 import pytest
@@ -39,28 +40,49 @@ def test_notation_formats_are_a_subset_of_all_formats():
 
 
 # --- JobStore ------------------------------------------------------------
+#
+# Every test below runs against BOTH implementations. That is the point of the
+# parametrisation, not tidiness: `JobStore` is documented as a seam, and the
+# only way "same interface" is a fact rather than a claim is for one suite to
+# hold both to it. A behaviour the SQLite store gets subtly wrong -- an enum
+# round-tripping as a string, a tuple coming back a list -- surfaces here
+# rather than in a route months later.
 
 
-def test_create_assigns_unique_ids():
-    store = JobStore()
+@pytest.fixture(params=["memory", "sqlite"])
+def store_factory(request, tmp_path):
+    """Build a store of each kind, with the same constructor signature."""
+    if request.param == "memory":
+        return lambda **kw: JobStore(**kw)
+
+    from api.sqlite_jobs import SqliteJobStore
+
+    counter = itertools.count()
+    return lambda **kw: SqliteJobStore(
+        path=tmp_path / f"jobs{next(counter)}.db", **kw
+    )
+
+
+def test_create_assigns_unique_ids(store_factory):
+    store = store_factory()
     ids = {store.create(JobSpec()).id for _ in range(50)}
     assert len(ids) == 50
 
 
-def test_get_returns_none_for_unknown_id():
-    assert JobStore().get("nope") is None
+def test_get_returns_none_for_unknown_id(store_factory):
+    assert store_factory().get("nope") is None
 
 
-def test_update_rejects_unknown_fields():
+def test_update_rejects_unknown_fields(store_factory):
     # A typo'd field name silently doing nothing would be a very quiet bug.
-    store = JobStore()
+    store = store_factory()
     job = store.create(JobSpec())
     with pytest.raises(AttributeError):
         store.update(job.id, progres=0.5)
 
 
-def test_mark_running_then_succeeded_sets_timestamps_and_progress():
-    store = JobStore()
+def test_mark_running_then_succeeded_sets_timestamps_and_progress(store_factory):
+    store = store_factory()
     job = store.create(JobSpec())
 
     store.mark_running(job.id)
@@ -75,8 +97,8 @@ def test_mark_running_then_succeeded_sets_timestamps_and_progress():
     assert done.result["note_count"] == 3
 
 
-def test_mark_failed_records_code_and_message():
-    store = JobStore()
+def test_mark_failed_records_code_and_message(store_factory):
+    store = store_factory()
     job = store.create(JobSpec())
     store.mark_failed(job.id, "undecodable_audio", "no ffmpeg")
     got = store.get(job.id)
@@ -85,18 +107,18 @@ def test_mark_failed_records_code_and_message():
     assert "ffmpeg" in got.error_message
 
 
-def test_cancel_of_a_queued_job_is_immediate():
-    store = JobStore()
+def test_cancel_of_a_queued_job_is_immediate(store_factory):
+    store = store_factory()
     job = store.create(JobSpec())
     store.request_cancel(job.id)
     assert store.get(job.id).state is JobState.CANCELLED
 
 
-def test_cancel_of_a_running_job_only_sets_the_flag():
+def test_cancel_of_a_running_job_only_sets_the_flag(store_factory):
     # The model cannot be interrupted mid-inference, so a RUNNING job stays
     # RUNNING until the worker reaches a stage boundary. Claiming otherwise
     # would have the UI report a stop that has not happened.
-    store = JobStore()
+    store = store_factory()
     job = store.create(JobSpec())
     store.mark_running(job.id)
     store.request_cancel(job.id)
@@ -106,16 +128,16 @@ def test_cancel_of_a_running_job_only_sets_the_flag():
     assert got.cancel_requested is True
 
 
-def test_cancel_does_not_resurrect_a_finished_job():
-    store = JobStore()
+def test_cancel_does_not_resurrect_a_finished_job(store_factory):
+    store = store_factory()
     job = store.create(JobSpec())
     store.mark_succeeded(job.id)
     store.request_cancel(job.id)
     assert store.get(job.id).state is JobState.SUCCEEDED
 
 
-def test_active_count_counts_only_unfinished_jobs_for_that_principal():
-    store = JobStore()
+def test_active_count_counts_only_unfinished_jobs_for_that_principal(store_factory):
+    store = store_factory()
     a1 = store.create(JobSpec(), principal_id="a")
     store.create(JobSpec(), principal_id="a")
     store.create(JobSpec(), principal_id="b")
@@ -126,8 +148,8 @@ def test_active_count_counts_only_unfinished_jobs_for_that_principal():
     assert store.active_count("b") == 1
 
 
-def test_list_filters_by_principal_and_is_newest_first():
-    store = JobStore()
+def test_list_filters_by_principal_and_is_newest_first(store_factory):
+    store = store_factory()
     old = store.create(JobSpec(), principal_id="a")
     store.update(old.id, created_at=time.time() - 100)
     new = store.create(JobSpec(), principal_id="a")
@@ -137,8 +159,8 @@ def test_list_filters_by_principal_and_is_newest_first():
     assert [j.id for j in got] == [new.id, old.id]
 
 
-def test_sweep_removes_only_expired_terminal_jobs():
-    store = JobStore(ttl_seconds=10.0)
+def test_sweep_removes_only_expired_terminal_jobs(store_factory):
+    store = store_factory(ttl_seconds=10.0)
 
     fresh = store.create(JobSpec())
     store.mark_succeeded(fresh.id)
@@ -152,10 +174,10 @@ def test_sweep_removes_only_expired_terminal_jobs():
     assert store.get(fresh.id) is not None
 
 
-def test_sweep_never_evicts_a_running_job():
+def test_sweep_never_evicts_a_running_job(store_factory):
     # A long ByteDance run can outlive the TTL while still working. Evicting it
     # would strand the client that is polling for it.
-    store = JobStore(ttl_seconds=0.0)
+    store = store_factory(ttl_seconds=0.0)
     job = store.create(JobSpec())
     store.mark_running(job.id)
     store.update(job.id, created_at=time.time() - 10_000)
@@ -164,11 +186,49 @@ def test_sweep_never_evicts_a_running_job():
     assert store.get(job.id) is not None
 
 
-def test_delete_reports_whether_anything_was_removed():
-    store = JobStore()
+def test_delete_reports_whether_anything_was_removed(store_factory):
+    store = store_factory()
     job = store.create(JobSpec())
     assert store.delete(job.id) is True
     assert store.delete(job.id) is False
+
+
+def test_a_spec_round_trips_with_its_types_intact(store_factory):
+    """`formats` is a TUPLE on JobSpec and a list in JSON. A store that hands
+    back a list passes most tests and then fails wherever the API compares
+    against ALL_FORMATS or a route does tuple arithmetic."""
+    store = store_factory()
+    spec = JobSpec(engine="ptify", formats=("midi", "musicxml"),
+                   tempo=92.5, beats_per_bar=3, title="T", composer="C",
+                   input_path="/tmp/x.wav", original_name="x.wav")
+    job = store.create(spec, principal_id="p")
+
+    got = store.get(job.id).spec
+    assert got.formats == ("midi", "musicxml")
+    assert isinstance(got.formats, tuple)
+    assert got.tempo == pytest.approx(92.5)
+    assert got.beats_per_bar == 3
+    assert got.engine == "ptify"
+    assert got.original_name == "x.wav"
+
+
+def test_structured_fields_survive_a_round_trip(store_factory):
+    """artifacts/result/warnings are the JSON blob. SVG is a LIST per page
+    (jobs.py:94), so a store that flattened it would silently truncate a
+    multi-page score to page 1."""
+    store = store_factory()
+    job = store.create(JobSpec())
+    store.mark_succeeded(
+        job.id,
+        artifacts={"svg": ["page1.svg", "page2.svg"], "midi": ["out.mid"]},
+        result={"note_count": 12, "pitch_range": [21, 108]},
+        warnings=["notation skipped"],
+    )
+
+    got = store.get(job.id)
+    assert got.artifacts["svg"] == ["page1.svg", "page2.svg"]
+    assert got.result["note_count"] == 12
+    assert got.warnings == ["notation skipped"]
 
 
 # --- Job ---------------------------------------------------------------
