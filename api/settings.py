@@ -122,6 +122,20 @@ class Settings:
     auth_required: bool = False
     api_key: str | None = None
 
+    #: HS256 signing secret for user tokens. Empty disables accounts entirely
+    #: -- `/v1/auth/*` returns 404 and `get_principal` never looks at a JWT.
+    #:
+    #: There is deliberately NO generated default. A random one per process
+    #: would invalidate every token on restart and behave differently under
+    #: `--workers 2`; a hardcoded one would ship a signing key that anyone
+    #: could forge tokens with. Absent is the honest third option.
+    jwt_secret: str = ""
+
+    #: Token lifetime. A day: short enough that a leaked token expires by
+    #: itself, long enough not to interrupt a transcription being watched.
+    jwt_ttl_seconds: int = 24 * 3600
+
+
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     max_audio_seconds: float = DEFAULT_MAX_AUDIO_SECONDS
     job_ttl_seconds: float = DEFAULT_JOB_TTL_SECONDS
@@ -147,6 +161,16 @@ class Settings:
         logs loudly in that case instead.
         """
         return self.auth_required and bool(self.api_key)
+
+    @property
+    def auth_accounts_enabled(self) -> bool:
+        """Can this deployment issue and verify user tokens?
+
+        Both halves are required: a secret with nowhere to keep users cannot
+        sign anything meaningful, and a database with no secret cannot sign at
+        all. One flag so the routes do not each re-derive it and disagree.
+        """
+        return bool(self.jwt_secret and self.db_path)
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -213,6 +237,8 @@ def _load() -> Settings:
         default_engine=engine,
         auth_required=auth_required,
         api_key=api_key,
+        jwt_secret=_env_str("PTIFY_JWT_SECRET", "").strip(),
+        jwt_ttl_seconds=_env_int("PTIFY_JWT_TTL_SECONDS", 24 * 3600, minimum=60),
         max_upload_bytes=_env_int(
             "PTIFY_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES, minimum=1
         ),

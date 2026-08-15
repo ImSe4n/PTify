@@ -32,13 +32,15 @@ API_KEY_HEADER = "X-API-Key"
 class Principal:
     """Who is making a request.
 
-    `id` is what rate limits and job ownership key on. Phase 5 fills it with a
-    Supabase user id; today it is either the constant anonymous id or a stable
-    tag derived from the API key.
+    `id` is what rate limits and job ownership key on. It is NAMESPACED by how
+    identity was established -- `user:<uuid>`, `key:<digest>`, `anonymous` --
+    so two mechanisms can never collide on one id and hand one caller another's
+    jobs. It also never contains the credential itself: the API-key form is a
+    truncated SHA-256, because this value reaches rate-limit tables and logs.
     """
 
     id: str
-    kind: str = "anonymous"  # "anonymous" | "api_key" | (Phase 5) "user"
+    kind: str = "anonymous"  # "anonymous" | "api_key" | "user"
 
 
 ANONYMOUS = Principal(id="anonymous", kind="anonymous")
@@ -61,30 +63,70 @@ def _constant_time_eq(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
 
 
+def _bearer(request: Request) -> str | None:
+    """The `Authorization: Bearer` value, if there is one."""
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip() or None
+    return None
+
+
 async def get_principal(request: Request) -> Principal:
     """FastAPI dependency resolving the caller's identity.
 
-    THIS IS THE PHASE 5 SEAM. Replacing the body with Supabase JWT
-    verification is the whole change; callers keep receiving a `Principal`.
+    THIS IS THE SEAM. Routes depend on the `Principal` it returns and never on
+    how identity was established -- which is what let Phase 5b add JWTs without
+    touching a single route.
+
+    Three credentials are accepted, in order:
+
+      1. **A JWT** (`Authorization: Bearer <jwt>`) -> `kind="user"`, and the id
+         is the user's own id, so jobs are owned by an account rather than by a
+         shared key.
+      2. **The shared API key** (`X-API-Key`, or Bearer for a non-JWT value) ->
+         `kind="api_key"`, unchanged from Phase 4.
+      3. **Nothing**, when auth is off -> ANONYMOUS.
+
+    A Supabase JWT is also HS256 over the project secret, so pointing
+    `PTIFY_JWT_SECRET` at that secret makes one verify here unchanged. This
+    function stays the only place that decides.
     """
     settings = request.app.state.settings
+
+    # A JWT is tried FIRST and independently of `auth_enabled`: a deployment
+    # can have accounts without a shared key, and a token that verifies is
+    # proof of identity whether or not the key path is configured.
+    if settings.jwt_secret:
+        token = _bearer(request)
+        # A shared key sent as a Bearer token is not a JWT and must fall
+        # through to the key check rather than 401 here -- hence the shape
+        # test rather than an attempt on anything bearer-shaped.
+        if token and token.count(".") == 2:
+            from .tokens import TokenError, decode
+
+            try:
+                claims = decode(token, settings.jwt_secret)
+            except TokenError:
+                raise _error(401, "unauthorized", "invalid or expired token")
+
+            subject = claims.get("sub")
+            if not subject:
+                raise _error(401, "unauthorized", "invalid or expired token")
+            return Principal(id=f"user:{subject}", kind="user")
 
     if not settings.auth_enabled:
         # Either no key is configured, or auth was explicitly switched off.
         # create_app() logs a warning at startup so this is never silent.
         return ANONYMOUS
 
-    supplied = request.headers.get(API_KEY_HEADER)
-    if not supplied:
-        auth = request.headers.get("Authorization", "")
-        if auth.lower().startswith("bearer "):
-            supplied = auth[7:].strip()
+    supplied = request.headers.get(API_KEY_HEADER) or _bearer(request)
 
     if not supplied:
         raise _error(
             401,
             "unauthorized",
-            f"missing credentials. Send {API_KEY_HEADER}: <key>.",
+            f"missing credentials. Send {API_KEY_HEADER}: <key>, "
+            f"or Authorization: Bearer <token>.",
         )
 
     if not _constant_time_eq(supplied, settings.api_key or ""):

@@ -11,10 +11,22 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 5a — DONE. Jobs persist to SQLite and are visible across processes, which is what `PTIFY_QUEUE=arq` always needed.** |
-| **Branch** | `phase-5a-sqlite-jobstore`, off `phase-21-notation-benchmark` |
-| **Tests** | 945 passing, ~1¾ min, no model or network needed |
-| **Next** | 5b — local HS256 JWT behind the `get_principal()` seam. Then 5c: ARQ end to end |
+| **Last completed** | **Phase 5b — DONE. Real user accounts: HS256 tokens, PBKDF2 passwords, per-account job ownership. No route changed.** |
+| **Branch** | `phase-5b-jwt-auth`, off `phase-5a-sqlite-jobstore` |
+| **Tests** | 986 passing, ~2 min, no model or network needed |
+| **Next** | 5c — prove ARQ end to end, now that a worker process can finally see the store |
+
+**Phase 5b in one paragraph.** The Phase 4 seam did exactly what it was for:
+adding JWTs changed `get_principal()` and **not one route**. Tokens are HS256
+from the standard library (~130 lines) rather than PyJWT, because the risky part
+of a JWT is the *verifying* and both classic holes — `alg: none` and algorithm
+confusion — are policy decisions a wrapper would not have made for us: the
+header is **checked, never used to dispatch**, and the signature is verified
+before any claim is read. Passwords are PBKDF2-HMAC-SHA256 at 600,000 rounds
+with per-user salt, parameters stored alongside the hash so the cost can be
+raised without a forced reset. Jobs are owned per account, and another
+account's job is **404 not 403** — carried forward from Phase 4, because 403
+confirms the id exists.
 
 **Phase 5a in one paragraph.** The handoff named Supabase for all three Phase 5
 seams; 5a deliberately used **SQLite instead**, because the thing actually
@@ -325,6 +337,34 @@ and `COMPARE_ENGINES` (see the §4 trap).
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**Three things in `api/tokens.py` and `api/users.py` look like dead code and
+are load-bearing security.** Each would pass every test if deleted except the
+one written for it, so they are named here as well as in the files.
+
+1. **The `alg` header check.** It looks redundant next to the signature check,
+   and for `alg: none` it is — that token fails `compare_digest` first. It is
+   there for **algorithm confusion**: a verifier that reads `alg` and dispatches
+   on it lets the attacker choose the algorithm. The header is CHECKED, never
+   used to select behaviour. Removing it fails
+   `test_a_token_whose_header_names_another_algorithm_is_rejected`.
+2. **The dummy password hash on unknown-email login** (`users.authenticate`).
+   Deliberately wasted work. Returning early makes login a **user-enumeration
+   oracle**: identical response bodies are still distinguishable when one takes
+   600ms and the other 0.1ms. It is computed at *the store's own* round count,
+   because at a lowered work factor a fixed-cost dummy leaks the same fact
+   backwards.
+3. **`SqliteUserStore(rounds=...)` as a constructor argument, not a module
+   global.** PBKDF2 at 600,000 rounds costs ~600ms per hash (measured), which
+   the suite cannot afford. Keeping it per-instance means lowering it is always
+   visible at a call site and a test can never leak a weak work factor into
+   production by monkeypatching.
+
+**Another principal's job must return 404, not 403.** 403 confirms the id
+exists, which turns job ids into an enumerable directory of other people's
+work. Also: principal ids are namespaced by kind (`user:<uuid>`,
+`key:<digest>`) so two mechanisms cannot collide on one id, and never contain
+the credential itself — the id reaches rate-limit tables and logs.
 
 **music21's `element.offset` is NOT the note's position in the score.** It is
 measured from the element's *immediate container* — its measure or its voice —
@@ -1382,10 +1422,11 @@ architecture. Sources: [MAPS on Zenodo](https://zenodo.org/records/18160555),
 
 Three seams exist specifically for this phase. Each is one file.
 
-- **`api/security.py: get_principal()`** — *(5b, NEXT)* replace the body with
-  JWT verification. Routes depend on the `Principal` it returns, never on how
-  identity was established. `Authorization: Bearer` is already accepted, so a
-  JWT arrives through the same door as today's API key.
+- **`api/security.py: get_principal()`** — **DONE in 5b.** Verifies HS256 JWTs
+  (`api/tokens.py`), falls back to the shared key, then anonymous. **Adding it
+  changed no route**, which is what the seam was for. A Supabase JWT is also
+  HS256 over the project secret, so pointing `PTIFY_JWT_SECRET` at that secret
+  verifies one unchanged.
 - **`api/jobs.py: JobStore`** — **DONE in 5a.** `api/sqlite_jobs.py:
   SqliteJobStore` is a second implementation; `PTIFY_DB_PATH` selects it.
 - **`api/storage.py: Storage`** — `LocalStorage` writes under `var/jobs/<id>`.

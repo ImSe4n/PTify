@@ -2425,6 +2425,82 @@ nothing in that picture points at the store.
 
 ---
 
+## 2026-08-15 — Phase 5b: accounts, and a JWT written on purpose
+
+5a gave jobs somewhere to live. 5b gives them someone to belong to. The seam
+Phase 4 left — `api/security.py: get_principal()` — did its job exactly as
+designed: **not one route changed**. Routes receive a `Principal` and have never
+known how identity was established, so adding tokens was a rewrite of one
+function.
+
+**The JWT is ~130 lines of standard library rather than PyJWT**, which needs
+justifying since "don't roll your own crypto" is usually right. It is not the
+signing that is risky — HS256 is `hmac.new(secret, header.payload, sha256)` and
+`hmac` is stdlib. It is the **verifying**, and the two classic holes are
+failures of *policy*, not of cryptography:
+
+- **`alg: none`** — a token declaring no algorithm with an empty signature.
+  Real libraries have shipped accepting it.
+- **Algorithm confusion** — a verifier that reads `alg` from the token and
+  dispatches on it has let the attacker pick the algorithm.
+
+Both are avoided by the same rule: **the header is checked, never used to
+select behaviour**, and the signature is verified before any claim is read.
+Wrapping a library would not have made either decision for us. The signature is
+verified against an independent HMAC computation in the tests, so this is a real
+JWT and not a lookalike.
+
+**Password storage is PBKDF2-HMAC-SHA256 at 600,000 rounds** (OWASP's floor),
+per-user random salt, `compare_digest` on verify. The parameters are stored
+*with* the hash (`pbkdf2$600000$salt$digest`) so the cost can be raised later
+without a forced reset — an old hash still verifies at its own round count.
+
+**The subtlest defence here is a piece of deliberately wasted work.** On login
+for an address that does not exist, the store hashes a dummy password anyway.
+Returning early would make login a **user-enumeration oracle**: the response
+body is byte-identical, but a 600ms answer and a 0.1ms answer are trivially
+distinguishable, and an attacker with a list of addresses could learn which have
+accounts. The dummy hash is built at *the store's own* round count, because at
+the suite's lowered work factor a fixed-cost dummy would be slower than the real
+path and leak the same fact backwards.
+
+**Measured, and it forced a design choice:** 600,000 rounds costs **~600ms per
+hash**. Correct for a login, absurd for a suite that signs up dozens of users.
+`SqliteUserStore(rounds=...)` is a constructor argument rather than a module
+global, so lowering it is always a visible decision at a call site and a test
+can never leak a weak work factor into production by monkeypatching.
+
+**Ownership carries forward Phase 4's rule.** Another account's job returns
+**404, not 403** — 403 confirms the id exists and turns job ids into an
+enumerable directory of other people's work. Principal ids are namespaced by
+kind (`user:<uuid>`, `key:<digest>`, `anonymous`) so two mechanisms can never
+collide on one id, and still never contain the credential itself.
+
+**Completed**
+- `api/tokens.py` — HS256 encode/decode, stdlib only
+- `api/users.py` — `SqliteUserStore`, PBKDF2, enumeration defences
+- `api/routes/auth.py` — `/v1/auth/signup`, `/login`, `/me`
+- `api/security.py: get_principal()` — JWT first, then the shared key,
+  then anonymous; **no route touched**
+- `PTIFY_JWT_SECRET`, `PTIFY_JWT_TTL_SECONDS`, `Settings.auth_accounts_enabled`
+- **986 tests pass**, up from 945
+
+**Verified by sabotage** — a security test that passes against broken code is
+worse than no test:
+- Removing the `alg` header check fails
+  `test_a_token_whose_header_names_another_algorithm_is_rejected`.
+- Giving every user the same principal id fails all three isolation tests.
+- `alg: none` is rejected **twice over** (empty signature *and* header check),
+  so it survives removal of either — noted in the test so the redundancy is not
+  mistaken for dead code.
+
+**Next**
+- 5c: prove ARQ end to end now that both halves exist — a worker process that
+  picks up a job an API process created, runs it, and writes artifacts the API
+  can serve.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on
