@@ -75,10 +75,15 @@ class KeyResult:
     signature_match: bool
     tonic_match: bool
     confident: bool
+    #: "tonal" or "modal". Krumhansl-Schmuckler models tonal key, so pooling
+    #: the two hides which repertoire a score describes. See
+    #: `notation_corpus.MODAL_COLLECTIONS`.
+    stratum: str = "tonal"
 
     def as_row(self) -> dict:
         return {
             "label": self.label,
+            "stratum": self.stratum,
             "truth_sharps": self.truth_sharps,
             "est_sharps": self.est_sharps,
             "truth_tonic": self.truth_tonic,
@@ -164,7 +169,8 @@ def _sharps_of(tonic: str, mode: str) -> int | None:
 
 
 def score_key(
-    estimate, truth_sharps: int | None, truth_tonic: str = "", label: str = ""
+    estimate, truth_sharps: int | None, truth_tonic: str = "", label: str = "",
+    stratum: str = "tonal",
 ) -> KeyResult:
     """Score one `KeyEstimate` against a notated key signature.
 
@@ -184,11 +190,13 @@ def score_key(
             signature_match=False,
             tonic_match=False,
             confident=False,
+            stratum=stratum,
         )
 
     est_sharps = _sharps_of(estimate.tonic, estimate.mode)
     return KeyResult(
         label=label,
+        stratum=stratum,
         truth_sharps=truth_sharps,
         est_sharps=est_sharps,
         truth_tonic=truth_tonic,
@@ -253,6 +261,29 @@ def unscoreable(kind: str, reason: str, label: str = "") -> DetectionResult:
                            valid=False, invalid_reason=reason)
 
 
+def _onset_of(element, m21_score) -> float:
+    """Absolute position of `element` in the whole score, in quarters.
+
+    NOT `element.offset`. That is measured from the element's immediate
+    container -- its measure or its voice -- so in a multi-part score every
+    part restarts at 0 and the parts collapse on top of each other.
+
+    This was a real bug in this file, and it is the exact failure the module
+    docstring warns about: a benchmark that measures nothing while reporting a
+    number. A Beethoven quartet flattened to 6,316 notes of which the first
+    fourteen all shared onset 1.3333, so no alternating run could ever form and
+    trill recall on real scores read 0.000 against 122 realisable trills.
+
+    `getOffsetInHierarchy` walks the containment chain to the score root.
+    """
+    try:
+        return float(element.getOffsetInHierarchy(m21_score))
+    except Exception:  # noqa: BLE001
+        # Not inside the hierarchy (a bare Stream of notes, as the tests
+        # build). The local offset is then already absolute.
+        return float(element.offset)
+
+
 def notes_from_score(m21_score, bpm: float = 100.0) -> list[NoteEvent]:
     """A music21 score -> the note stream a performer would produce.
 
@@ -272,7 +303,7 @@ def notes_from_score(m21_score, bpm: float = 100.0) -> list[NoteEvent]:
     out: list[NoteEvent] = []
 
     for element in m21_score.recurse().notes:
-        onset = float(element.offset) * spq
+        onset = _onset_of(element, m21_score) * spq
         duration = max(0.05, float(element.quarterLength) * spq)
         pitches = [element.pitch] if element.isNote else list(element.pitches)
         for pitch in pitches:
@@ -319,7 +350,7 @@ def realise_ornaments(m21_score, bpm: float = 100.0):
     reference: dict[str, list[tuple[float, int]]] = {}
 
     for element in m21_score.recurse().notes:
-        onset = float(element.offset) * spq
+        onset = _onset_of(element, m21_score) * spq
         ornament = None
         for expression in getattr(element, "expressions", []):
             kind = ORNAMENT_KINDS.get(type(expression).__name__)
@@ -379,6 +410,130 @@ def realise_ornaments(m21_score, bpm: float = 100.0):
     return notes, reference
 
 
+#: How much of its written value a staccato note is actually held. The
+#: convention is "about half"; this sits below it so the rendered performance
+#: is unambiguously staccato rather than merely detached, which keeps the
+#: benchmark measuring the DETECTOR rather than the renderer's taste.
+STACCATO_PLAYED_FRACTION = 0.30
+
+#: And what a normal note gets. Not 1.0 -- real legato playing still leaves a
+#: small gap, and rendering notes at exactly their full value would make the
+#: negative class easier than any real performance.
+LEGATO_PLAYED_FRACTION = 0.95
+
+
+def render_articulation(m21_score, bpm: float = 100.0):
+    """Render a score into a performance where staccato is actually played short.
+
+    Returns `(notes, staccato_reference)`.
+
+    This step is unavoidable and is the whole difficulty of scoring
+    articulation. Notation says *whether* a note is staccato; the detector
+    consumes durations and asks whether one was played short. Without a
+    rendering step there is nothing for it to detect, and a benchmark run
+    straight off notated durations would score the renderer's defaults rather
+    than the detector.
+
+    It also bounds what the result can mean: the performance is SYNTHESISED, so
+    a good score here proves the detector recovers a clean signal, not that it
+    survives a real pianist. Read it as an upper bound.
+    """
+    from transcriber import config
+    from music21 import articulations as m21articulations
+
+    spq = 60.0 / bpm if bpm > 0 else 0.6
+    notes: list[NoteEvent] = []
+    reference: list[tuple[float, int]] = []
+
+    for element in m21_score.recurse().notes:
+        onset = _onset_of(element, m21_score) * spq
+        written = max(0.05, float(element.quarterLength) * spq)
+
+        is_staccato = any(
+            isinstance(a, m21articulations.Staccato)
+            for a in getattr(element, "articulations", [])
+        )
+        fraction = (STACCATO_PLAYED_FRACTION if is_staccato
+                    else LEGATO_PLAYED_FRACTION)
+        played = max(0.02, written * fraction)
+
+        pitches = [element.pitch] if element.isNote else list(element.pitches)
+        for pitch in pitches:
+            midi = int(pitch.midi)
+            if not (config.MIDI_LOWEST <= midi <= config.MIDI_HIGHEST):
+                continue
+            notes.append(NoteEvent(pitch=midi, onset=onset,
+                                   offset=onset + played,
+                                   velocity=72, clamp=False))
+            if is_staccato:
+                reference.append((onset, midi))
+
+    notes.sort(key=lambda n: (n.onset, n.pitch))
+    return notes, reference
+
+
+#: Notes scored per piece. `quantise_notes` interpolates a beat position per
+#: note against the grid, so a 6,000-note quartet movement takes minutes and a
+#: whole corpus takes hours. A prefix keeps the benchmark runnable while still
+#: scoring real polyphony; raise it when a number needs to be defended rather
+#: than watched.
+STACCATO_MAX_NOTES = 600
+
+
+def score_staccato(m21_score, bpm: float = 100.0, label: str = "",
+                   grid=None, max_notes: int = STACCATO_MAX_NOTES
+                   ) -> DetectionResult:
+    """Score `analysis.detect_staccato` against notated articulation.
+
+    Runs the real pipeline -- render, quantise, detect -- rather than calling
+    the detector on hand-built `QuantisedNote`s, because the Phase 21 bug lived
+    in the interaction between quantisation and detection and hand-built inputs
+    are exactly what hid it.
+
+    Only the first `max_notes` notes are scored, for runtime. That is a PREFIX
+    of the piece, not a sample of it: it keeps whole chords and adjacent voices
+    together, which a random sample would break -- and the notated slot is
+    measured against the following onset, so a note whose successor was
+    sampled away would be scored against a gap that never existed.
+    """
+    from notation import analysis
+    from notation.quantise import grid_from_tempo, quantise_notes
+
+    notes, reference = render_articulation(m21_score, bpm=bpm)
+    if not notes:
+        return unscoreable("staccato", "no notes", label=label)
+
+    truncated = bool(max_notes) and len(notes) > max_notes
+    if truncated:
+        notes = notes[:max_notes]
+        horizon = notes[-1].onset
+        reference = [(o, p) for o, p in reference if o <= horizon]
+
+    if not reference:
+        # Distinguish "this piece has no staccato" from "the prefix stopped
+        # before the staccato started". The second is a truncation artifact,
+        # and scoring it would file a 0.000 against a detector that correctly
+        # found nothing in material containing nothing -- measured on one
+        # quartet movement whose marks all fall past note 600.
+        reason = ("staccato falls beyond the scored prefix" if truncated
+                  else "no notated staccato")
+        return unscoreable("staccato", reason, label=label)
+
+    duration = max(n.offset for n in notes)
+    grid = grid or grid_from_tempo(bpm, duration + 1.0, 4)
+    qnotes = quantise_notes(notes, grid, [])
+
+    detected = [(q.source.onset, q.pitch)
+                for i, q in enumerate(qnotes)
+                if i in analysis.detect_staccato(qnotes, grid)
+                and q.source is not None]
+
+    # Tolerance is tight: unlike an ornament span, a staccato mark belongs to
+    # one specific note, and matching a neighbour would inflate the score.
+    return score_spans(detected, reference, tolerance=0.01,
+                       kind="staccato", label=label)
+
+
 def aggregate(results: list[DetectionResult], kind: str = "") -> DetectionResult:
     """Pool results into one, summing counts rather than averaging F1s.
 
@@ -391,7 +546,7 @@ def aggregate(results: list[DetectionResult], kind: str = "") -> DetectionResult
         reason = results[0].invalid_reason if results else "no material"
         return unscoreable(kind, reason, label="all")
 
-    return DetectionResult(
+    pooled = DetectionResult(
         label="all",
         kind=kind or scoreable[0].kind,
         tp=sum(r.tp for r in scoreable),
@@ -399,20 +554,54 @@ def aggregate(results: list[DetectionResult], kind: str = "") -> DetectionResult
         fn=sum(r.fn for r in scoreable),
     )
 
+    if pooled.tp == pooled.fp == pooled.fn == 0:
+        # Nothing detected against nothing to detect. F1 is 0/0 here, and
+        # reporting 0.000 would print a perfect negative result -- a mordent
+        # correctly NOT called a trill -- in the column a reader scans for
+        # failures. The distinction is the whole point of `valid`.
+        return unscoreable(
+            pooled.kind,
+            "no reference symbols and none detected",
+            label="all",
+        )
+
+    return pooled
+
 
 def key_accuracy(results: list[KeyResult]) -> dict:
-    """Signature and tonic accuracy over a list of key readings."""
+    """Signature and tonic accuracy, overall and per stratum.
+
+    Tonic accuracy is computed only over readings whose ground truth NAMES a
+    tonic. Most corpus scores carry a bare `KeySignature`, which counts
+    accidentals without saying which of the two keys sharing them is meant, so
+    scoring those as tonic misses would report the corpus's silence as the
+    detector's error.
+    """
     if not results:
         return {"n": 0, "signature_accuracy": None, "tonic_accuracy": None,
-                "confident_fraction": None}
+                "confident_fraction": None, "by_stratum": {}}
 
-    n = len(results)
-    return {
-        "n": n,
-        "signature_accuracy": sum(r.signature_match for r in results) / n,
-        "tonic_accuracy": sum(r.tonic_match for r in results) / n,
-        "confident_fraction": sum(r.confident for r in results) / n,
+    def block(rows: list[KeyResult]) -> dict:
+        if not rows:
+            return {"n": 0, "signature_accuracy": None,
+                    "tonic_accuracy": None, "n_tonic_labelled": 0,
+                    "confident_fraction": None}
+        named = [r for r in rows if r.truth_tonic]
+        return {
+            "n": len(rows),
+            "signature_accuracy": sum(r.signature_match for r in rows) / len(rows),
+            "tonic_accuracy": (sum(r.tonic_match for r in named) / len(named)
+                               if named else None),
+            "n_tonic_labelled": len(named),
+            "confident_fraction": sum(r.confident for r in rows) / len(rows),
+        }
+
+    out = block(results)
+    out["by_stratum"] = {
+        name: block([r for r in results if r.stratum == name])
+        for name in sorted({r.stratum for r in results})
     }
+    return out
 
 
 def format_key_table(results: list[KeyResult]) -> str:
@@ -457,7 +646,7 @@ def format_detection_table(results: list[DetectionResult]) -> str:
         )
     if any(not r.valid for r in results):
         lines.append("")
-        lines.append("  n/a: this material cannot score the detector — which is "
+        lines.append("  n/a: this material cannot score the detector, which is "
                      "not the same")
         lines.append("       as the detector scoring badly, so it is not "
                      "averaged in.")

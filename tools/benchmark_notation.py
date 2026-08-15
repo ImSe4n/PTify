@@ -42,9 +42,14 @@ DEFAULT_BPM = 100.0
 #: note value's.
 ORNAMENT_TEMPI = (60.0, 90.0, 120.0)
 
-#: Note values the ornaments are notated on, in quarters. 0.5 is the case that
-#: exposes the minimum-length boundary.
-ORNAMENT_NOTE_VALUES = (0.5, 1.0, 2.0)
+#: Note values the ornaments are notated on, in quarters.
+#:
+#: The short values are the point. MEASURED: a trill notated on a sixteenth or
+#: shorter realises to only 2 notes, below `TRILL_MIN_ALTERNATIONS = 4`, and is
+#: missed outright -- the boundary sits between 0.25q and 0.5q regardless of
+#: tempo, because realisation subdivides the written value rather than working
+#: in real time. A grid starting at 0.5q would report recall 1.000 and hide it.
+ORNAMENT_NOTE_VALUES = (0.125, 0.25, 0.5, 1.0, 2.0, 4.0)
 
 
 def _ornament_cases(bpm: float, quarter_length: float):
@@ -114,6 +119,78 @@ def _score_ornaments(quiet: bool) -> tuple[list, dict]:
     return per_case, aggregates
 
 
+def _score_real_ornaments(truths_and_scores, bpm: float, quiet: bool):
+    """Trill detection on REAL scores carrying real notated ornaments.
+
+    The synthetic cases isolate the detector: one voice, one ornament, nothing
+    to confuse it. Real scores are the harder and more honest question, and the
+    two disagree sharply -- synthetic reads P 1.000 / R 0.667 where real
+    repertoire reads roughly P 0.74 / R 0.32. Both are reported, because the
+    synthetic number localises a failure and the real one sizes it.
+    """
+    from evaluation import notation as N
+    from notation import analysis
+
+    results = []
+
+    for truth, parsed in truths_and_scores:
+        if not truth.ornaments.get("trill"):
+            continue
+
+        notes, reference = N.realise_ornaments(parsed, bpm=bpm)
+        realisable = reference.get("trill", [])
+        if not realisable:
+            # Every notated trill in this score was a grace note, which
+            # music21 cannot realise (it has no duration to steal time from).
+            # Not ground truth, so not scored.
+            continue
+
+        detected = [(o.onset, o.pitch) for o in analysis.detect_trills(notes)]
+        result = N.score_spans(detected, realisable, kind="trill",
+                               label=truth.label)
+        results.append(result)
+
+        if not quiet:
+            print(f"  {truth.label:28s} tp={result.tp:>3} fp={result.fp:>3} "
+                  f"fn={result.fn:>3}  ({len(realisable)} realisable)",
+                  flush=True)
+
+    return results
+
+
+def _score_staccato(truths_and_scores, bpm: float, quiet: bool):
+    """Articulation on real scores, against notated staccato.
+
+    The performance is SYNTHESISED -- notated-staccato notes are rendered at
+    30% of their written value, everything else at 95% -- because notation says
+    *whether* a note is staccato while the detector asks whether one was played
+    short. Read the result as an upper bound: it proves the detector recovers a
+    clean signal, not that it survives a real pianist.
+    """
+    from evaluation import notation as N
+
+    results = []
+
+    for truth, parsed in truths_and_scores:
+        if not truth.n_staccato:
+            continue
+
+        result = N.score_staccato(parsed, bpm=bpm, label=truth.label)
+        results.append(result)
+
+        if not quiet:
+            if result.valid:
+                print(f"  {truth.label:28s} P={result.precision:.3f} "
+                      f"R={result.recall:.3f} F1={result.f1:.3f}  "
+                      f"tp={result.tp} fp={result.fp} fn={result.fn}",
+                      flush=True)
+            else:
+                print(f"  {truth.label:28s} n/a ({result.invalid_reason})",
+                      flush=True)
+
+    return results
+
+
 def _score_keys(paths, bpm: float, quiet: bool):
     """Key readings over corpus scores, plus the skip accounting."""
     from evaluation import notation as N
@@ -122,10 +199,15 @@ def _score_keys(paths, bpm: float, quiet: bool):
 
     results = []
     truths = []
+    #: (truth, parsed) for the ornament pass, so each score is parsed ONCE.
+    #: Parsing dominates the runtime of this tool.
+    parsed_scores = []
 
     for path in paths:
         truth, parsed = NC.load_truth(path)
         truths.append(truth)
+        if parsed is not None:
+            parsed_scores.append((truth, parsed))
         if not truth.usable:
             if not quiet:
                 print(f"  {truth.label:28s} skipped: {truth.skipped_reason}",
@@ -135,20 +217,73 @@ def _score_keys(paths, bpm: float, quiet: bool):
         notes = N.notes_from_score(parsed, bpm=bpm)
         estimate = analysis.detect_key(notes)
         result = N.score_key(estimate, truth.sharps, truth.tonic,
-                             label=truth.label)
+                             label=truth.label, stratum=truth.stratum)
         results.append(result)
 
         if not quiet:
-            print(f"  {truth.label:28s} truth={str(truth.sharps):>3} "
+            print(f"  {truth.label:28s} {truth.stratum:5s} "
+                  f"truth={str(truth.sharps):>3} "
                   f"est={str(result.est_sharps):>3}  "
                   f"{'sig' if result.signature_match else '   '} "
                   f"{'ton' if result.tonic_match else '   '}  "
                   f"corr={result.correlation:.2f}", flush=True)
 
-    return results, truths
+    return results, truths, parsed_scores
 
 
-def _conclusion(key_stats: dict, ornaments: dict, corpus_summary: dict) -> str:
+def _key_error_shape(key_results) -> dict:
+    """How the signature errors are distributed, not just how many.
+
+    A count says the detector is 0.800; this says the misses are almost all
+    "one flat too many", which is what makes them look correctable. Phase 21
+    measured that they are NOT -- see the note beside KEY_MIN_CORRELATION in
+    transcriber/config.py -- so this block exists to stop the next reader
+    re-deriving the tractable-looking half and missing the rest.
+    """
+    deltas: dict[str, int] = {}
+    for result in key_results:
+        if result.signature_match:
+            continue
+        if result.est_sharps is None or result.truth_sharps is None:
+            deltas["undetermined"] = deltas.get("undetermined", 0) + 1
+            continue
+        key = str(result.est_sharps - result.truth_sharps)
+        deltas[key] = deltas.get(key, 0) + 1
+
+    return {
+        "signature_delta_counts": deltas,
+        "note": ("delta = estimated sharps minus notated sharps; negative "
+                 "means the reading has MORE flats than the score. A "
+                 "correction rule keyed on the correlation gap was measured "
+                 "and rejected -- see transcriber/config.py."),
+    }
+
+
+def _confidence_calibration(key_results) -> dict:
+    """Does the reported correlation separate right readings from wrong ones?
+
+    `KeyEstimate.confident` gates whether a key signature is printed at all,
+    so this is the question of whether that gate is worth anything. A
+    confidence that does not separate is decoration.
+    """
+    import statistics
+
+    correct = [r.correlation for r in key_results if r.signature_match]
+    wrong = [r.correlation for r in key_results if not r.signature_match]
+
+    return {
+        "n_correct": len(correct),
+        "n_wrong": len(wrong),
+        "median_correlation_when_correct": (statistics.median(correct)
+                                            if correct else None),
+        "median_correlation_when_wrong": (statistics.median(wrong)
+                                          if wrong else None),
+        "declined": [r.label for r in key_results if not r.confident],
+    }
+
+
+def _conclusion(key_stats: dict, ornaments: dict, corpus_summary: dict,
+                calibration: dict, real_trill=None, staccato=None) -> str:
     """Prose stating what the numbers mean.
 
     The house convention (`offset-duration-analysis.json`,
@@ -157,24 +292,65 @@ def _conclusion(key_stats: dict, ornaments: dict, corpus_summary: dict) -> str:
     """
     parts = []
 
-    signature = key_stats.get("signature_accuracy")
-    tonic = key_stats.get("tonic_accuracy")
-    if signature is not None:
+    strata = key_stats.get("by_stratum") or {}
+    tonal = strata.get("tonal") or {}
+    modal = strata.get("modal") or {}
+
+    if tonal.get("signature_accuracy") is not None:
+        tonic = tonal.get("tonic_accuracy")
+        tonic_text = (f", tonic accuracy {tonic:.3f} over the "
+                      f"{tonal['n_tonic_labelled']} scores whose ground truth "
+                      f"names a tonic" if tonic is not None else "")
         parts.append(
-            f"Key signature accuracy {signature:.3f} over {key_stats['n']} "
-            f"scores, tonic accuracy {tonic:.3f}. The gap between the two is "
-            f"the relative major/minor case: a reading can put every "
-            f"accidental on the page correctly while naming the wrong tonic, "
-            f"and signature is the figure that matters for engraving."
+            f"On TONAL repertoire, key signature accuracy is "
+            f"{tonal['signature_accuracy']:.3f} over {tonal['n']} scores"
+            f"{tonic_text}. Signature is the figure that matters for "
+            f"engraving: it decides every accidental on the page, and a "
+            f"reading can get it right while naming the relative major or "
+            f"minor as the tonic."
+        )
+
+    if modal.get("signature_accuracy") is not None:
+        parts.append(
+            f"On MODAL repertoire (Palestrina, Monteverdi, trecento) it is "
+            f"{modal['signature_accuracy']:.3f} over {modal['n']} scores. "
+            f"That gap is expected rather than a defect: "
+            f"Krumhansl-Schmuckler models tonal key, and these scores predate "
+            f"it. The two are reported separately because Palestrina alone is "
+            f"71% of the music21 corpus, so a pooled figure would describe "
+            f"repertoire this project does not target."
         )
 
     trill = ornaments.get("trill", {})
     if trill.get("recall") is not None:
         parts.append(
-            f"Trill recall {trill['recall']:.3f} on realised ornaments "
-            f"(tp={trill['tp']} fn={trill['fn']}). Misses are concentrated on "
-            f"short note values, where a notated trill realises to fewer than "
-            f"TRILL_MIN_ALTERNATIONS notes."
+            f"On SYNTHETIC ornaments -- one voice, one symbol -- trill "
+            f"precision is {trill['precision']:.3f} and recall "
+            f"{trill['recall']:.3f} (tp={trill['tp']} fn={trill['fn']}). Every "
+            f"miss is the same case: a trill notated on a sixteenth or shorter "
+            f"realises to 2 notes, below TRILL_MIN_ALTERNATIONS = 4. "
+            f"Realisation subdivides the written value, so the run length goes "
+            f"2, 4, 8, 16 -- never 3 -- which is why lowering that constant to "
+            f"3 recovers NOTHING while admitting mordents, which realise to "
+            f"exactly 3 adjacent-pitch notes. Measured: MIN=3 leaves recall "
+            f"unchanged and turns 0 false trills into 48."
+        )
+
+    if real_trill is not None and real_trill.valid:
+        row = real_trill.as_row()
+        parts.append(
+            f"On REAL repertoire the same detector reads precision "
+            f"{row['precision']:.3f} and recall {row['recall']:.3f} "
+            f"(tp={row['tp']} fp={row['fp']} fn={row['fn']}). That is the "
+            f"honest figure and it is far below the synthetic one: real trills "
+            f"sit inside polyphony, where other voices interleave with the "
+            f"alternation and break the run. The synthetic case localises a "
+            f"failure; this one sizes it. Treat the exact value as roughly "
+            f"+/-0.05 rather than a precise reading -- the detector is "
+            f"rate-based, so the assumed tempo moves it: swept over "
+            f"60-140 BPM, F1 ranges 0.337-0.446 with no monotonic trend, "
+            f"because the notated scores carry no tempo of their own and one "
+            f"has to be assumed."
         )
 
     false_fires = sum(
@@ -189,11 +365,40 @@ def _conclusion(key_stats: dict, ornaments: dict, corpus_summary: dict) -> str:
     )
 
     parts.append(
-        f"Ornament ground truth is synthesised, not corpus-derived: the "
-        f"music21 corpus supplied only "
-        f"{corpus_summary.get('notated_ornaments') or {}} notated ornaments "
-        f"across the sampled scores, which cannot support an F1."
+        f"Ornament ground truth is synthesised, not corpus-derived. The "
+        f"sampled scores do contain "
+        f"{corpus_summary.get('notated_ornaments') or {}} notated ornaments, "
+        f"but they are concentrated in "
+        f"{corpus_summary.get('n_scores_with_ornaments', 0)} of "
+        f"{corpus_summary.get('n_usable', 0)} scores -- one Beethoven quartet "
+        f"movement alone carries 67 trills. What an F1 needs is INDEPENDENT "
+        f"examples, and a handful of scores cannot supply them however many "
+        f"symbols each one repeats. Scoring against the corpus would measure "
+        f"a few pieces, not the detector."
     )
+
+    if staccato is not None and staccato.valid:
+        row = staccato.as_row()
+        parts.append(
+            f"Staccato scores precision {row['precision']:.3f} and recall "
+            f"{row['recall']:.3f} (F1 {row['f1']:.3f}, tp={row['tp']} "
+            f"fp={row['fp']} fn={row['fn']}) -- the strongest detector here, "
+            f"and it returned 0 of 937 notes before Phase 21 fixed the "
+            f"denominator it compared against. The performance is synthesised, "
+            f"so read it as an upper bound on a clean signal rather than a "
+            f"claim about real playing."
+        )
+
+    right = calibration.get("median_correlation_when_correct")
+    wrong = calibration.get("median_correlation_when_wrong")
+    if right is not None and wrong is not None:
+        parts.append(
+            f"The reported confidence is weakly calibrated: median correlation "
+            f"{right:.3f} when the signature is right against {wrong:.3f} when "
+            f"it is wrong. It separates, but not by enough to use as a "
+            f"threshold -- its real value is at the extremes, where it "
+            f"correctly declined {calibration['declined']}."
+        )
 
     parts.append(
         "Dynamics are not scored. Every corpus and MIDI source available here "
@@ -262,28 +467,43 @@ def main(argv: list[str] | None = None) -> int:
         print("key")
 
     try:
-        key_results, truths = _score_keys(paths, args.bpm, args.quiet)
+        key_results, truths, parsed_scores = _score_keys(
+            paths, args.bpm, args.quiet)
         if not args.quiet:
             print()
-            print("ornaments (realised from notation)")
+            print("ornaments (synthetic: one voice, one symbol)")
         ornament_rows, ornament_aggregates = _score_ornaments(args.quiet)
+        if not args.quiet:
+            print()
+            print("ornaments (real scores carrying notated trills)")
+        real_ornaments = _score_real_ornaments(parsed_scores, args.bpm,
+                                               args.quiet)
+        if not args.quiet:
+            print()
+            print("staccato (rendered performance, real notated articulation)")
+        staccato_results = _score_staccato(parsed_scores, args.bpm, args.quiet)
     except KeyboardInterrupt:
         print("\ncancelled", file=sys.stderr)
         return 130
 
     key_stats = N.key_accuracy(key_results)
     corpus_summary = NC.summarise(truths)
+    calibration = _confidence_calibration(key_results)
+    real_trill = N.aggregate(real_ornaments, kind="trill")
+    staccato = N.aggregate(staccato_results, kind="staccato")
 
     if not args.quiet:
         print()
         print(N.format_key_table(key_results))
         print()
-        print(f"  signature accuracy : {key_stats['signature_accuracy']:.3f}"
-              if key_stats["signature_accuracy"] is not None else
-              "  signature accuracy : n/a")
-        print(f"  tonic accuracy     : {key_stats['tonic_accuracy']:.3f}"
-              if key_stats["tonic_accuracy"] is not None else
-              "  tonic accuracy     : n/a")
+        for name, block in sorted((key_stats.get("by_stratum") or {}).items()):
+            if not block["n"]:
+                continue
+            tonic = block["tonic_accuracy"]
+            tonic_text = (f"{tonic:.3f} (n={block['n_tonic_labelled']})"
+                          if tonic is not None else "n/a (no tonic labelled)")
+            print(f"  {name:6s} n={block['n']:<4d} signature "
+                  f"{block['signature_accuracy']:.3f}   tonic {tonic_text}")
         print(f"  skipped            : {corpus_summary['n_skipped']} "
               f"{corpus_summary['skipped_reasons']}")
         print()
@@ -293,7 +513,11 @@ def main(argv: list[str] | None = None) -> int:
                                   valid=row["valid"],
                                   invalid_reason=row["invalid_reason"])
                   for kind, row in sorted(ornament_aggregates.items())]
+        print("  synthetic (one voice, one symbol):")
         print(N.format_detection_table(pooled))
+        print()
+        print("  real repertoire:")
+        print(N.format_detection_table([real_trill, staccato]))
 
     payload = {
         "schema": SCHEMA,
@@ -311,11 +535,36 @@ def main(argv: list[str] | None = None) -> int:
         "corpus": corpus_summary,
         "key": {
             "summary": key_stats,
+            "confidence_calibration": calibration,
+            "error_shape": _key_error_shape(key_results),
             "rows": [r.as_row() for r in key_results],
         },
         "ornaments": {
-            "summary": ornament_aggregates,
-            "rows": ornament_rows,
+            "note": ("synthetic = one voice and one symbol, which isolates "
+                     "the detector; real = notated trills in real repertoire, "
+                     "which is the honest figure. They disagree sharply and "
+                     "both are kept."),
+            "synthetic": {
+                "summary": ornament_aggregates,
+                "rows": ornament_rows,
+            },
+            "real": {
+                "summary": real_trill.as_row(),
+                "rows": [r.as_row() for r in real_ornaments],
+            },
+        },
+        "staccato": {
+            "note": ("performance is SYNTHESISED -- notated staccato rendered "
+                     "at 30% of written value, everything else at 95% -- "
+                     "because notation says whether a note is staccato while "
+                     "the detector asks whether one was played short. An "
+                     "upper bound: it shows the detector recovers a clean "
+                     "signal, not that it survives a real pianist. Only the "
+                     "first "
+                     f"{N.STACCATO_MAX_NOTES} notes of each score are scored, "
+                     "for runtime."),
+            "summary": staccato.as_row(),
+            "rows": [r.as_row() for r in staccato_results],
         },
         "dynamics": {
             "scored": False,
@@ -327,7 +576,9 @@ def main(argv: list[str] | None = None) -> int:
             "reason": ("no meter detector exists -- the time signature is a "
                        "CLI argument, so scoring it would measure the input"),
         },
-        "conclusion": _conclusion(key_stats, ornament_aggregates, corpus_summary),
+        "conclusion": _conclusion(key_stats, ornament_aggregates,
+                                  corpus_summary, calibration, real_trill,
+                                  staccato),
     }
 
     if args.json is not None:

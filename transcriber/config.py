@@ -71,6 +71,25 @@ HARMONIC_SIMULTANEITY_SEC = 0.05  # partials start with their fundamental
 KEY_MIN_CORRELATION = 0.55
 KEY_MIN_NOTES = 8          # fewer than this is not evidence of a key at all
 
+# DO NOT add a "prefer the runner-up when it has fewer flats" rule. Tried in
+# Phase 21 and measured; it does not work, and the reason is worth keeping so
+# it is not re-attempted.
+#
+# The failures look tractable: signature errors are dominated by delta = -1
+# (one flat too many) -- 15 of 17 modal misses and 4 of 8 tonal ones -- and
+# **the true signature is in the top-3 alternatives for 21 of 24 misses**, so
+# the information really is present and only the ranking is wrong.
+#
+# But the correlation gap that would have to trigger the correction does not
+# separate. When the top pick is CORRECT the median gap to the runner-up is
+# 0.174 (p10 0.028); when the top pick is wrong and the runner-up is right the
+# median gap is 0.120 (p90 0.187). Those distributions overlap almost
+# completely. Swept over eps 0.0-0.12 the rule moved accuracy by at most
+# +0.025 -- two scores out of 79 -- and non-monotonically (it helps at 0.02,
+# hurts at 0.08, helps again at 0.12), which is the signature of noise rather
+# than signal. Any rule that fixes the 18 wrong cases breaks a comparable
+# share of the 55 correct ones.
+
 # --- Trills ---
 # A trill alternates between two ADJACENT pitches: a semitone or a tone. A
 # wider interval is a tremolo, which is notated differently.

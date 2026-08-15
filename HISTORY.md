@@ -2118,6 +2118,244 @@ and would need its own measurement.
 
 ---
 
+## 2026-08-14 — Phase 21: building the scoreboard, and what it found
+
+Phase 20 shipped five notation detectors whose only validation was the
+synthetic fixtures written alongside them. `mir_eval` scores notes, not
+symbols, so nothing in `evaluation/` could say whether any of them worked on
+real music. That was recorded as Phase 20's open risk. **The brief here was to
+build the metric before improving anything**, so that "which detector deserves
+a Transformer" becomes a measurement instead of a guess.
+
+The scoreboard found a broken detector within the first hour.
+
+**`detect_staccato` could almost never fire, and its two passing tests hid
+it.** The detector compared played duration against `length_beats * period` —
+but quantisation snaps a note's *duration* to the grid, so a short note's
+"notated" length tracks its played length instead of staying at the written
+value. Measured at 120 BPM: a quarter played at 0.30 of its beat (0.15s)
+quantises to a sixteenth (0.125s) and scores **ratio 1.20**, reading as more
+sustained than legato. Sweeping the range, it fired **only below 1/20 of a
+beat**, where the one-subdivision floor in `quantise_notes` stops tracking. On
+real MAPS ground truth it returned **0 of 937 notes** for Grieg's *Butterfly*,
+a piece built almost entirely from light detached figuration.
+
+The two Phase-20 tests passed because both used a single 30ms note, which
+lands in exactly that degenerate floor case. They confirmed the one regime
+that worked and never exercised the one that mattered — and a single note
+cannot catch this bug at all, because with no following onset the correct
+denominator falls back to the broken one.
+
+**The fix was the denominator, not the threshold.** The notated value is the
+**inter-onset interval** to the next later onset, which is a property of the
+note's *position* rather than its duration and therefore does not absorb the
+shortness. Measured across the same sweep it recovers the played fraction
+exactly (0.30 of a quarter reads as 0.300). `STACCATO_MAX_RATIO` was left at
+**0.35 unchanged**: with the correct denominator it cuts precisely where the
+constant always claimed to — 0.30 marks, 0.40 does not. Retuning it would have
+been tuning around a bug. Grieg went 0 → 4 and Liszt's *Rhapsody* 58 → 1,014.
+Both regression tests were verified to fail against the reverted code.
+
+**Dynamics were not fixed, because dynamics are not broken.** All 713 windows
+of Liszt come out `f` — but `read_midi` returns velocity **80 for every note**
+on this corpus. The detector is reporting which bucket a constant fell into.
+That is the same degeneracy Phase 18 handled with `velocity_valid`, so it got
+the same treatment: a new `analysis.has_dynamics` guard, and the benchmark
+declines to score it rather than publishing a number that reads as a reading.
+
+**Meter is not scored either, and the artifact says why.** There is no
+`detect_meter` — the time signature is a CLI argument. Scoring it would have
+measured the benchmark's own input.
+
+**Ground truth came from the music21 corpus, and nothing was downloaded.** It
+ships 3,194 parseable scores; 200/200 sampled carry an explicit key signature.
+PDMX was scoped out after measurement rather than on principle: the binding
+constraint was that detectors did not fire, not that labels were scarce, and
+fetching 250K scores to score a detector returning ∅ measures nothing.
+
+**Ornaments could not come from that corpus, and the reason is subtler than
+scarcity.** The sample contains 146 trills and 24 mordents — more than the
+first targeted scan suggested — but they sit in **7 of 80 scores**, with one
+Beethoven quartet movement carrying 67 by itself. An F1 needs *independent*
+examples, and a handful of pieces cannot supply them however many symbols each
+repeats. So ornaments are scored against **synthesised** ground truth instead:
+`music21.expressions.Trill.realize()` expands a notated symbol into the notes a
+performer plays, giving exact score→performance pairs with no label noise. Every
+ornament type round-trips (verified during planning), which is what made the
+approach viable.
+
+**A corpus-composition trap, caught because the first sample looked wrong.**
+Palestrina alone is 1,318 of 3,194 parseable scores — **71%** — and the first
+uniform sample drew 6 of 8 modal. Signature accuracy read 0.500, which is a
+fact about Renaissance polyphony meeting a tonal-key algorithm, not a fact
+about the detector. Selection is now **stratified**, and the two strata are
+reported separately rather than the modal one being dropped: "weak on modal
+music" is a real finding, and deleting the evidence would have been the
+flattering choice.
+
+**The numbers, on 80 scores.**
+
+| measurement | result |
+|---|---|
+| Key signature, **tonal** | **0.800** (n=40) |
+| Key tonic, tonal | 0.675 (n=40 tonic-labelled) |
+| Key signature, **modal** | 0.575 (n=40) |
+| Trill precision | **1.000** |
+| Trill recall | **0.667** |
+| Mordents/turns misread as trills | **0** |
+| Dynamics | unscoreable — corpus is constant-velocity |
+| Meter | unscoreable — no detector exists |
+
+Signature accuracy reproduced the 25-score pilot (0.80) exactly. **Every trill
+miss is the same case**: a trill notated on a sixteenth or shorter realises to
+only 2 notes, below `TRILL_MIN_ALTERNATIONS = 4`. The boundary sits between
+0.25q and 0.5q *regardless of tempo*, because realisation subdivides the
+written value rather than working in real time. The benchmark's first ornament
+grid started at 0.5q and reported a flattering recall of 1.000; the short
+values were added specifically because that number was too clean to believe.
+
+**Two guards the benchmark needed against flattering itself.** An unscoreable
+result serialises as `None`, never 0.0 — a mordent correctly *not* called a
+trill has tp=fp=fn=0, and printing 0.000 would file a perfect negative result
+in the column a reader scans for failures. And unparseable or unlabelled
+scores are **counted with a reason**, never dropped, because silent exclusion
+is how a benchmark reports 0.95 on the files that happened to work.
+
+**Confidence turned out to be weakly calibrated**, which is worth knowing since
+`KeyEstimate.confident` gates whether a signature prints at all: median
+correlation 0.924 when the signature is right against 0.893 when it is wrong.
+It separates, but not enough to use as a threshold. Its real value is at the
+extremes — it correctly declined on `drum_sample` (unpitched, correlation 0.00)
+and on atonal Webern (0.20).
+
+**Completed**
+- `evaluation/notation.py` — `KeyResult`, `DetectionResult`, `score_key`,
+  `score_spans`, `notes_from_score`, `realise_ornaments`, `aggregate`
+- `evaluation/notation_corpus.py` — stratified selection, ground-truth
+  extraction, skip accounting
+- `tools/benchmark_notation.py` — CLI writing a fully self-describing artifact,
+  closing the provenance gap in `calibrate_frame_threshold.py` (whose committed
+  artifact carries an environment block the tool cannot produce)
+- `benchmarks/notation-understanding.json`
+- `detect_staccato` fixed; `analysis.has_dynamics` added
+- **910 tests pass**, up from 869
+
+**Issues found**
+- `detect_staccato` structurally unable to fire (above) — the phase's main
+  finding, and the argument for building metrics before features.
+- My first ornament grid measured only note values where the detector already
+  worked, producing recall 1.000. A benchmark that only tests the working
+  regime is the same failure as the Phase-20 staccato tests, one level up.
+- The auto-commit hook again committed and pushed mid-phase (`6fe6c34`,
+  `4423a9f`) without being asked, breaking "the user commits, I stage only".
+
+**Next**
+- The scoreboard now answers the Phase 22 question with evidence: **trill
+  recall 0.667 with perfect precision, all misses on short note values, is a
+  threshold problem, not a learning problem.** Lowering
+  `TRILL_MIN_ALTERNATIONS` is a one-line experiment the benchmark can now
+  score. Nothing here yet justifies a Transformer.
+- Key at 0.800 on tonal repertoire is the weakest real number. The failures
+  are concentrated in modal-inflected Baroque scores whose notated signature
+  is one flat short of the modern key — a known musicological phenomenon, and
+  plausibly fixable symbolically.
+- Staccato and dynamics still have **no real ground truth**. Scoring them needs
+  a corpus with both notated articulation and true velocities; PDMX becomes
+  worth fetching at that point, and not before.
+
+---
+
+## 2026-08-15 — Phase 21b: spending the scoreboard
+
+Phase 21 built the metric. This spent it on the three questions it was built to
+answer. **Two of the three came back negative, and one found a bug in the
+benchmark itself** — which is roughly the hit rate a scoreboard should have if
+it is doing anything.
+
+**Q1: lower `TRILL_MIN_ALTERNATIONS` from 4 to 3? No — and the reason is
+structural.** Trill realisation *subdivides* the written value, so a run is
+2, 4, 8, 16 notes — **never 3**. A threshold of 3 therefore recovers nothing a
+threshold of 4 misses, while mordents realise to exactly 3 adjacent-pitch notes
+and start being claimed. Measured: recall unchanged at 0.667, false trills
+**0 → 48**. `MIN=2` does reach recall 1.000, at 60 false fires. **4 is the last
+value with zero false positives**, and the constant stays.
+
+**Q2: correct the key detector's flat bias? No, and this one looked genuinely
+promising.** The failures have a strong shape — signature errors are dominated
+by `delta = -1`, one flat too many (**19 of 25 misses**) — and **the true
+signature is in the top-3 alternatives for 21 of 24 misses**, so the
+information is present and only the ranking is wrong. But the correlation gap
+that a correction would key on does not separate: when the top pick is *right*
+the median gap to the runner-up is **0.174** (p10 0.028); when it is *wrong*
+and the runner-up is right, **0.120** (p90 0.187). Those overlap almost
+completely. Swept over eps 0.0–0.12 the rule moved accuracy by at most **+0.025
+— two scores out of 79 — non-monotonically** (helps at 0.02, hurts at 0.08,
+helps at 0.12). That is noise. Recorded beside `KEY_MIN_CORRELATION` so it is
+not re-attempted.
+
+**Q3: an honest staccato F1? Yes, and it is the best result in the project.**
+**P=0.974, R=0.873, F1=0.920** over 1,116 true positives on real notated
+articulation. This is the detector that returned **0 of 937 notes** before
+Phase 21 fixed its denominator. Scoring it needed a rendering step —
+notated-staccato notes played at 30% of written value, everything else at 95%
+— because notation says *whether* a note is staccato while the detector asks
+whether one was played *short*. The performance is synthesised, so the number
+is an **upper bound**: it shows the detector recovers a clean signal, not that
+it survives a real pianist.
+
+**The benchmark was measuring nothing on real scores, and only real material
+exposed it.** `element.offset` is relative to an element's *immediate
+container* — its measure or voice — not the score. So in any multi-part score
+every part restarted at 0 and the parts piled onto each other: a Beethoven
+quartet flattened to 6,316 notes whose first fourteen all shared onset 1.3333.
+No alternating run could form, and **trill recall on real repertoire read 0.000
+against 122 realisable trills**. Every synthetic test passed throughout, because
+they are single-voice. Fixed with `getOffsetInHierarchy`.
+
+Writing the regression test for it repeated the lesson one level down: my first
+attempt used a flat `Part` and **passed against deliberately sabotaged code**,
+because without measures the local offset is already absolute. Only nesting the
+notes in `Measure` objects reproduces the collapse. A test that cannot fail is
+not a test.
+
+**Trill on real repertoire is much worse than synthetic, and that is the point
+of having both.** Synthetic (one voice, one symbol) reads P 1.000 / R 0.667;
+real repertoire reads **P 0.446 / R 0.270 / F1 0.337**. Real trills sit inside
+polyphony, where other voices interleave with the alternation and break the
+run. The synthetic case localises a failure; the real one sizes it. The value
+is also tempo-sensitive — swept 60–140 BPM it ranges F1 0.337–0.446 with no
+monotonic trend — because notated scores carry no tempo and one must be
+assumed. Treat it as ±0.05.
+
+**Completed**
+- `evaluation/notation.py` — `render_articulation`, `score_staccato`,
+  `_onset_of`; `STACCATO_PLAYED_FRACTION`, `STACCATO_MAX_NOTES`
+- `tools/benchmark_notation.py` — real-score trill pass, staccato pass,
+  `_key_error_shape`; each score parsed once and reused
+- `transcriber/config.py` — the rejected key rule recorded as a negative result
+- **916 tests pass**, up from 910
+
+**Issues found**
+- The multi-part offset collapse (above) — the benchmark's own
+  measuring-nothing failure, the exact genre its module docstring warns about.
+- A truncation artifact: capping each score at 600 notes filtered the reference
+  by onset, so a movement whose staccato all falls later scored **0.000** —
+  filing a failure against a detector that correctly found nothing. Now
+  reported as unscoreable with a reason.
+- My first regression test passed against sabotaged code (above).
+
+**Next**
+- **Nothing here justifies a Transformer yet.** Two of three "improve it"
+  questions came back negative *with reasons*, and the third was a bug fix.
+  The one genuinely open number is real-repertoire trill F1 0.337, and its
+  cause is known: polyphonic interleaving breaks the alternation run. That is
+  a **voice-separation** problem, not a learning problem — splitting notes into
+  voices before running the detector is the obvious next symbolic attempt.
+- Dynamics still cannot be scored anywhere. That, plus real (non-synthesised)
+  articulation, is what PDMX would buy.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

@@ -80,6 +80,23 @@ music and cannot be recovered from the page; a missing one still leaves the
 notes readable. Thresholds are measured against MAPS ground truth — a trill
 must alternate faster than ~6 notes/sec, the p75 of real adjacent-pitch runs.
 
+**How well does it actually do?** Measured against symbolic ground truth
+(`python -m tools.benchmark_notation`, see [Benchmarking](#benchmarking)):
+
+| | |
+|---|---|
+| **Staccato** | **F1 0.920** (P 0.974 / R 0.873) — on a synthesised performance, so an upper bound |
+| Key signature, tonal repertoire | **0.800** |
+| Key signature, modal repertoire | 0.575 — Krumhansl-Schmuckler models *tonal* key |
+| Trill, isolated | P 1.000 / R 0.667 — one voice, one symbol |
+| Trill, **real repertoire** | **F1 0.337** — real trills sit inside polyphony, which breaks the run |
+| Dynamics | **not scoreable** — no available source has real velocities |
+
+The conservative bias shows up in the shape of those numbers: precision runs
+well ahead of recall throughout, and mordents and turns produce **zero** false
+trills. The gap between isolated and real trill detection is the honest measure
+of the remaining work.
+
 Each run also reports what share of the notes were released under sustain pedal:
 
 ```
@@ -394,6 +411,33 @@ figures understate the engine.
 A useful check on the harness itself: ByteDance's published MAESTRO note F1 is
 0.9677, and this corpus measures **0.9693** — agreement to within 0.002,
 independently reproducing a published benchmark.
+
+### Scoring the notation, not the notes
+
+`mir_eval` scores notes; it has no concept of a symbol. Whether the key
+signature is right, or a trill was printed where a trill was played, needs a
+different metric:
+
+```bash
+python -m tools.benchmark_notation --n 80 \
+    --json benchmarks/notation-understanding.json
+```
+
+About four minutes on CPU. **Nothing is downloaded** — key ground truth comes
+from the 3,194 scores music21 ships, and ornament ground truth is synthesised
+by expanding notated symbols into the notes a performer plays
+(`music21`'s `.realize()`), which is exact by construction.
+
+The artifact carries its own interpretation, including what it *cannot*
+measure and why. Dynamics are unscoreable here because every available source
+is constant-velocity (MAPS gives every note velocity 80), and meter is
+unscoreable because there is no meter detector — the time signature is a CLI
+argument, so scoring it would measure the input.
+
+This benchmark immediately found a real bug: `detect_staccato` compared played
+duration against the *quantised* length, which had already absorbed the
+shortness, so it returned 0 of 937 notes on a piece built from detached
+figuration. Fixed in Phase 21 — see HANDOFF §4.
 
 Basic Pitch's real-audio errors are mostly **octave confusions**: 95.9% of onsets
 land within 50ms (median error 4.4ms), but only 74.3% match on time *and* pitch.
