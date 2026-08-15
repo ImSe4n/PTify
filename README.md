@@ -190,6 +190,12 @@ memory, so with the in-memory store it would run jobs and write artifacts that
 no API process could report. That combination is refused at startup rather than
 producing jobs stuck at `queued` forever.
 
+A separate worker process claiming a job, running the pipeline, and having the
+API serve the result is covered by `tests/test_api_worker_process.py` using a
+real subprocess. **The arq/Redis layer on top of that is not tested** — neither
+is installed, and Redis has no native Windows build — so treat `PTIFY_QUEUE=arq`
+as untried until it runs somewhere real.
+
 #### Accounts
 
 Set a signing secret alongside the database and the API grows user accounts:

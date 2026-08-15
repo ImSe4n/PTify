@@ -2501,6 +2501,72 @@ worse than no test:
 
 ---
 
+## 2026-08-15 — Phase 5c: the worker process, and what is still unproven
+
+5a gave jobs a shared home; 5b gave them an owner. 5c closes the loop that
+`api/arq_queue.py` has been waiting on since Phase 4 — and is careful about
+what it does *not* claim.
+
+**`worker_settings` finally has something to plug into.** Its
+`job_store_factory` seam existed from Phase 4 with nothing to pass it: the only
+store was an in-memory dict, and a worker process handed its own private copy
+is strictly *worse* than one handed nothing, because it silently records
+progress nobody will ever read. `default_job_store_factory(db_path)` returns a
+`SqliteJobStore` over the same file the API opens — or **None** when there is no
+database, so the existing warning fires instead of a fake success.
+
+**What is proven, by a real subprocess.** `tests/test_api_worker_process.py`
+starts a genuine separate OS process which claims a job from the shared store,
+runs the real `api.pipeline.run`, writes real artifacts through the real
+`LocalStorage`, and marks the job succeeded — after which an API process **that
+never saw the worker** reports the state, the note count, and serves the MIDI
+bytes over HTTP. Before 5a that was impossible: the API would have reported
+`queued` forever while the files sat on disk.
+
+**What is NOT proven, stated plainly.** No test here has ever run a real arq
+worker against a real Redis. Neither is installed, and Redis has no native
+Windows build — verified on this machine: no `redis-server`, no Docker, and
+WSL2 unsupported by the current configuration. A test that imported arq and
+mocked Redis would prove that the mock behaves like the mock. So the arq layer
+remains **wiring that is deliberately kept honest**, and the module docstring
+now says so instead of implying Phase 5 finished the job. What was actually
+blocking it — shared state — is gone; what remains is Redis plumbing that needs
+somewhere to deploy (Phase 10).
+
+**Two things the test found, neither a bug.** Writing it against the real API
+rather than an imagined one corrected two of my own assumptions: artifacts
+download from `/v1/jobs/{id}/result/{fmt}`, not an invented `/artifacts/{name}`;
+and `artifacts["json"]` is deliberately an **empty list** because the piano-roll
+payload is served from the job record rather than written as a file
+(`pipeline.py:302`). Both are now asserted with the reason, so the empty list
+does not later read as a missing artifact and get "fixed".
+
+**Verified by sabotage.** Making `default_job_store_factory` return an
+in-memory store — exactly the pre-5a situation — fails **five** of the eight
+tests, including the headline one. The claim is checked, not asserted.
+
+**Completed**
+- `api/arq_queue.py` — `default_job_store_factory`, `worker_settings(db_path=…)`,
+  docstring rewritten to separate what works from what is untested
+- `tests/test_api_worker_process.py` — 8 tests over a real subprocess
+- **994 tests pass**, up from 986
+
+**Phase 5 as a whole.** Three subphases, no new dependency, nothing downloaded:
+jobs persist and are shared (5a), accounts own them (5b), and a separate worker
+process can complete them (5c). The three Phase 4 seams — `JobStore`,
+`get_principal`, `Storage` — all held: **adding accounts changed no route**, and
+adding persistence changed no caller of the store.
+
+**Next**
+- `Storage` is the one seam still single-implementation. It matters only for a
+  multi-machine deployment, where `LocalStorage` breaks because the worker and
+  the API no longer share a disk — the same class of problem 5a solved for
+  jobs, and worth solving when there is a deployment (Phase 10).
+- The app track (Phases 6-8) is now unblocked: there are accounts to log into
+  and jobs that survive a refresh.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on
