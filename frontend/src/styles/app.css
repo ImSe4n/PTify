@@ -1,0 +1,328 @@
+/* Global styles and the shared UI primitives. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+a {
+  color: inherit;
+}
+
+input,
+button,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* A visible focus ring everywhere. Keyboard users are not an afterthought and
+   the mockup had `outline:none` with nothing put back. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border: 4px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Paper grain. Kept from the mockup: it is the cheapest thing that stops a
+   flat background reading as a default. */
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 200;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 140px 140px;
+}
+
+/* --- type primitives ---------------------------------------------------- */
+
+.serif {
+  font-family: var(--font-display);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The editorial cliff. Used only where a page can afford to be a page. */
+.display {
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  line-height: var(--lh-tight);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  margin: 0;
+  text-wrap: balance;
+}
+.display em {
+  font-style: italic;
+  color: var(--accent);
+}
+
+.h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  line-height: var(--lh-snug);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+/* Section markers: small, letterspaced mono. Editorial pages label their
+   sections rather than relying on size alone. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0;
+}
+
+.lede {
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: var(--measure);
+  margin: 0;
+}
+
+.prose {
+  color: var(--muted);
+  max-width: var(--measure);
+  margin: 0;
+}
+
+.numeral {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* --- buttons ------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  height: 44px;
+  padding: 0 var(--sp-5);
+  border: var(--rule-width) solid transparent;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  cursor: pointer;
+  /* Motion with intent: it lifts and settles rather than snapping. */
+  transition:
+    transform var(--dur-fast) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+.btn:disabled {
+  cursor: not-allowed;
+  background: transparent;
+  border-color: var(--rule-strong);
+  color: var(--faint);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--rule-strong);
+  color: var(--ink);
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+/* An underline that grows from the left -- a link that behaves like a link,
+   with a state change you can actually see. */
+.btn-link {
+  position: relative;
+  height: auto;
+  padding: 0 0 2px;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+.btn-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--dur) var(--ease);
+}
+.btn-link:hover::after,
+.btn-link:focus-visible::after {
+  transform: scaleX(1);
+}
+.btn-link:hover {
+  color: var(--accent);
+}
+
+/* --- fields ------------------------------------------------------------- */
+
+.field {
+  display: block;
+  margin-bottom: var(--sp-5);
+}
+.field-label {
+  display: block;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  margin-bottom: var(--sp-1);
+}
+.field-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 2px;
+  background: transparent;
+  border: none;
+  border-bottom: var(--rule-width) solid var(--rule-strong);
+  color: var(--ink);
+  font-size: 1rem;
+  transition: border-color var(--dur) var(--ease);
+}
+.field-input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+.field-input::placeholder {
+  color: var(--faint);
+}
+
+/* --- layout helpers ----------------------------------------------------- */
+
+.page {
+  width: 100%;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--sp-8) var(--sp-6) var(--sp-9);
+}
+
+.rule {
+  border: 0;
+  border-top: var(--rule-width) solid var(--rule);
+  margin: 0;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.fade-in {
+  animation: fadeIn var(--dur-slow) var(--ease) both;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.spin {
+  animation: spin 1.4s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The indeterminate sweep. This is the honest progress indicator: it says
+   "working" without claiming a percentage nobody measured. */
+.sweep {
+  animation: sweep 1.7s var(--ease) infinite;
+}
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
