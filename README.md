@@ -108,6 +108,33 @@ and its decay are acoustically indistinguishable, so the printed rhythms are
 interpolation rather than measurement — 16% on Scarlatti, 91% on a Schubert
 impromptu. Onsets stay reliable either way.
 
+## Web app
+
+A React + Vite front end lives in `frontend/`. Two terminals:
+
+```bash
+# 1. the API, with accounts on. BOTH variables are required -- without them
+#    the /v1/auth/* routes are not registered at all.
+PTIFY_DB_PATH=var/ptify.db PTIFY_JWT_SECRET=$(openssl rand -hex 32) \
+    python -m uvicorn api.app:create_app --factory
+
+# 2. the app
+cd frontend && npm install && npm run dev      # http://localhost:5173
+```
+
+The dev server proxies `/v1` to the API, so the browser sees a single origin.
+
+Sign up, drop in a recording, pick an engine, and watch it run. **Progress is
+shown as an indeterminate state with a real elapsed clock, not a percentage** —
+the default engine reports nothing at all while inference runs (measured: 160
+seconds of silence on a 67-second recording), and inventing a number there would
+be a guess presented as a measurement.
+
+The result screen draws the piano roll from `result/json`, and it distinguishes
+**measured note lengths from lengths interpolated under sustain pedal** — with
+the fraction stated plainly, because that is the honest answer to "can I trust
+these rhythms".
+
 ## HTTP API
 
 ```bash
@@ -349,6 +376,10 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `training/dataset.py` | Seek-decode a segment, augment, render targets |
 | `training/augment.py` | Continuous room/detune sampler, hash-seeded per segment |
 | `training/train.py` | The fine-tuning loop: `--resume auto`, `--augment` |
+| `frontend/src/api/client.ts` | Fetch wrapper + one `parseApiError()` over three envelopes |
+| `frontend/src/api/sse.ts` | Fetch-based SSE reader — `EventSource` cannot send a bearer token |
+| `frontend/src/roll/PianoRoll.tsx` | Canvas roll: measured vs pedal-estimated lengths |
+| `frontend/src/styles/tokens.css` | Palette, type scale, motion |
 | `benchmarks/` | Committed manifests and baseline scores (no audio) |
 | `tests/` | `python -m pytest tests/` |
 | `HISTORY.md` | Development log: what broke and why |
@@ -517,9 +548,16 @@ under sustain pedal.
 - [x] **Phase 3** — notation: beats → quantize → hand separation → MusicXML → PDF
 - [x] **Phase 4** — FastAPI backend + job queue
 - [x] **Phase 20** — musical understanding: key signatures, meters, trills, staccato, dynamics
-- [ ] **Phase 5** — Supabase auth and persistence
-- [ ] **Phase 6–8** — React frontend, piano roll, sheet music view
+- [x] **Phase 5** — accounts and persistence: SQLite job store, HS256 tokens, worker process
+- [x] **Phase 6** — React frontend: auth, upload, live progress, piano roll, history
+- [ ] **Phase 7–8** — playback against the roll, an interactive sheet view
 - [ ] **Phase 9–11** — error handling, deploy, YouTube input
+
+Phase 5 shipped as **SQLite + a standard-library HS256 issuer** rather than
+Supabase: the thing blocking the project was jobs living inside one process,
+and a file both processes open fixes that with no account, no network and no
+new dependency. Supabase is now a third implementation of an interface two have
+proven. See `HANDOFF.md` §9.
 
 **Training** (can run in parallel)
 - [x] **Phase 12** — evaluation harness (no GPU needed)

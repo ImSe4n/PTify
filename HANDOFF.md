@@ -11,10 +11,33 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 5 — DONE (5a persistence, 5b accounts, 5c worker process). All three Phase 4 seams held; no new dependency.** |
-| **Branch** | `phase-5c-arq-end-to-end`, off `phase-5b-jwt-auth` |
-| **Tests** | 994 passing, ~2¼ min, no model or network needed |
-| **Next** | The app track (Phases 6-8) is unblocked — there are accounts to log into and jobs that survive a refresh |
+| **Last completed** | **Phase 6 — the frontend exists and runs against the real backend.** Preceded by **Phase 5.5**, the first human run of the assembled stack. |
+| **Branch** | `phase-6-frontend`, off `phase-5c-arq-end-to-end` |
+| **Tests** | 994 passing, ~2⅔ min, no model or network needed. **No JS tests — see below.** |
+| **Next** | Phase 7-8: playback against the roll, a real sheet view, deep links |
+
+**Phase 6 in one paragraph.** `frontend/` is a React + Vite SPA (~1,900 lines)
+covering auth, upload, live progress, the piano roll, history and a sheet
+viewer. **React was not chosen in this phase** — `requirements.txt:106` and the
+CORS defaults at `api/settings.py:150` had both committed to it already. The
+backend changed **not one line**: every seam Phase 4 left was sufficient. Three
+bugs were found, and **all three were found by driving a real browser, none by
+typechecking** — they are in §4 because each will recur. The load-bearing UI
+decision is that the Waiting screen renders an *indeterminate* state rather
+than a percentage, which is not a style choice: Phase 5.5 measured `progress`
+frozen at 0.09 for ~160 seconds on a real recording.
+
+**Phase 5.5 in one paragraph.** The 994 tests all inject fakes into
+`create_app()` and run the pipeline inline through a `_SyncQueue`; none loads a
+real model. So the assembled Phase 4/5 stack had never actually been run. It
+was run by hand end to end — signup, a real 67s Scarlatti through five output
+formats, SSE watched live, artifacts opened, the server restarted — and
+**everything passed**. The two results worth keeping: **Verovio survived
+rendering in a worker thread** (§4 says its failure mode blames the MusicXML
+instead, and the queue renders in worker threads, so this was the real risk),
+and after a restart a fresh process logged in an account created before the
+restart and served the job's PDF **byte-identical**. Cost: one afternoon, no
+code written.
 
 **Phase 5 in one paragraph.** Jobs persist to SQLite and are visible across
 processes (5a), user accounts own them via HS256 tokens and PBKDF2 passwords
@@ -190,6 +213,17 @@ The `clean` baseline for both engines exists; the augmented cells do not. See
 ## 2. Run it
 
 ```bash
+# THE WHOLE APP (Phase 6). Two terminals. Accounts need BOTH env vars or the
+# /v1/auth/* routes are not registered at all (a 404, not a 500).
+#   terminal 1:
+set PTIFY_DB_PATH=var\ptify.db
+set PTIFY_JWT_SECRET=<32+ hex chars>
+.venv\Scripts\python.exe -m uvicorn api.app:create_app --factory
+#   terminal 2:
+cd frontend && npm install && npm run dev        # http://localhost:5173
+# Vite proxies /v1 and /healthz to 127.0.0.1:8000, so the browser sees one
+# origin and CORS never enters the picture in dev.
+
 # the backend (Phase 4). The editable install is REQUIRED -- notation/ imports
 # from transcriber/, which only resolved because the repo root happened to be
 # on sys.path. --no-deps keeps a resolver away from the numpy<2 pin.
@@ -318,6 +352,15 @@ training/               inputs to a training run. No model, no torch at import
   checkpoint.py         save/resume, RNG capture, atomic write, pruning
   train.py              the fine-tuning loop. `--resume auto`, `--augment`
   kaggle/               notebooks: smoke_run (14.5), full_run (16b)
+
+frontend/               React + Vite SPA (Phase 6). NOT a Python package
+  src/api/types.ts      hand-written from api/models.py, checked against the wire
+  src/api/client.ts     fetch wrapper + parseApiError() over THREE envelopes
+  src/api/sse.ts        fetch-based SSE reader (EventSource cannot send a header)
+  src/auth/             token in localStorage; kind==="user" is the signed-in test
+  src/roll/PianoRoll.tsx  canvas; measured vs pedal-estimated note lengths
+  src/routes/           Auth Upload Waiting Result Sheet History
+  src/styles/tokens.css the design system: palette, type scale, motion
 ```
 
 **`training/` is a build-time dependency of a checkpoint, not a runtime
@@ -348,6 +391,33 @@ and `COMPARE_ENGINES` (see the §4 trap).
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**A 200 from `/v1/auth/me` is NOT proof that anyone is signed in.** When the
+server has no `PTIFY_API_KEY`, an unauthenticated request is a perfectly valid
+**anonymous** principal, so `/me` answers `200 {"kind":"anonymous"}` rather
+than 401. The frontend treated any 200 as "signed in" and showed the whole app
+— including a *Sign out* button — to an anonymous caller who owned no jobs, so
+`GET /v1/jobs` returned `[]` and the history screen said "Nothing here yet."
+Nothing errored; the UI simply lied about who you were. Check
+`kind === "user"`, never just the status. The **404** is the signal that
+matters for capability: the `/v1/auth/*` routes are only registered when both
+`PTIFY_JWT_SECRET` and `PTIFY_DB_PATH` are set, so a 404 means "this server has
+no accounts" while a 200-as-anonymous means "it has accounts and you are not
+using one". Those are different states and the UI needs both.
+
+**A canvas does not restyle itself when the theme changes.** Real DOM picks up
+new CSS variable values automatically; a canvas painted with *resolved* values
+keeps whatever it drew. Toggling to dark left the piano roll rendering the
+light palette inside dark chrome, and it stayed wrong until some unrelated
+state change forced a redraw — so it looked intermittent. The draw effect needs
+an explicit dependency: a `MutationObserver` on `data-theme` plus a
+`prefers-color-scheme` listener. Verify it by **sampling canvas pixels**, not
+by eye — `getImageData` returned `224,216,197` light against `22,19,9` dark.
+
+**Test through a real browser, or these three do not appear.** All three Phase 6
+bugs typechecked clean, and two of them render a *plausible* screen — an empty
+job list and a mis-themed canvas both look like design decisions. This is the
+same lesson as "test through the path the user actually runs", one layer up.
 
 **Three things in `api/tokens.py` and `api/users.py` look like dead code and
 are load-bearing security.** Each would pass every test if deleted except the
@@ -1215,6 +1285,33 @@ both.
 - Sub-phases are pushed and tested individually before moving on.
 
 ## 9. What the next phase should know
+
+### Phase 7-8: what Phase 6 deliberately left
+
+The shell works end to end against the real API. What is *not* built:
+
+- **Playback.** `PianoRoll` already takes a `position` prop and moves the
+  playhead by transform, and `onSeek` fires on a click, but **nothing drives
+  them** — there is no audio clock. The MIDI is downloadable; scheduling it
+  through WebAudio is the Phase 7 job. Do not redraw the canvas to animate:
+  the playhead is a separate div for exactly this reason.
+- **Deep links.** Screen state is `useState` in `App.tsx`, so a transcription
+  has no shareable URL and a refresh returns to Upload. A router is the fix,
+  and it is a Phase 7 decision rather than an oversight — Phase 6 had no
+  requirement that a job be linkable.
+- **The sheet view is a page viewer**, not an interactive score: it fetches the
+  server's SVG per page. Linking a notehead back to a note in the roll needs
+  Verovio's element ids, which the current render path does not surface.
+- **No JS tests.** Deliberate: no CI, no linter, no JS precedent in the repo,
+  and `testpaths = ["tests"]` will not collect them. If Phase 7 adds Vitest,
+  add it as its own decision with its own reasoning, and note that the three
+  Phase 6 bugs were all browser-only — a unit test would have caught **none**
+  of them. What actually pays here is driving a browser.
+- **`JobOut` exposes neither the title nor the original filename** (both live
+  on `JobSpec`, server-side only), so History rows are keyed by a job-id prefix
+  and Result falls back to the detected key. If a filename in the UI matters,
+  that is a small `api/models.py` change — and the right one, rather than
+  smuggling it through a client-side cache.
 
 ### The notation scoreboard exists now — use it before changing a detector
 
