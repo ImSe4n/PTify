@@ -45,7 +45,31 @@ def create_app(
     temporary work directory without monkeypatching module globals.
     """
     settings = settings or load_settings()
-    store = store or JobStore(ttl_seconds=settings.job_ttl_seconds)
+
+    if store is None:
+        if settings.db_path:
+            from .sqlite_jobs import SqliteJobStore
+
+            store = SqliteJobStore(path=settings.db_path,
+                                   ttl_seconds=settings.job_ttl_seconds)
+            log.info("jobs persist to %s", settings.db_path)
+        else:
+            store = JobStore(ttl_seconds=settings.job_ttl_seconds)
+
+    # An arq worker is a SEPARATE PROCESS and cannot see an in-memory dict. It
+    # would run jobs and write artifacts that no API process could ever report,
+    # and the symptom -- jobs stuck at "queued" forever while files appear on
+    # disk -- gives no hint of the cause. Refuse at startup instead. This is
+    # exactly the combination `arq_queue.worker_settings` warns about from the
+    # other side.
+    if settings.queue_backend == "arq" and not settings.db_path:
+        raise ValueError(
+            "PTIFY_QUEUE=arq needs PTIFY_DB_PATH: an arq worker runs in a "
+            "separate process and cannot see the in-memory job store, so jobs "
+            "would stay 'queued' forever while the worker wrote artifacts "
+            "nobody could report. Set PTIFY_DB_PATH=var/ptify.db."
+        )
+
     storage = storage or LocalStorage(settings.work_dir)
     queue = queue or get_queue(
         settings.queue_backend,

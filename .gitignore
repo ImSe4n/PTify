@@ -103,5 +103,14 @@ benchmarks/real/*-stdout.txt
 # reach a commit for the same licensing reason the corpus must not.
 var/
 
+# The job database (Phase 5a, PTIFY_DB_PATH). `var/` covers the default, but
+# the path is configurable and the file holds uploaded filenames and job
+# history, so ignore it wherever it is put. -wal and -shm are WAL sidecars.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
 # Local backend configuration. Holds PTIFY_API_KEY when auth is enabled.
 .env

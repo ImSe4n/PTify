@@ -99,6 +99,16 @@ class Settings:
     queue_backend: str = "inproc"
     redis_url: str = "redis://localhost:6379"
 
+    #: Where jobs are persisted. Empty means the in-memory store, which is the
+    #: default because it needs nothing and suits a single-process dev server.
+    #:
+    #: Set it (PTIFY_DB_PATH=var/ptify.db) and jobs survive a restart AND become
+    #: visible to other processes -- which is what `PTIFY_QUEUE=arq` requires,
+    #: since an arq worker cannot see another process's dict. `create_app`
+    #: refuses that combination rather than starting a server whose worker
+    #: writes artifacts nobody can report.
+    db_path: str = ""
+
     #: Worker count. DEFAULT 1, ON PURPOSE — this is not a tunable to raise
     #: casually. `transcriber/config.py` already sets INFERENCE_THREADS to
     #: min(8, cpu_count), so a single transcription is already using the cores.
@@ -196,6 +206,7 @@ def _load() -> Settings:
 
     return Settings(
         work_dir=Path(_env_str("PTIFY_WORK_DIR", "var/jobs")),
+        db_path=_env_str("PTIFY_DB_PATH", "").strip(),
         queue_backend=queue_backend.lower(),
         redis_url=_env_str("PTIFY_REDIS_URL", "redis://localhost:6379"),
         workers=_env_int("PTIFY_WORKERS", 1, minimum=1),

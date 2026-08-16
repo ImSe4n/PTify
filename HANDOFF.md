@@ -11,10 +11,24 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 21 + 21b — DONE. The detectors have a scoreboard; it found one structurally broken, then answered three "improve it" questions — two negative, with reasons.** |
-| **Branch** | `phase-21-notation-benchmark`, off `master` (Phase 20 merged as `18f70bb` — verify with `git log --oneline master..HEAD`) |
-| **Tests** | 916 passing, ~2¼ min, no model or network needed |
-| **Next** | Real-repertoire trill F1 0.337 is a **voice-separation** problem (§9), or Phase 5 auth/persistence. Neither is blocked |
+| **Last completed** | **Phase 5a — DONE. Jobs persist to SQLite and are visible across processes, which is what `PTIFY_QUEUE=arq` always needed.** |
+| **Branch** | `phase-5a-sqlite-jobstore`, off `phase-21-notation-benchmark` |
+| **Tests** | 945 passing, ~1¾ min, no model or network needed |
+| **Next** | 5b — local HS256 JWT behind the `get_principal()` seam. Then 5c: ARQ end to end |
+
+**Phase 5a in one paragraph.** The handoff named Supabase for all three Phase 5
+seams; 5a deliberately used **SQLite instead**, because the thing actually
+blocking the project was never "jobs in the cloud" — it was **jobs inside one
+process**. `api/arq_queue.py` ships written, tested and unused for exactly that
+reason, and a restart loses every job. A file both processes open fixes both
+with no account, no network and no new dependency. Supabase is now a *third*
+implementation of an interface two have proven, rather than the first one
+written against mocks. `tests/test_api_jobs.py` is parametrised so **all 13
+JobStore contract tests run against both stores** — that is what makes "same
+interface" checked rather than claimed. The concurrency work is the real
+content: WAL, `busy_timeout`, one connection per thread, and `BEGIN IMMEDIATE`
+around read-modify-write, each for a failure the in-memory store gets free from
+its `RLock`.
 
 **Phase 21 in one paragraph.** Phase 20 shipped five detectors validated only
 against fixtures written alongside them, and `mir_eval` scores notes rather
@@ -1368,23 +1382,44 @@ architecture. Sources: [MAPS on Zenodo](https://zenodo.org/records/18160555),
 
 Three seams exist specifically for this phase. Each is one file.
 
-- **`api/security.py: get_principal()`** — replace the body with Supabase JWT
-  verification. Routes depend on the `Principal` it returns, never on how
+- **`api/security.py: get_principal()`** — *(5b, NEXT)* replace the body with
+  JWT verification. Routes depend on the `Principal` it returns, never on how
   identity was established. `Authorization: Bearer` is already accepted, so a
   JWT arrives through the same door as today's API key.
-- **`api/jobs.py: JobStore`** — an in-memory dict behind a small interface.
-  Nothing outside that module touches `._jobs`. Swap it for Supabase and the
-  rest of the backend does not notice.
+- **`api/jobs.py: JobStore`** — **DONE in 5a.** `api/sqlite_jobs.py:
+  SqliteJobStore` is a second implementation; `PTIFY_DB_PATH` selects it.
 - **`api/storage.py: Storage`** — `LocalStorage` writes under `var/jobs/<id>`.
-  Supabase storage or S3 is a second implementation.
+  Supabase storage or S3 is a second implementation. *(5c)*
 
-**`JobStore` is the one that unblocks ARQ.** `api/arq_queue.py` is written and
-tested but ships unused, because an arq worker is a **separate process** and
-cannot see an in-memory store — it would write artifacts to disk that no API
-process could report. `worker_settings(job_store_factory=...)` marks exactly
-where a shared store plugs in, and the worker logs a warning if it starts
-without one. Once jobs live in Supabase, ARQ becomes genuinely usable and
-`PTIFY_QUEUE=arq` is the only change needed.
+**Why SQLite and not Supabase, since the plan said Supabase.** The blocker was
+never "jobs in the cloud", it was **jobs inside one process** — and a file both
+processes open fixes that with no account, no network, and no new dependency.
+Supabase is now a *third* implementation of an interface two have already
+proven, instead of the first one written against mocks. If you do add it,
+`SqliteJobStore` is the shape to copy, and the parametrised fixture in
+`tests/test_api_jobs.py` is where it earns its keep: add it to the fixture and
+the whole contract suite runs against it for free.
+
+**Four things `SqliteJobStore` had to get right that the dict got free.** Read
+these before writing another implementation, because each is a silent failure:
+- **WAL journal mode** — otherwise a status poll blocks the worker recording
+  progress.
+- **`busy_timeout`** — the default is 0, which turns ordinary contention into
+  `database is locked`.
+- **One connection per thread** — `sqlite3.Connection` is not thread-safe and
+  transcription runs in a worker thread by design (`jobs.py:6`).
+- **`BEGIN IMMEDIATE` around `update()`** — it is read-modify-write, so a
+  deferred transaction lets two threads both read, both try to upgrade, and one
+  fail *after* its read.
+
+Also: `JobSpec.formats` is a **tuple** that JSON round-trips as a list, and
+`artifacts` holds a **list per SVG page**. A store that returns the wrong type
+passes most tests and breaks a route later.
+
+**ARQ is now unblocked but not yet proven end to end** *(5c)*. `PTIFY_QUEUE=arq`
+with no `PTIFY_DB_PATH` is **refused at startup** — without that guard the
+failure is silent and misdirecting: jobs sit at `queued` forever while artifacts
+appear on disk, and nothing in that picture points at the store.
 
 Two behaviours worth preserving:
 - **Another principal's job returns 404, not 403.** 403 confirms the id exists,
