@@ -11,10 +11,21 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 5b — DONE. Real user accounts: HS256 tokens, PBKDF2 passwords, per-account job ownership. No route changed.** |
-| **Branch** | `phase-5b-jwt-auth`, off `phase-5a-sqlite-jobstore` |
-| **Tests** | 986 passing, ~2 min, no model or network needed |
-| **Next** | 5c — prove ARQ end to end, now that a worker process can finally see the store |
+| **Last completed** | **Phase 5 — DONE (5a persistence, 5b accounts, 5c worker process). All three Phase 4 seams held; no new dependency.** |
+| **Branch** | `phase-5c-arq-end-to-end`, off `phase-5b-jwt-auth` |
+| **Tests** | 994 passing, ~2¼ min, no model or network needed |
+| **Next** | The app track (Phases 6-8) is unblocked — there are accounts to log into and jobs that survive a refresh |
+
+**Phase 5 in one paragraph.** Jobs persist to SQLite and are visible across
+processes (5a), user accounts own them via HS256 tokens and PBKDF2 passwords
+(5b), and a real separate worker process can complete a job the API then serves
+(5c). **No new dependency, nothing downloaded** — `sqlite3`, `hmac` and
+`hashlib` are all standard library. The Phase 4 seams did what they were for:
+adding accounts **changed no route**, and adding persistence changed no caller
+of the store. What is deliberately NOT claimed: **no test has run a real arq
+worker against a real Redis** (neither is installed; Redis has no native Windows
+build, and this machine has no Docker or WSL2). The blocker arq was waiting on —
+shared state — is gone; the Redis plumbing on top needs somewhere to deploy.
 
 **Phase 5b in one paragraph.** The Phase 4 seam did exactly what it was for:
 adding JWTs changed `get_principal()` and **not one route**. Tokens are HS256
@@ -1429,8 +1440,11 @@ Three seams exist specifically for this phase. Each is one file.
   verifies one unchanged.
 - **`api/jobs.py: JobStore`** — **DONE in 5a.** `api/sqlite_jobs.py:
   SqliteJobStore` is a second implementation; `PTIFY_DB_PATH` selects it.
-- **`api/storage.py: Storage`** — `LocalStorage` writes under `var/jobs/<id>`.
-  Supabase storage or S3 is a second implementation. *(5c)*
+- **`api/storage.py: Storage`** — **still one implementation, and that is
+  fine.** `LocalStorage` writes under `var/jobs/<id>`. It only breaks on a
+  multi-machine deployment, where the worker and the API no longer share a
+  disk — the same class of problem 5a solved for jobs. Worth solving when there
+  is a deployment (Phase 10), not before.
 
 **Why SQLite and not Supabase, since the plan said Supabase.** The blocker was
 never "jobs in the cloud", it was **jobs inside one process** — and a file both
@@ -1457,10 +1471,32 @@ Also: `JobSpec.formats` is a **tuple** that JSON round-trips as a list, and
 `artifacts` holds a **list per SVG page**. A store that returns the wrong type
 passes most tests and breaks a route later.
 
-**ARQ is now unblocked but not yet proven end to end** *(5c)*. `PTIFY_QUEUE=arq`
-with no `PTIFY_DB_PATH` is **refused at startup** — without that guard the
-failure is silent and misdirecting: jobs sit at `queued` forever while artifacts
-appear on disk, and nothing in that picture points at the store.
+**ARQ: what is proven and what is not.** Read this before turning it on.
+
+*Proven* (`tests/test_api_worker_process.py`, 8 tests over a real subprocess):
+a genuine separate OS process claims a job from the shared store, runs the real
+pipeline, writes real artifacts, and an API process **that never saw the
+worker** reports the state and serves the bytes. `worker_settings(db_path=…)`
+builds the shared store via `default_job_store_factory`. Sabotaging that factory
+to return an in-memory store — the pre-5a situation — fails five of the eight.
+
+*Not proven*: **no test has ever run a real arq worker against a real Redis.**
+Neither is installed, and Redis has no native Windows build (verified: no
+`redis-server`, no Docker, WSL2 unsupported here). Mocking Redis would prove
+only that the mock behaves like the mock. The arq layer is honest wiring, not a
+tested deployment path — first real use will be Phase 10, and expect to find
+something.
+
+`PTIFY_QUEUE=arq` with no `PTIFY_DB_PATH` is **refused at startup**. Without
+that guard the failure is silent and misdirecting: jobs sit at `queued` forever
+while artifacts appear on disk, and nothing in that picture points at the store.
+
+**Two shapes in the artifact contract that look like bugs and are not.**
+Artifacts download from `/v1/jobs/{id}/result/{fmt}` — there is no
+`/artifacts/{name}` route. And `artifacts["json"]` is deliberately an **empty
+list** (`pipeline.py:302`): the piano-roll payload is served from the job record
+rather than written as a file. Both are asserted with their reason in
+`test_api_worker_process.py`, so the empty list does not later get "fixed".
 
 Two behaviours worth preserving:
 - **Another principal's job returns 404, not 403.** 403 confirms the id exists,

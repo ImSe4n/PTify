@@ -16,12 +16,24 @@ install it when there is somewhere to deploy (Phase 10).
 
 WHAT DIFFERS FROM THE IN-PROCESS BACKEND
 
-The worker is a SEPARATE PROCESS, so it does not share the JobStore. That is
-the real work of adopting this, and `job_store_factory` marks the seam: today
-a separate process would get its own empty in-memory store, which is useless.
-Phase 5 puts jobs in Supabase, at which point every process reads the same
-state and this backend becomes genuinely usable. Until then it is wiring that
-is deliberately kept honest rather than pretending to work.
+The worker is a SEPARATE PROCESS, so it does not share the API's JobStore. That
+was the real blocker, and Phase 5a removed it: `SqliteJobStore` over a file both
+processes open IS shared state. Pass `db_path` to `worker_settings` (the same
+`PTIFY_DB_PATH` the API uses) and a worker records progress the API can report.
+`create_app` refuses `PTIFY_QUEUE=arq` without it, so the broken combination
+cannot be deployed by accident.
+
+WHAT IS STILL UNPROVEN, STATED PLAINLY
+
+**No test here has ever run a real arq worker against a real Redis**, because
+neither is installed and Redis has no native Windows build (verified: no
+redis-server, no Docker, no WSL2 on this machine). What IS proven, in
+`tests/test_api_worker_process.py`, is the property arq depends on: a genuine
+separate OS process claims a job from the shared store, runs the real pipeline,
+writes artifacts, and the API serves them. The arq layer on top of that is
+Redis plumbing this project cannot exercise until it has somewhere to deploy
+(Phase 10). Saying "arq works" on the strength of the tests below would be a
+claim nobody has checked.
 """
 
 from __future__ import annotations
@@ -200,20 +212,49 @@ class ArqQueue(JobQueue):
         self._pool = None
 
 
+def default_job_store_factory(
+    db_path: str = "", ttl_seconds: float = 3600.0
+) -> Callable[[], Any] | None:
+    """A factory returning the SHARED job store, or None if there is none.
+
+    This is what Phase 5a made possible. Before it, the only implementation was
+    an in-memory dict that a worker process could not possibly see, so this
+    function had nothing to return. `SqliteJobStore` over a path both processes
+    open is a shared store, so the seam finally has something to plug into.
+
+    Returns None rather than a factory for an in-memory store when `db_path` is
+    empty: a worker with its own private store is strictly worse than a worker
+    with none, because it silently records progress nobody will ever read.
+    """
+    if not db_path:
+        return None
+
+    def factory():
+        from .sqlite_jobs import SqliteJobStore
+
+        return SqliteJobStore(path=db_path, ttl_seconds=ttl_seconds)
+
+    return factory
+
+
 def worker_settings(
     redis_url: str = "redis://localhost:6379",
     work_dir: str = "var/jobs",
     job_store_factory: Callable[[], Any] | None = None,
+    db_path: str = "",
 ):
     """Build the settings class an `arq.worker` needs.
 
         arq api.arq_queue.WorkerSettings
 
-    `job_store_factory` is the seam that makes this backend real. A worker
+    `job_store_factory` is the seam that makes this backend real: a worker
     process cannot see the API's in-memory JobStore, so without a SHARED store
-    it runs jobs that no one can observe. Phase 5 moves jobs into Supabase and
-    passes a factory returning that; until then this is wiring, not a
-    deployment path.
+    it runs jobs nobody can observe. Since Phase 5a there is one -- pass
+    `db_path` (the same `PTIFY_DB_PATH` the API uses) and the worker builds a
+    `SqliteJobStore` over the same file.
+
+    An explicit `job_store_factory` still wins, so a future Supabase store drops
+    in without touching this.
     """
     _require_arq()
     from arq import func
@@ -221,13 +262,16 @@ def worker_settings(
 
     from .storage import LocalStorage
 
+    factory = job_store_factory or default_job_store_factory(db_path)
+
     async def startup(ctx: dict) -> None:
         ctx["storage"] = LocalStorage(work_dir)
-        ctx["job_store"] = job_store_factory() if job_store_factory else None
+        ctx["job_store"] = factory() if factory else None
         if ctx["job_store"] is None:
             log.warning(
                 "arq worker has no shared job store: results will be written "
-                "to disk but no API process can report them. See Phase 5."
+                "to disk but no API process can report them. Set PTIFY_DB_PATH "
+                "to the same file the API uses."
             )
 
     class WorkerSettings:
