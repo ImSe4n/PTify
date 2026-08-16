@@ -38,6 +38,7 @@ def create_app(
     store: JobStore | None = None,
     storage=None,
     queue=None,
+    users=None,
 ) -> FastAPI:
     """Build the application.
 
@@ -68,6 +69,21 @@ def create_app(
             "separate process and cannot see the in-memory job store, so jobs "
             "would stay 'queued' forever while the worker wrote artifacts "
             "nobody could report. Set PTIFY_DB_PATH=var/ptify.db."
+        )
+
+    if users is None and settings.auth_accounts_enabled:
+        from .users import SqliteUserStore
+
+        users = SqliteUserStore(path=settings.db_path)
+
+    # A signing secret with no database has nowhere to keep accounts, and the
+    # symptom would be /v1/auth/signup 404ing while `get_principal` happily
+    # verified tokens for users that could never be created. Say so at startup.
+    if settings.jwt_secret and not settings.db_path:
+        log.warning(
+            "PTIFY_JWT_SECRET is set but PTIFY_DB_PATH is not, so there is "
+            "nowhere to store accounts: /v1/auth/* is disabled. Set "
+            "PTIFY_DB_PATH to enable signup and login."
         )
 
     storage = storage or LocalStorage(settings.work_dir)
@@ -144,6 +160,16 @@ def create_app(
     app.state.storage = storage
     app.state.queue = queue
     app.state.rate_limiter = RateLimiter(settings.rate_limit_per_minute)
+
+    # Accounts need both a signing secret and somewhere to keep users, so the
+    # routes exist only when both are present. A deployment with neither gets
+    # no /v1/auth/* rather than endpoints that always fail: 404 is an honest
+    # "this server does not do accounts", a 500 looks like an outage.
+    app.state.users = users
+    if users is not None:
+        from .routes import auth as auth_routes
+
+        app.include_router(auth_routes.router, prefix=API_PREFIX)
 
     if settings.cors_origins:
         from fastapi.middleware.cors import CORSMiddleware

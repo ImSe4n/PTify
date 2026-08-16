@@ -159,6 +159,8 @@ Everything has a working default; a fresh checkout needs no environment at all.
 | `PTIFY_WORK_DIR` | `var/jobs` | uploads and artifacts |
 | `PTIFY_DB_PATH` | *(unset)* | set it to persist jobs — see below |
 | `PTIFY_API_KEY` | *(unset)* | when set, requires `X-API-Key` |
+| `PTIFY_JWT_SECRET` | *(unset)* | with `PTIFY_DB_PATH`, enables accounts |
+| `PTIFY_JWT_TTL_SECONDS` | `86400` | token lifetime |
 | `PTIFY_WORKERS` | `1` | see below |
 | `PTIFY_MAX_UPLOAD_BYTES` | `100MB` | enforced while streaming |
 | `PTIFY_MAX_AUDIO_SECONDS` | `900` | a cost limit, not a technical one |
@@ -187,6 +189,39 @@ needs: an arq worker is a separate process and cannot see another process's
 memory, so with the in-memory store it would run jobs and write artifacts that
 no API process could report. That combination is refused at startup rather than
 producing jobs stuck at `queued` forever.
+
+#### Accounts
+
+Set a signing secret alongside the database and the API grows user accounts:
+
+```bash
+PTIFY_DB_PATH=var/ptify.db PTIFY_JWT_SECRET=$(openssl rand -hex 32) \
+    uvicorn api.app:app
+```
+
+```bash
+curl -X POST localhost:8000/v1/auth/signup \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"you@example.com","password":"a-real-password"}'
+# -> {"access_token":"eyJ...","token_type":"bearer","expires_in":86400,...}
+
+curl localhost:8000/v1/jobs -H "Authorization: Bearer eyJ..."
+```
+
+Jobs are then owned by the account that created them, and another account's job
+is **404, not 403** — 403 would confirm the id exists and turn job ids into an
+enumerable directory of other people's work.
+
+HS256 tokens signed with the standard library (`hmac` + `hashlib`), and PBKDF2
+password hashing with a per-user salt. No new dependency. Without
+`PTIFY_JWT_SECRET` the `/v1/auth/*` routes are not registered at all, so a
+server that does not do accounts says so with a 404 rather than a 500. The
+shared `PTIFY_API_KEY` keeps working alongside tokens.
+
+Supabase later is the same shape: its tokens are HS256 over the project secret,
+so pointing `PTIFY_JWT_SECRET` at that secret verifies them unchanged —
+`api/security.py: get_principal()` stays the single place that decides who a
+caller is.
 
 `GET /v1/engines` reports `available: false` for an engine whose weights are
 missing, so a client can grey it out rather than submitting a job that fails.
