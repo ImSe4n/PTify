@@ -32,7 +32,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ptify"
-version = "0.4.0"          # phase number as minor; there is no release process yet
+version = "0.6.0"          # phase number as minor; there is no release process yet
 description = "Turn a piano recording into MIDI, a piano roll, and sheet music."
 readme = "README.md"
 license = { file = "LICENSE" }
