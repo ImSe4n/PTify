@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Paper ground and the accent dot from the wordmark. -->
+  <rect width="32" height="32" fill="#efe9dc"/>
+  <text x="4" y="24" font-family="Georgia, 'Times New Roman', serif" font-size="22" fill="#26221b">P</text>
+  <circle cx="24" cy="21" r="3" fill="#a8322a"/>
+</svg>

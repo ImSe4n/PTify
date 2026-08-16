@@ -2567,6 +2567,95 @@ adding persistence changed no caller of the store.
 
 ---
 
+## 2026-08-16 — Phase 5.5: running the assembled backend for the first time
+
+Every one of the 994 tests injects fakes into `create_app()` and a `_SyncQueue`
+that runs the pipeline inline; none loads a real model. So the whole Phase 4/5
+stack had **never been run by a human** — and doing that after the UI existed
+would mean every bug had two possible causes. No code was written. The
+deliverable was a working system and a list of what broke.
+
+**Everything passed, which is itself the finding.** Against a real uvicorn with
+`PTIFY_DB_PATH` + `PTIFY_JWT_SECRET`, on a real 67s MAESTRO Scarlatti:
+
+| check | result |
+|---|---|
+| signup → token | 201 in **0.737s** — PBKDF2 at 600,000 rounds is genuinely running |
+| job submitted, 5 formats | `succeeded` in 251s (~3.7x real time on 44.1kHz stereo) |
+| **Verovio in a worker thread** | **5 SVG pages + PDF, no crash** |
+| artifacts | valid `%PDF-1.4` and `MThd` headers, correct content types |
+| `svg?page=9` of a 5-page score | 404, as designed |
+| **restart with the same DB** | account logs in, job serves **854 notes**, PDF **byte-identical** |
+| 3rd concurrent job | 429 `too_many_jobs` |
+| cancel queued / running | flips immediately / waits for the stage boundary |
+| full suite after | **994 passed** |
+
+**The Verovio result is the one that mattered.** HANDOFF §4 records that it is
+not thread-safe and that its failure blames the MusicXML instead — and the
+queue renders in worker threads, a path that had never run for real. The
+one-dedicated-thread funnel in `notation/render.py` holds.
+
+**The SSE stream was measured, not assumed.** `progress` sat at exactly **0.09
+for ~160 seconds** while heartbeats arrived every ~10s with a climbing
+`elapsed`, then jumped straight to 0.92. That single measurement is what the
+whole Waiting screen is designed around.
+
+---
+
+## 2026-08-16 — Phase 6: the frontend, built against a backend already watched working
+
+React + Vite in `frontend/`, ~1,900 lines. **This was not a new decision** —
+`requirements.txt:106` already said "The frontend is React", and
+`api/settings.py:150` already listed `localhost:5173` in the CORS defaults with
+a comment naming Phases 6-8.
+
+**Completed**
+- `api/client.ts` — one `parseApiError()` normalising the **three** error
+  envelopes that ship (`{detail:{code,message}}`, unwrapped `{code,message}`
+  from the `PipelineError` handler, and Pydantic's `{detail:[…]}`).
+- `api/sse.ts` — a **fetch-based** event-stream reader, ~40 lines, no
+  dependency. The native `EventSource` cannot set `Authorization`, and the API
+  deliberately accepts no token in a query string.
+- `roll/PianoRoll.tsx` — canvas. 854 notes for one minute of music is already
+  past what one div per note survives.
+- Six screens, both themes, a real design token system.
+
+**Issues found — all three by driving a browser, none by typechecking**
+- **A 200 from `/v1/auth/me` is NOT proof of being signed in.** With no
+  `PTIFY_API_KEY` the server answers an unauthenticated request as a valid
+  `anonymous` principal, so the app showed itself — with a "Sign out" button —
+  to someone who owned no jobs, and `GET /v1/jobs` came back `[]` with nothing
+  explaining why. Fixed by checking `kind === "user"`, not just the status.
+  **The route existing at all is what proves accounts are configured**, which
+  is why `accountsEnabled` still keys off the 404.
+- **A canvas does not restyle itself.** It paints with *resolved* CSS variable
+  values, so toggling the theme left the light palette inside dark chrome until
+  something else forced a redraw. A `MutationObserver` on `data-theme` (plus a
+  `prefers-color-scheme` listener) gives the draw effect a dependency.
+  Verified by sampling pixels: `224,216,197` → `22,19,9`.
+- **The result screen grew past the viewport**, pushing the legend below the
+  fold — hiding the one thing that explains what the colours mean. It is now
+  pinned to `100vh - 60px` with the roll scrolling inside its own pane.
+
+**What the UI does with the honesty contract**
+- During the silent span the Waiting screen shows an **indeterminate sweep**
+  and `Progress —`, never a percentage nobody measured. Verified live: clock
+  advanced 0:03 → 0:28 while progress stayed `—`.
+- Notes whose release falls under sustain are drawn with a solid onset cap
+  fading into a translucent tail, because that length is interpolation. The
+  trust panel states the fraction (9% on the Scarlatti) and what it means.
+- `key: null` renders as "Too chromatic to call — printing no signature is the
+  honest answer", not as a blank field.
+
+**Deliberately not done:** no JS test runner. The repo has no CI, no linter and
+no JS precedent, and `testpaths = ["tests"]` will not collect one. Adding
+Vitest deserves its own decision rather than being smuggled in under Phase 6.
+
+**Next**
+- Phase 7-8: playback against the roll, and the sheet view beyond a page viewer.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on
