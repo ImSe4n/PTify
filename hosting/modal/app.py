@@ -105,6 +105,11 @@ image = (
         "piano_transcription_inference==0.0.5",
         "mido==1.3.2",
         "pretty_midi==0.2.11.post0",
+        # REQUIRED for @modal.fastapi_endpoint. Modal used to inject this
+        # automatically and no longer does, so leaving it out fails the deploy
+        # at the very last step -- after every image has already built, and
+        # with exit code 0. See the trap in README.md.
+        "fastapi[standard]",
     )
     # Bake the weights into the image.
     .run_commands(

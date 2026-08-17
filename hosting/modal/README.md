@@ -16,9 +16,39 @@ model load + 53.1s inference, 2.13x real time). That is what this exists to beat
 | HF ZeroGPU | 5 min/day (~3 clips) | no | Gradio SDK only; forces torch 2.8+ |
 | RunPod | bonus needs a $10 deposit | yes | not free to start |
 
-At L4 ($0.000222/sec) a 25s clip costs roughly **$0.0015**, so the monthly free
-credit covers **~20,000 clips**. The daily-quota problem that ruled out ZeroGPU
-does not arise.
+## MEASURED, 2026-08-17 (`benchmarks/remote-crosscheck.json`)
+
+Deployed and run against `var/clip25.wav` (25.0s, 297 notes):
+
+| | local CPU | remote L4 |
+|---|---|---|
+| model load | 11.0s | 0s (paid once per container) |
+| inference | 44.8s | — |
+| **end to end** | **55.8s** | **5.2s** |
+| real-time factor | 2.23x | **0.21x** |
+| **speedup** | — | **10.7x** |
+
+Cold start (container boot + model load) is **~56s**, so the first call after
+120s of idle pays it. Warm calls measured 5.40 / 4.98 / 5.16s.
+
+**Agreement with local is exact where it must be:**
+
+| criterion | result |
+|---|---|
+| note count | 297 vs 297 — identical |
+| pitch multiset | identical |
+| max onset drift | **0.013ms** (limit 10ms) |
+| max offset drift | 0.037ms |
+| onset F1 vs local | **1.000000** |
+| pedal events | 10 vs 10 |
+
+The sub-millisecond drift is the CPU/CUDA floating-point difference the plan
+predicted; it is ~750x inside the one-frame bar.
+
+**Cost, measured rather than projected**: the host reports `gpu_seconds` per
+call. A 25s clip costs **5.98 GPU-seconds = $0.00133** at L4 rates, so the
+$30/month free credit covers **~22,600 clips/month**. The daily-quota problem
+that ruled out ZeroGPU (5 min/day ≈ 3 clips) does not arise.
 
 ## The torch pin is the whole trick
 
@@ -43,8 +73,43 @@ modal setup                                    # browser login, no card
 # The shared secret the client sends as a bearer token.
 modal secret create ptify-remote-token PTIFY_REMOTE_TOKEN=<a long random string>
 
+# PYTHONUTF8 is REQUIRED on Windows -- see the trap below.
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
 modal deploy hosting/modal/app.py
 ```
+
+### TRAP: a failed `modal deploy` still exits 0
+
+Both deploy failures in Phase 9 exited **0** while deploying nothing. Anything
+checking `$?` — a shell chain, a CI step, a script — would have reported
+success. **Verify with `modal app list` and look for a `deployed` state; never
+trust the exit code.** The two failures were:
+
+**1. `fastapi` missing from the image.**
+
+```
+Functions using `@modal.fastapi_endpoint` require `FastAPI` to be installed
+in their Image. This used to happen automatically, but it must now be done
+explicitly.
+```
+
+It fires at the *very last* step, after every image has already built, so the
+log is hundreds of successful lines followed by one box. `fastapi[standard]` is
+now in the image's `pip_install` for this reason.
+
+**2. The Windows console encoding.** The failure is
+
+```
+Error: 'charmap' codec can't encode characters in position 5-41:
+character maps to <undefined>
+```
+
+which reads like a build failure and is not one — the remote build was fine
+(torch had already downloaded), and it is the *local* client crashing while
+printing its progress bar. The Windows console is cp1252 and Modal's output is
+Unicode. HANDOFF §4 already records the cp1252 trap for CLI output; this is the
+same trap, and it too exits 0.
 
 The first build downloads the 165MB checkpoint into the image, so it takes a few
 minutes. Deploy prints a URL.
