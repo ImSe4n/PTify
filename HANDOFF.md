@@ -13,7 +13,7 @@ State of the codebase, the traps in it, and what the next phase needs.
 |---|---|
 | **Last completed** | **Phase 9 — inference runs on a GPU. 55.8s -> 5.2s (10.7x) on a 25s clip, $0.00133/clip.** |
 | **Branch** | `phase-7-playback-and-motion`, off `phase-6-frontend` |
-| **Tests** | 1065 Python, ~2 min. **104 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
+| **Tests** | 1065 Python, ~2 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
 | **Next** | **The model track** — the frame-head regression (needs the GPU §9 just unlocked) and trill F1 0.337 (symbolic, no GPU). Finish 9f first: the frontend engine picker is unverified in a browser. |
 
 **Phase 7-8 in one paragraph.** The frontend got a hash router (a transcription
@@ -1535,9 +1535,19 @@ reports `remote` available once `PTIFY_REMOTE_URL` is set — that is a
 **configuration** check, deliberately not a reachability ping, because pinging
 on every health check would bill a GPU request.
 
-**What is NOT done:** the frontend engine picker is unverified in a browser.
-§1's Phase 7-8 note is the reason to bother — six of six defects there were
-found by driving a browser and none by typechecking.
+**The picker is verified in a real browser too** (`tests/browser/remote-engine.mjs`,
+8 checks): all four engines render, `remote` is selectable, it is NOT the
+default, and its notes explain the model runs elsewhere. 112/112 browser checks
+pass.
+
+**And looking at the screenshot found something the assertions did not** — the
+same lesson as Phase 7-8, again. `bytedance`'s notes still advertised
+**"roughly 1.1x real time on CPU"**. Phase 9 measured **2.23x** on this machine,
+and §2 already recorded ~1.87x on the real corpus: the endpoint was quoting the
+most flattering of three numbers, the 22kHz-mono synthetic figure. Now corrected
+to the measured value, with the reason beside it. Every numeric assertion passed
+throughout — a wrong claim in prose is invisible to a browser check.
+
 `hosting/modal/README.md` carries the design notes and the deploy traps.
 
 **Do not delete the CPU path.** It is the only thing that runs offline, it is

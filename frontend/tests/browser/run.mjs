@@ -44,6 +44,7 @@ const SUITES = [
   ["motion", "curtain, word stagger, arrow slide, reduced motion"],
   ["roll-reveal", "the entrance sweep and its replay guards"],
   ["view-controls", "speed, transposition, hand splitting, colour schemes"],
+  ["remote-engine", "the GPU engine reaches the picker and is selectable"],
 ];
 
 const only = process.argv[2];

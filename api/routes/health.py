@@ -26,10 +26,16 @@ _ENGINES = {
     "bytedance": {
         "supports_pedal": True,
         "native_sample_rate": 16000,
+        # The speed figure is MEASURED, not the library's claim. Phase 9
+        # timed a 25s 44.1kHz stereo clip on this machine at 55.8s end to end
+        # (11.0s model load + 44.8s inference) = 2.23x real time. The "1.1x"
+        # this used to quote was the synthetic-corpus figure for 22kHz mono,
+        # and HANDOFF already records that the real corpus runs ~1.87x -- so
+        # the endpoint was advertising the most flattering of three numbers.
         "notes": (
             "Piano-specific; models sustain pedal and real velocity. "
-            "Roughly 1.1x real time on CPU, and slower on high-sample-rate "
-            "stereo sources. The default."
+            "Measured ~2.2x real time on this CPU for 44.1kHz stereo "
+            "(a 25s clip takes ~56s including model load). The default."
         ),
     },
     "basicpitch": {
