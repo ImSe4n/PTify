@@ -124,7 +124,20 @@ cd frontend && npm install && npm run dev      # http://localhost:5173
 
 The dev server proxies `/v1` to the API, so the browser sees a single origin.
 
-Sign up, drop in a recording, pick an engine, and watch it run. **Progress is
+Sign up, drop in a recording, pick an engine, and watch it run. Submitting is a
+**three-step flow** (recording → output → optional details), each step a real
+URL, so Back works and a refresh keeps its place. A finished transcription has
+a shareable link.
+
+**Play it back against the roll.** Space plays, the arrow keys seek, and the
+view toggles between a horizontal editor roll and a falling-notes view that
+lights an 88-key keyboard as notes sound. Playback reads the same note array
+the roll draws — see `HANDOFF.md` §4 for why it deliberately does *not* play the
+exported MIDI.
+
+```bash
+cd frontend && npm run test:browser     # 88 checks, against the real stack
+``` **Progress is
 shown as an indeterminate state with a real elapsed clock, not a percentage** —
 the default engine reports nothing at all while inference runs (measured: 160
 seconds of silence on a 67-second recording), and inventing a number there would
@@ -378,8 +391,12 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `training/train.py` | The fine-tuning loop: `--resume auto`, `--augment` |
 | `frontend/src/api/client.ts` | Fetch wrapper + one `parseApiError()` over three envelopes |
 | `frontend/src/api/sse.ts` | Fetch-based SSE reader — `EventSource` cannot send a bearer token |
+| `frontend/src/router.ts` | Hash router — `#/j/{id}` names the job, never the screen |
+| `frontend/src/audio/PlaybackEngine.ts` | Audio-clock scheduler; plays `summary.notes`, not the MIDI |
 | `frontend/src/roll/PianoRoll.tsx` | Canvas roll: measured vs pedal-estimated lengths |
+| `frontend/src/roll/FallingNotes.tsx` | Falling view: one draw, moved by transform |
 | `frontend/src/styles/tokens.css` | Palette, type scale, motion |
+| `frontend/tests/browser/` | 88 browser checks — every frontend bug so far was browser-only |
 | `benchmarks/` | Committed manifests and baseline scores (no audio) |
 | `tests/` | `python -m pytest tests/` |
 | `HISTORY.md` | Development log: what broke and why |
@@ -550,8 +567,9 @@ under sustain pedal.
 - [x] **Phase 20** — musical understanding: key signatures, meters, trills, staccato, dynamics
 - [x] **Phase 5** — accounts and persistence: SQLite job store, HS256 tokens, worker process
 - [x] **Phase 6** — React frontend: auth, upload, live progress, piano roll, history
-- [ ] **Phase 7–8** — playback against the roll, an interactive sheet view
-- [ ] **Phase 9–11** — error handling, deploy, YouTube input
+- [x] **Phase 7–8** — playback, deep links, falling-notes view, motion
+- [ ] **Phase 9** — a GPU host for inference (local is CPU-only; ~2 min for a 25s clip)
+- [ ] **Phase 10–11** — deploy, YouTube input, an interactive sheet view
 
 Phase 5 shipped as **SQLite + a standard-library HS256 issuer** rather than
 Supabase: the thing blocking the project was jobs living inside one process,

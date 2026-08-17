@@ -2656,6 +2656,92 @@ Vitest deserves its own decision rather than being smuggled in under Phase 6.
 
 ---
 
+## 2026-08-17 — Phase 7-8: playback, deep links, motion, and a redraw
+
+Branch `phase-7-playback-and-motion`. **The backend changed not one line** — as
+in Phase 6, every seam Phase 4 left was sufficient. 994 Python tests still pass.
+
+**Completed**
+- **7a — a hash router** (`src/router.ts`, ~150 lines, no dependency). A
+  transcription has a shareable URL and survives a refresh. `#/j/{id}` says
+  *which job*, never which screen: `JobScreen` reads the state and picks Waiting
+  or Result, so a bookmarked running job becomes a result without the URL
+  changing.
+- **7b — playback.** WebAudio through `smplr`'s sampled piano, a lookahead
+  scheduler on the audio clock, seek, scroll-follow, space-to-play. The playhead
+  is driven by subscription, never React state — 60fps stays outside the render
+  path, which is what `PianoRoll`'s architecture was already built for.
+- **Falling-notes view** alongside the roll, toggled from the toolbar.
+  Synthesia-style: time falls onto an 88-key keyboard that lights as notes
+  sound. The whole piece is drawn once and moved by transform, so playback costs
+  **zero repaints** of the note field regardless of note count.
+- **7c — motion**, adapted from the sphericalwaves reference: a boot curtain,
+  word-staggered headings, an arrow-slide on history rows, chip press feedback,
+  a sheet page-turn. Zero dependencies; `IntersectionObserver` plus CSS.
+- **7d — the entrance sweep.** The roll draws itself in left to right over
+  900ms, so the entrance *is* the time axis. Budget-checked, replay-guarded,
+  skipped under reduced motion.
+- **A three-step upload flow** (`#/`, `#/new/output`, `#/new/details`). Six
+  simultaneous decisions became one at a time; five of them have defaults.
+- **A full visual redraw** against songscription.ai — DM Sans throughout,
+  rounded surfaces, white cards on warm bone, teal-ink accent. See §4 of
+  HANDOFF for what was deliberately *not* copied.
+- **88 browser checks** in `frontend/tests/browser/`, one command:
+  `npm run test:browser`.
+
+**Issues found — every one of them by driving a browser**
+- **The MIDI artifact is in a different time base from the roll.** Playback was
+  built to fetch `/result/midi`; the dev drift guard reported onsets differing
+  by up to **0.908s**. Cause is deliberate backend behaviour, not a bug:
+  `api/pipeline.py:264-273` exports *quantised* notes when a notation format is
+  requested, so the file matches the engraved page. `Summary.notes` is the raw
+  measurement, and the roll draws that. Playing the MIDI would have desynced the
+  playhead on exactly those jobs. Now both read one array.
+- **StrictMode consumed the entrance sweep.** The replay guard was claimed at
+  the *top* of the effect, so React's throwaway first mount used it up and the
+  real mount returned early. The animation never ran in dev and *would* have run
+  in production — the worst of both. The claim now happens on completion.
+- **Effect order painted over the sweep.** The full-repaint effect runs after
+  the sweep effect on mount, drawing `draw(1)` across its first frames.
+- **The boot curtain uncovered the app mid-lift.** `inset: 0` sized it to
+  exactly the viewport, so the page showed beneath it for the whole 640ms. It is
+  now 200vh. Found by *looking at a screenshot*, not by a passing assertion.
+- **The dark-theme keyboard vanished.** Sizing a canvas clears it, and the
+  repaint was left to the render loop — but when paused there is no next frame.
+- **A word gap made of `margin-left` indents every wrapped line** (112px against
+  96px on the display headline). Now a real space with `white-space: pre-wrap`.
+- **`npm ci` had been broken since Phase 6** — `playwright` was in the lockfile
+  but not `package.json`. Now a declared devDependency; `npm ci` verified clean.
+
+**A testing lesson worth keeping.** The first attempt to verify the sweep
+sampled canvas pixels every frame. `getImageData` on a full roll costs *more
+than a frame*, so the sampler starved the loop it was measuring — a 221ms gap in
+the trace and a confident, wrong conclusion that the animation never ran. **A
+canvas animation cannot be observed by per-frame pixel sampling.** The loop now
+records what it drew and the test reads that; pixels are sampled only for the
+finished state.
+
+**Two tuning changes made from measurement, not taste**
+- `--ease-out-expo` put **72% of the piece on screen in the first frame** of the
+  sweep, so it was over before the eye found it. Cubic ease-out instead.
+- The scheduler's lookahead is **1.5s**, not the canonical 0.25s, because
+  background tabs clamp `setInterval` to ~1000ms and a shorter window drops
+  notes the moment focus is lost.
+
+**Deliberately not done:** no Vitest, for the reason Phase 6 gave and this phase
+confirmed six more times — every defect above was browser-only. No react-router,
+no GSAP/Lenis/Three.js. `smplr` is the only new runtime dependency, and a
+synthesised voice takes over when its CDN is unreachable (verified by blocking
+it).
+
+**Next**
+- Phase 9: a **free GPU host** for inference. Local is CPU-only and always will
+  be (§7) — a 25s clip takes ~2 minutes. See HANDOFF §9 for the options.
+- Then back to the model track: the frame-head regression Phase 19 isolated, and
+  trill recall on real repertoire (0.337, cause known).
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on
