@@ -61,6 +61,18 @@ export class ApiError extends Error {
 
 /** Normalises all three envelopes into one ApiError. */
 export async function parseApiError(res: Response): Promise<ApiError> {
+  // A proxy or a static host can answer with HTML on an error too -- Vite
+  // returns text/plain 500 when the API is unreachable. Say which, rather than
+  // reporting a bare status the user cannot act on.
+  const type = res.headers.get("content-type") ?? "";
+  if (!type.includes("json")) {
+    const detail =
+      res.status >= 500
+        ? "the API may not be running — check port 8000"
+        : res.statusText || "request failed";
+    return new ApiError(res.status, "http_error", detail);
+  }
+
   let body: unknown;
   try {
     body = await res.json();
@@ -125,12 +137,44 @@ export function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/**
+ * A 200 IS NOT A PROMISE OF JSON.
+ *
+ * The dev server proxies `/v1` to the API, but anything the proxy does not
+ * match falls through to Vite's SPA fallback, which serves `index.html` with
+ * status **200**. So `res.ok` is true, `res.json()` hits `<!doctype html>` and
+ * throws `Unexpected token '<', "<!doctype "... is not valid JSON` -- an error
+ * that names a parser rather than the actual fault, and sends you looking at
+ * the wrong layer.
+ *
+ * Reproduced: `curl -i http://localhost:5173/v1/nope` -> `200 text/html`.
+ *
+ * It happens whenever a request reaches a path the API does not define: a typo,
+ * a route removed server-side while the client still calls it, or a proxy
+ * pattern that stopped matching. In production the same shape appears when a
+ * static host answers an unknown path with the index page.
+ *
+ * Checking the content type turns all of those into one honest message that
+ * says where the response came from.
+ */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: { ...authHeaders(), ...(init?.headers ?? {}) },
   });
   if (!res.ok) throw await parseApiError(res);
+
+  const type = res.headers.get("content-type") ?? "";
+  if (!type.includes("json")) {
+    throw new ApiError(
+      res.status,
+      "not_json",
+      `${path} returned ${type || "an unknown type"} instead of JSON. ` +
+        `The API is probably not reachable at this path — check that the ` +
+        `backend is running on port 8000 and that the route exists.`,
+    );
+  }
+
   return (await res.json()) as T;
 }
 

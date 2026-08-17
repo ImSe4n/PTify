@@ -534,6 +534,29 @@ sampling the canvas colour histogram before and after the toggle and finding
 them byte-identical. **When a prop must reach several call sites, assert on the
 OUTPUT of each, not on the state that feeds them.**
 
+**A 200 IS NOT A PROMISE OF JSON, and the error names the wrong layer.** The
+symptom is `Unexpected token '<', "<!doctype "... is not valid JSON` — which
+reads like a parser bug and is actually a routing one. The Vite dev server
+proxies `/v1` to the API, but anything the proxy does not forward falls through
+to the **SPA fallback**, which serves `index.html` with status **200**. So
+`res.ok` is true and `res.json()` chokes on `<!doctype html>`.
+
+Reproduce: `curl -i http://localhost:5173/v1/nope` → `200 text/html`.
+
+Two distinct causes produce it, and both look identical from the browser:
+1. **A path the API does not define** — a typo, or a route removed server-side
+   while the client still calls it.
+2. **The dev server's proxy stopped forwarding**, which happened after a
+   `npm run build` rewrote `tsconfig.json` and Vite reloaded its config: the
+   backend answered `/v1/engines` on :8000 perfectly while :5173 returned HTML
+   for the same path. **Restarting the dev server fixes it, and nothing in the
+   app is wrong.** Check `curl` against BOTH ports before touching code.
+
+`request()` now checks `content-type` and raises `not_json` naming the path and
+pointing at port 8000. `parseApiError` does the same on the error path, because
+an unreachable proxy answers `500 text/plain` and the old code reported a bare
+status the user could not act on.
+
 **A 200 from `/v1/auth/me` is NOT proof that anyone is signed in.** When the
 server has no `PTIFY_API_KEY`, an unauthenticated request is a perfectly valid
 **anonymous** principal, so `/me` answers `200 {"kind":"anonymous"}` rather
