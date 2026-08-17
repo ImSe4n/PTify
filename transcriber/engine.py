@@ -47,7 +47,42 @@ ProgressCallback = Callable[[float, str], None]
 #: Capability facts do NOT live here. `api/routes/health.py` keeps those, since
 #: reading them off the classes would mean constructing an engine (17-50s for
 #: ByteDance) to answer a health check.
-ENGINE_NAMES = ("bytedance", "basicpitch", "ptify")
+ENGINE_NAMES = ("bytedance", "basicpitch", "ptify", "remote")
+
+
+def engine_unavailable_errors() -> tuple[type[BaseException], ...]:
+    """Exception types meaning "this engine cannot run", i.e. a 503.
+
+    THREE call sites map these onto `engine_unavailable`: `api/pipeline.py`
+    (raised during transcription) and both queue backends, `api/inproc.py` and
+    `api/arq_queue.py` (raised from `_EngineCache.get()`, which calls `load()`
+    OUTSIDE the pipeline, so the pipeline's mapping never sees them).
+
+    They share one definition because each type is a silent mis-mapping when a
+    site is missed, and the failure is invisible: `PtifyWeightsMissing`
+    subclasses FileNotFoundError and `RemoteUnavailable` subclasses
+    RuntimeError, so a missed site reports "your audio is corrupt, check
+    ffmpeg" (422) or "internal server error" (500) for what is really "the
+    operator has not supplied a model" or "the GPU host is down". A fourth
+    engine added to two of the three sites is exactly the bug this prevents.
+
+    A function rather than a constant because each import is lazy: importing
+    `remote` at module scope would pull urllib into every CLI, and importing
+    `ptify` would drag in the weights machinery.
+    """
+    from .ptify import PtifyWeightsMissing
+    from .remote import RemoteProtocolError, RemoteUnavailable
+    from .weights import CheckpointInvalid
+
+    # RemoteProtocolError is included deliberately. It subclasses ValueError,
+    # so left out it would land on the `undecodable_audio` branch and blame the
+    # caller's audio for a malformed response from the host.
+    return (
+        PtifyWeightsMissing,
+        CheckpointInvalid,
+        RemoteUnavailable,
+        RemoteProtocolError,
+    )
 
 
 def normalise_engine_name(name: str) -> str:
@@ -133,6 +168,22 @@ def get_engine(name: str = "bytedance", *,
         # engine resolves the shipped Phase 16b checkpoint and verifies its
         # digest.
         return PtifyEngine(checkpoint_path=checkpoint_path)
+    if key == "remote":
+        if checkpoint_path is not None:
+            # The HOST decides which weights it loaded; this engine only sends
+            # audio. Accepting a local path would let a benchmark row claim it
+            # scored those weights while scoring whatever the host had -- the
+            # same class of failure Phase 17 fixed when custom rows stopped
+            # labelling themselves `bytedance`.
+            raise ValueError(
+                "checkpoint_path applies to engines that load weights "
+                "locally; the remote engine runs whatever the host loaded. "
+                "Passing it here would score the host's weights as if they "
+                "were yours. The host reports its checkpoint_sha256 instead."
+            )
+        from .remote import RemoteEngine
+
+        return RemoteEngine()
     if key == "basicpitch":
         if checkpoint_path is not None:
             raise ValueError(

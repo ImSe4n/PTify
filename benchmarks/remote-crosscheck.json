@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "generated": "2026-08-17T17:56:45Z",
+  "source": {
+    "clip": "var/clip25.wav",
+    "audio_seconds": 25.0,
+    "local_engine": "bytedance",
+    "remote_engine": "bytedance"
+  },
+  "criteria": {
+    "note_counts_identical": true,
+    "pitch_multiset_identical": true,
+    "max_onset_delta_sec": 0.01,
+    "min_onset_f1": 0.999
+  },
+  "agreement": {
+    "note_count_local": 297,
+    "note_count_remote": 297,
+    "note_counts_identical": true,
+    "pitch_multiset_identical": true,
+    "max_onset_delta_sec": 1.33514404296875e-05,
+    "max_offset_delta_sec": 3.719329833984375e-05,
+    "onset_f1_remote_vs_local": 1.0,
+    "pedal_count_local": 10,
+    "pedal_count_remote": 10,
+    "passed": true
+  },
+  "timing": {
+    "local_load_seconds": 11.025,
+    "local_inference_seconds": 44.759,
+    "local_end_to_end_seconds": 55.784,
+    "remote_call_seconds": 5.219,
+    "remote_end_to_end_seconds": 5.219,
+    "speedup_end_to_end": 10.69,
+    "local_realtime_factor": 2.231,
+    "remote_realtime_factor": 0.209
+  },
+  "environment": {
+    "local_device": "cpu",
+    "remote_device": "remote:cuda",
+    "torch": "2.2.2+cpu",
+    "python": "3.12.5",
+    "platform": "Windows-11-10.0.26200-SP0"
+  }
+}

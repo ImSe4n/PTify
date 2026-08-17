@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "./auth/AuthContext";
 import { AuthScreen } from "./routes/AuthScreen";
+import LegalScreen from "./routes/LegalScreen";
 import { UploadScreen } from "./routes/UploadScreen";
 import { JobScreen } from "./routes/JobScreen";
 import { HistoryScreen } from "./routes/HistoryScreen";
@@ -62,6 +63,23 @@ export function App() {
     return () => clearTimeout(t);
   }, [loading]);
 
+  // BEFORE the auth guard, deliberately. A privacy policy you have to create
+  // an account to read is not a privacy policy, and the terms describe what
+  // signing up commits you to -- both have to be readable by someone who has
+  // not signed up. This is the one route that is exempt.
+  if (route.screen === "legal") {
+    return (
+      <>
+        <div className="grain" />
+        <div className="app">
+          <main className="app-main">
+            <LegalScreen which={route.which} />
+          </main>
+        </div>
+      </>
+    );
+  }
+
   if (needsAuth) {
     return (
       <>
@@ -96,8 +114,36 @@ export function App() {
           )}
           {route.screen === "history" && <HistoryScreen />}
         </main>
+
+        <SiteFooter />
       </div>
     </>
+  );
+}
+
+/**
+ * The only route to the legal pages, so it is not decoration.
+ *
+ * Kept to one line: this is a working app, not a landing page, and a tall
+ * marketing footer under a piano roll would be the louder mistake.
+ */
+function SiteFooter() {
+  const go = (which: "privacy" | "terms") => (e: React.MouseEvent) => {
+    e.preventDefault();
+    navigate({ screen: "legal", which });
+  };
+  return (
+    <footer className="site-footer">
+      <span className="mono">PTify</span>
+      <nav>
+        <a href="#/privacy" onClick={go("privacy")}>
+          Privacy
+        </a>
+        <a href="#/terms" onClick={go("terms")}>
+          Terms
+        </a>
+      </nav>
+    </footer>
   );
 }
 

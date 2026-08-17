@@ -332,7 +332,7 @@ export function ResultScreen({
               <p className="trust-caption serif">
                 {summary.key
                   ? "Printed on the score."
-                  : "Too chromatic to call — printing no signature is the honest answer."}
+                  : "Too chromatic to call. Printing no signature is the honest answer."}
               </p>
               {explain && (
                 <p className="trust-detail">
@@ -383,7 +383,7 @@ export function ResultScreen({
                 {explain && (
                   <p className="trust-detail">
                     The system under-reports rather than inventing symbols nobody
-                    played — a missing mark still leaves the notes readable.
+                    played; a missing mark still leaves the notes readable.
                   </p>
                 )}
               </div>

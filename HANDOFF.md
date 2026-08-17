@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 7-8 — the frontend plays, links, and looks like a product.** |
+| **Last completed** | **Phase 9 — inference runs on a GPU. 55.8s -> 5.2s (10.7x) on a 25s clip, $0.00133/clip.** |
 | **Branch** | `phase-7-playback-and-motion`, off `phase-6-frontend` |
-| **Tests** | 994 Python, ~2⅓ min. **104 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
-| **Next** | **Phase 9: a free GPU host for inference** (§9). Then back to the model track. |
+| **Tests** | 1065 Python, ~2 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
+| **Next** | **The model track** — the frame-head regression (needs the GPU §9 just unlocked) and trill F1 0.337 (symbolic, no GPU). Finish 9f first: the frontend engine picker is unverified in a browser. |
 
 **Phase 7-8 in one paragraph.** The frontend got a hash router (a transcription
 now has a URL), playback through a sampled piano on the WebAudio clock, a
@@ -1451,7 +1451,109 @@ both.
 
 ## 9. What the next phase should know
 
-### Phase 9: get inference off this CPU. THE HOSTING IS THE BLOCKER, NOT THE CODE.
+### Phase 9 is DONE. Inference runs on a GPU: 55.8s -> 5.2s, 10.7x.
+
+`--engine remote` sends the audio to a Modal serverless GPU and reads the notes
+back. **Measured on `var/clip25.wav`** (25.0s, 297 notes), artifact in
+`benchmarks/remote-crosscheck.json`:
+
+| | local CPU | remote L4 |
+|---|---|---|
+| end to end | 55.8s | **5.2s** |
+| real-time factor | 2.23x | **0.21x** |
+| cost | — | **$0.00133/clip** (5.98 GPU-sec) |
+
+Free credit is $30/month **recurring**, so that is **~22,600 clips/month**.
+Cold start is ~56s; warm calls measured 5.40 / 4.98 / 5.16s.
+
+**Remote and local agree exactly where it matters**: 297 vs 297 notes, identical
+pitch multiset, **max onset drift 0.013ms** against a 10ms bar, onset F1
+**1.000000**. Byte-identical was deliberately NOT the bar — CPU and CUDA use
+different kernels and reduction orders — and the sub-millisecond drift is that
+difference, ~750x inside tolerance.
+
+**THE SEAM IS THE ENGINE, NOT THE QUEUE — and this section used to say
+otherwise.** What follows corrects it, because acting on the old text would cost
+a day.
+
+`api/pipeline.py:run()` already injects `engine=`, and `_transcribe` never calls
+`.load()` on an engine it was handed. So a remote engine changes **no route, no
+queue, no store**, and needs **no Redis**. `api/arq_queue.py` stays correct and
+stays unused; it is Phase 10's tool. The queue path would have needed Redis
+(untestable here), a networked JobStore *and* networked Storage — three deferred
+phases wearing one phase's name.
+
+It also means `python -m evaluation --engine remote` works, so the GPU is
+available to the **benchmark harness** — which is what the model track needs.
+
+**Four claims this section used to make were false.** Verified against live docs,
+which is this file's own rule (§4: verify against the API, not against this file):
+
+| §9 used to say | actually |
+|---|---|
+| ZeroGPU "fits a queue worker" | **Gradio SDK only** — cannot run FastAPI or an arq worker |
+| free ~3.5 min/day, $9 PRO -> 25 min | unauth 2 min, **free 5 min**, PRO **40 min** |
+| H200 | **RTX Pro 6000 Blackwell** |
+| (unstated) | ZeroGPU forces **torch 2.8-2.11**; this repo pins **2.2.2 / numpy<2** |
+
+**The torch pin is the whole trick, and it is why Modal beat the alternatives.**
+`piano_transcription_inference/inference.py:53` calls `torch.load(...)` with no
+`weights_only=`, and PyTorch 2.6 flipped that default to True — so on any modern
+torch **the library cannot load its own checkpoint**. §4 documents this trap for
+`training/`; it reappears in the *inference* library. ZeroGPU would have forced
+solving it. Modal takes an arbitrary image, so the host pins the *same*
+`torch==2.2.2+cu121` and `numpy==1.26.4` the laptop uses and the problem never
+exists. That also makes the cross-check a test of the GPU rather than of two
+torch releases.
+
+Cloud Run GPU was the pick before Modal and is still viable as a paid fallback,
+but its **$300 trial credit does not cover GPU quota**, so it needs real billing
+before the first measurement.
+
+**Two deploy traps, both of which exit 0 while deploying nothing.** Check
+`modal app list` for a `deployed` state; never trust the exit code.
+1. **`fastapi[standard]` must be in the image** — Modal no longer injects it for
+   `@modal.fastapi_endpoint`. Fires at the *last* step, after every image built.
+2. **`PYTHONUTF8=1` is required on Windows** — the cp1252 console cannot encode
+   Modal's progress bar, and the *local client* dies mid-build. §4's cp1252 trap
+   with a misleading exit code attached.
+
+Run it:
+
+```bash
+set PTIFY_REMOTE_URL=https://<you>--ptify-transcribe-transcriber-transcribe.modal.run
+set PTIFY_REMOTE_TOKEN=<the ptify-remote-token secret>
+.venv\Scripts\python.exe -m transcriber var\clip25.wav --engine remote
+.venv\Scripts\python.exe -m tools.crosscheck_remote var\clip25.wav
+```
+
+**The whole API path is verified**, not just the CLI: a real job with
+`engine=remote` and `formats=midi,musicxml` came back `succeeded` with **297
+notes**, key `C major` (0.802), and both artifacts served (1,856-byte MIDI,
+143,756-byte MusicXML) in **16.7s wall including engraving**. `/v1/engines`
+reports `remote` available once `PTIFY_REMOTE_URL` is set — that is a
+**configuration** check, deliberately not a reachability ping, because pinging
+on every health check would bill a GPU request.
+
+**The picker is verified in a real browser too** (`tests/browser/remote-engine.mjs`,
+8 checks): all four engines render, `remote` is selectable, it is NOT the
+default, and its notes explain the model runs elsewhere. 112/112 browser checks
+pass.
+
+**And looking at the screenshot found something the assertions did not** — the
+same lesson as Phase 7-8, again. `bytedance`'s notes still advertised
+**"roughly 1.1x real time on CPU"**. Phase 9 measured **2.23x** on this machine,
+and §2 already recorded ~1.87x on the real corpus: the endpoint was quoting the
+most flattering of three numbers, the 22kHz-mono synthetic figure. Now corrected
+to the measured value, with the reason beside it. Every numeric assertion passed
+throughout — a wrong claim in prose is invisible to a browser check.
+
+`hosting/modal/README.md` carries the design notes and the deploy traps.
+
+**Do not delete the CPU path.** It is the only thing that runs offline, it is
+still the default, and it is the reference the cross-check measures against.
+
+### The original Phase 9 brief (superseded above, kept for its reasoning)
 
 **The code already asks for a GPU.** `transcriber/bytedance.py:149` is
 `self._device = "cuda" if torch.cuda.is_available() else "cpu"`. It resolves to

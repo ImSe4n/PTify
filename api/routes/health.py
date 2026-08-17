@@ -26,10 +26,16 @@ _ENGINES = {
     "bytedance": {
         "supports_pedal": True,
         "native_sample_rate": 16000,
+        # The speed figure is MEASURED, not the library's claim. Phase 9
+        # timed a 25s 44.1kHz stereo clip on this machine at 55.8s end to end
+        # (11.0s model load + 44.8s inference) = 2.23x real time. The "1.1x"
+        # this used to quote was the synthetic-corpus figure for 22kHz mono,
+        # and HANDOFF already records that the real corpus runs ~1.87x -- so
+        # the endpoint was advertising the most flattering of three numbers.
         "notes": (
             "Piano-specific; models sustain pedal and real velocity. "
-            "Roughly 1.1x real time on CPU, and slower on high-sample-rate "
-            "stereo sources. The default."
+            "Measured ~2.2x real time on this CPU for 44.1kHz stereo "
+            "(a 25s clip takes ~56s including model load). The default."
         ),
     },
     "basicpitch": {
@@ -56,16 +62,44 @@ _ENGINES = {
             "bundled -- see `available`."
         ),
     },
+    "remote": {
+        "supports_pedal": True,
+        "native_sample_rate": 16000,
+        "requires_weights": False,
+        # No accuracy claim: this engine runs whatever model the HOST loaded,
+        # so quoting a number here would attribute the host's weights to the
+        # client. The host reports its own `checkpoint_sha256` per response.
+        "notes": (
+            "Sends the audio to a GPU host and reads the notes back; the "
+            "model runs there, not on this machine. Same architecture and "
+            "thresholds as the engine the host loaded, which it identifies by "
+            "checkpoint digest on every response. Needs PTIFY_REMOTE_URL -- "
+            "see `available`. Local CPU measured 65.9s end to end on a 25s "
+            "clip, which is what this exists to beat."
+        ),
+    },
 }
 
 
 def _is_available(name: str) -> bool:
     """Can this engine run right now?
 
-    A filesystem check, never a load: constructing ByteDance costs 17-50s and
-    this endpoint must answer instantly. Only `ptify` can be unavailable, and
-    only because its weights are not in the repository.
+    A filesystem check or an env read, never a load and NEVER a network call:
+    constructing ByteDance costs 17-50s and this endpoint must answer
+    instantly. Two engines can be unavailable -- `ptify` when its weights are
+    absent, and `remote` when no host is configured.
+
+    For `remote` this deliberately reports CONFIGURATION, not reachability.
+    Pinging the host would bill a GPU request on every health check, and a
+    health endpoint that costs money per call is a worse failure than a stale
+    `available: true`. Whether the host is actually up is answered by the job.
     """
+    if name == "remote":
+        import os
+
+        from transcriber.remote import ENDPOINT_ENV
+
+        return bool(os.environ.get(ENDPOINT_ENV, "").strip())
     if name != "ptify":
         return True
     try:

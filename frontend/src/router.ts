@@ -37,7 +37,8 @@ export type Route =
   | { screen: "auth" }
   | { screen: "history" }
   | { screen: "job"; jobId: string }
-  | { screen: "sheet"; jobId: string; page: number };
+  | { screen: "sheet"; jobId: string; page: number }
+  | { screen: "legal"; which: "privacy" | "terms" };
 
 /** The screens the header's nav can highlight. */
 export type NavScreen = Route["screen"];
@@ -56,6 +57,11 @@ export function parseHash(hash: string): Route {
 
   if (parts[0] === "sign-in") return { screen: "auth" };
   if (parts[0] === "history") return { screen: "history" };
+  // Reachable signed OUT as well as in -- a privacy policy you have to create
+  // an account to read is not a privacy policy. App.tsx checks for these
+  // before the auth guard for that reason.
+  if (parts[0] === "privacy") return { screen: "legal", which: "privacy" };
+  if (parts[0] === "terms") return { screen: "legal", which: "terms" };
 
   if (parts[0] === "new") {
     const step = parts[1];
@@ -92,6 +98,8 @@ export function formatRoute(route: Route): string {
       return "#/sign-in";
     case "history":
       return "#/history";
+    case "legal":
+      return `#/${route.which}`;
     case "job":
       return `#/j/${encodeURIComponent(route.jobId)}`;
     case "sheet": {

@@ -1761,3 +1761,73 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* --- legal pages + site footer -------------------------------------------
+   Deliberately plain: these are documents, so they get a reading measure and
+   the body face, with no cards, no icons and no decoration. The one-line
+   footer is the only route to them. */
+.site-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-5) var(--sp-6);
+  border-top: var(--rule-width) solid var(--rule);
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+.site-footer nav {
+  display: flex;
+  gap: var(--sp-4);
+}
+.site-footer a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.site-footer a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.legal-screen {
+  padding: var(--sp-8) var(--sp-6) var(--sp-9);
+}
+.legal {
+  /* ~68 characters. Long-form prose needs a measure; the rest of the app is
+     dense UI and does not. */
+  max-width: 34rem;
+  margin: 0 auto;
+}
+.legal-title {
+  font-size: var(--fs-h1);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tracking-h2);
+  margin: var(--sp-2) 0 var(--sp-5);
+}
+.legal-lede {
+  font-size: 1.0625rem;
+  line-height: var(--lh-body);
+  color: var(--ink);
+  padding-bottom: var(--sp-5);
+  border-bottom: var(--rule-width) solid var(--rule);
+  margin-bottom: var(--sp-5);
+}
+.legal h2 {
+  font-size: var(--fs-h3);
+  letter-spacing: var(--tracking-h2);
+  margin: var(--sp-6) 0 var(--sp-2);
+}
+.legal p {
+  line-height: var(--lh-body);
+  color: var(--muted);
+  margin: 0 0 var(--sp-3);
+}
+.legal-foot {
+  margin-top: var(--sp-7);
+  padding-top: var(--sp-4);
+  border-top: var(--rule-width) solid var(--rule);
+  font-size: var(--fs-small);
+}
+.legal-foot a {
+  color: var(--accent);
+}

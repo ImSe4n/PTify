@@ -102,7 +102,7 @@ export function ViewControls({
 
       <p className="vc-note">
         {transpose !== 0
-          ? "Transposition changes playback and the roll — the MIDI download stays at the recorded pitch."
+          ? "Transposition changes playback and the roll. The MIDI download stays at the recorded pitch."
           : "Practice controls. Downloads are always the original transcription."}
       </p>
     </div>

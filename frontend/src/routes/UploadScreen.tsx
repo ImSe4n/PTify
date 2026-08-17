@@ -169,7 +169,7 @@ export function UploadScreen({ step }: { step: UploadStep }) {
             ? "A single piano performance works best. Transcription runs on a worker and takes roughly twice the length of the recording."
             : step === "output"
               ? "Both of these are already set. Change them only if you want something specific."
-              : "All optional — they are printed on the score, and skipping them costs nothing."}
+              : "All optional. They are printed on the score, and skipping them costs nothing."}
         </p>
       </header>
 
@@ -214,7 +214,7 @@ export function UploadScreen({ step }: { step: UploadStep }) {
                 </>
               )}
               <span className="drop-formats mono">
-                mp3 · wav · m4a · flac · ogg · aiff — up to 15 minutes
+                mp3 · wav · m4a · flac · ogg · aiff · up to 15 minutes
               </span>
             </label>
 
@@ -474,7 +474,7 @@ function Summary({
           ? "Choose a recording to continue."
           : formats.size === 0
             ? "Pick at least one output format."
-            : "Runs on a worker — you can leave this page."}
+            : "Runs on a worker, so you can leave this page."}
       </p>
     </aside>
   );

@@ -75,7 +75,7 @@ export function HistoryScreen() {
         <div className="empty" style={{ "--i": 1 } as React.CSSProperties}>
           <p className="h2 serif">Nothing here yet.</p>
           <p className="prose">
-            Upload a piano recording and it will show up here — with the notes,
+            Upload a piano recording and it will show up here, with the notes,
             the score, and an honest account of which rhythms were measured.
           </p>
         </div>

@@ -138,7 +138,7 @@ export function Transport({
         ) : status === "fallback" ? (
           // Say why it sounds thin, rather than letting it read as bad audio.
           <span className="transport-warn" title="The sampled piano could not be reached.">
-            synthesised — samples unavailable
+            synthesised, samples unavailable
           </span>
         ) : (
           <>
