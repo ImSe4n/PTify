@@ -25,6 +25,36 @@ Three levels of strictness, which is why papers quote several numbers:
                 mir_eval's own behaviour, not a bug in this wrapper. Real
                 performances vary enough that it does not arise in practice.
 
+PRECISION AND RECALL ANSWER DIFFERENT QUESTIONS, AND F1 HIDES WHICH ONE MOVED
+-----------------------------------------------------------------------------
+    PRECISION  of the notes the model reported, how many are real?
+               Low precision = INVENTED notes -- the "garbage notes" a user
+               sees as wrong notes in the score.
+    RECALL     of the notes actually played, how many were found?
+               Low recall = MISSED notes.
+
+Both have always been computed here and stored in every committed report
+(`onset_p` / `onset_r`), and for nine phases neither was ever PRINTED -- every
+table and every published figure showed F1 alone. That cost real understanding,
+because the two are not equally to blame:
+
+    MAPS, ByteDance    P 0.744   R 0.837   F1 0.787   33,598 est / 30,356 ref
+
+The engine is not going deaf on unfamiliar pianos, it is HALLUCINATING: it
+reports 10.7% more notes than the piece contains. Split by mic distance, on the
+same 7 performances and the same 15,178 reference notes:
+
+    close (~50cm)      P 0.826   R 0.878   15,936 emitted
+    ambient (3-4m)     P 0.661   R 0.797   17,662 emitted
+
+Room reverb costs 16.4 points of PRECISION against 8.2 of recall. And the
++5.3 F1 that Phase 16b published as its headline is almost entirely a
+garbage-note reduction (P +9.2, R +0.7) -- which nobody could see, because only
+the average of the two was ever displayed.
+
+So: report P and R beside F1, always. `BenchmarkRow.extra` counts the invented
+notes outright, and `ScoreResult.note_surplus` states the ratio.
+
 mir_eval defaults, all standard in the AMT literature and left unchanged so
 our numbers are comparable to published ones:
     onset_tolerance      50ms
@@ -87,6 +117,23 @@ class ScoreResult:
             f"{vel}  "
             f"({self.n_estimated} est / {self.n_reference} ref)"
         )
+
+    @property
+    def note_surplus(self) -> float:
+        """Estimated notes per reference note. 1.0 means "as many as exist".
+
+        The plainest statement of the garbage-note problem, and derived rather
+        than measured -- both counts were always on the row. ByteDance scores
+        1.107 on MAPS (10.7% more notes than the piece contains) and 1.164 on
+        the ambient subset alone; PTify 16b scores 1.018.
+
+        Reported ALONGSIDE precision, not instead of it: a model could emit the
+        right NUMBER of notes and still have them all wrong, which would read
+        as 1.000 here and as a low precision there.
+        """
+        if not self.n_reference:
+            return 0.0
+        return self.n_estimated / self.n_reference
 
     def as_row(self) -> dict:
         """Flat dict, for building comparison tables.
@@ -221,15 +268,23 @@ def format_table(results: list[ScoreResult]) -> str:
     # a field was added or reordered.
     width = max([len(r.label) for r in results] + [len("engine")])
     lines = [
-        f"  {'':<{width}}  {'onset':>7} {'+offset':>8} {'+vel':>7}  {'notes':>11}",
-        "  " + "-" * (width + 41),
+        # P and R sit BEFORE the F1 deliberately. An F1 is a summary of the two
+        # beside it, and reading it alone is what let a precision collapse
+        # (0.826 -> 0.661 from room reverb, i.e. the model inventing notes)
+        # pass for nine phases as a generic "accuracy drop". See metrics'
+        # module docstring and HANDOFF section 6.
+        f"  {'':<{width}}  {'P':>7} {'R':>7} {'onset':>7} {'+offset':>8} "
+        f"{'+vel':>7}  {'notes':>11}",
+        "  " + "-" * (width + 57),
     ]
     for r in results:
         # A dash, not the number: a degenerate velocity score is the onset
         # figure wearing a different label, and printing it invites a quote.
         vel = f"{r.velocity_f1:>7.4f}" if r.velocity_valid else f"{'n/a':>7}"
         lines.append(
-            f"  {r.label:<{width}}  {r.onset_f1:>7.4f} {r.offset_f1:>8.4f} "
+            f"  {r.label:<{width}}  {r.onset_precision:>7.4f} "
+            f"{r.onset_recall:>7.4f} "
+            f"{r.onset_f1:>7.4f} {r.offset_f1:>8.4f} "
             f"{vel}  {r.n_estimated:>4}/{r.n_reference:<6}"
         )
     if any(not r.velocity_valid for r in results):

@@ -289,15 +289,47 @@ and make both slower rather than raising throughput.
 | Piano-specific | yes | no (multi-instrument) | yes |
 | Sustain pedal | **yes** | no | **yes** |
 | Velocity | **real dynamics** | near-constant | **real dynamics** |
-| Speed (CPU) | ~1.1x real time | ~0.02x real time | ~1.1x real time |
-| MAPS onset F1 | 0.787 | 0.727 | **0.840** |
+| Speed (CPU) | ~1.87x real time ‡ | ~0.02x real time | ~1.87x real time ‡ |
+| MAPS onset **precision** | 0.744 | 0.748 † | **0.836** |
+| MAPS onset **recall** | 0.837 | 0.711 † | **0.844** |
+| MAPS onset F1 | 0.787 | 0.727 † | **0.840** |
+| Notes invented on MAPS | 7,093 | 33,075 † | **4,449** |
 | Weights bundled | downloaded | bundled | **no — see below** |
+
+† **Basic Pitch's MAPS column is a different corpus** — all 60 Disklavier
+tracks, where ByteDance and PTify are scored on the 14 *paired* ones. The
+columns are therefore not strictly comparable, and the invented-note counts
+especially so, since they are totals over different amounts of music. Stated
+rather than quietly aligned, because a table that looks like one experiment and
+is two is exactly the artifact that gets screenshotted and misread.
+
+‡ **Measured on the real corpus** (44.1/48kHz stereo, resampled to 16kHz, 12
+tracks). This used to read "~1.1x", which was the figure from 22kHz mono
+synthetic audio — the most flattering of three numbers. A 25-second clip
+measures 2.23x end to end because the ~11s model load dominates a short file.
+**On a GPU it is 0.21x** — see `--engine remote` below.
 
 **PTify is ByteDance's architecture with our own weights.** Same speed, same
 capabilities; fine-tuned here with room/detune augmentation for 6,555 steps.
 It wins by **5.3 onset F1 on MAPS**, the cross-dataset target, and loses 0.6 on
 MAESTRO — which is ByteDance's own training distribution and therefore the
 number that flatters it.
+
+**That win is a precision win, and the split matters more than the total.**
+Precision rises **+9.2 points** while recall moves **+0.7** — PTify is not
+finding more notes, it is inventing **37% fewer** of them (7,093 → 4,449 across
+14 tracks). On unfamiliar pianos ByteDance reports **10.7% more notes than were
+actually played**; PTify reports 1.8% more.
+
+That is the honest shape of "wrong notes in your transcription", and it is only
+visible because precision and recall are now printed beside the F1 — both were
+computed and stored from the first run of this project and neither was ever
+displayed. Regenerate the analysis from the committed baselines, with no
+inference and nothing downloaded:
+
+```bash
+python -m tools.precision_review --json benchmarks/precision-recall-review.json
+```
 
 ```bash
 python -m transcriber --fetch-ptify     # download the weights (172MB, once)
@@ -489,6 +521,39 @@ where the theory predicts — the **ambient** (3–4m mic) recordings gain **+7.
 against **+2.7** for close-mic, so the room-acoustics penalty falls from 12.9
 points to 7.7. That asymmetry is the evidence this is genuine room robustness
 rather than a general uplift.
+
+### The room penalty is a *precision* problem — the model invents notes
+
+An F1 is the average of precision and recall, so it cannot say which one moved.
+Split apart, the MAPS numbers say something the F1 hides completely:
+
+| MAPS paired | precision | recall | F1 | emitted / real |
+|---|---|---|---|---|
+| ByteDance | **0.744** | 0.837 | 0.787 | 33,598 / 30,356 (**+10.7%**) |
+| PTify 16b | **0.836** | 0.844 | 0.840 | 30,917 / 30,356 (+1.8%) |
+
+**ByteDance is not going deaf on an unfamiliar piano — it is hallucinating.**
+It reports 10.7% more notes than were played, and PTify's whole +5.3 is a
+**37% reduction in invented notes** (7,093 → 4,449) with recall essentially
+unchanged (+0.7).
+
+The mic-distance pairs isolate the cause. These are the *same 7 performances*
+with the *same 15,178 reference notes*, so everything but the room is constant:
+
+| ByteDance, n=7 paired | precision | recall | notes emitted |
+|---|---|---|---|
+| close (~50cm) | 0.826 | 0.878 | 15,936 |
+| ambient (3–4m) | **0.661** | 0.797 | **17,662** |
+| **penalty** | **−16.4** | −8.2 | **+1,726 invented** |
+
+Reverb costs **twice as much precision as recall**. A wet room does not hide
+notes from the model; it makes the model hear notes that are not there.
+
+**The direction reverses on MAESTRO, and that is the point.** There ByteDance's
+precision (0.981) sits *above* its recall (0.958) and it emits **fewer** notes
+than exist (0.974x). So over-generation is what unfamiliar acoustics do to this
+model — not something it does everywhere. That is the gap the training track
+exists to close, now stated as the error it actually is.
 
 It comes from ~6,500 fine-tuning steps with continuous reverb/detune
 augmentation on one free-tier GPU session — 15% of a single epoch. See

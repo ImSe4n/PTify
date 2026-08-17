@@ -111,8 +111,8 @@ printing its progress bar. The Windows console is cp1252 and Modal's output is
 Unicode. HANDOFF §4 already records the cp1252 trap for CLI output; this is the
 same trap, and it too exits 0.
 
-The first build downloads the 165MB checkpoint into the image, so it takes a few
-minutes. Deploy prints a URL.
+The first build downloads **both** checkpoints into the image (165MB ByteDance +
+172MB PTify), so it takes a few minutes. Deploy prints a URL.
 
 ```bash
 set PTIFY_REMOTE_URL=https://<you>--ptify-transcribe-transcribe.modal.run
@@ -120,6 +120,30 @@ set PTIFY_REMOTE_TOKEN=<the same string>
 
 .venv\Scripts\python.exe -m transcriber var\clip25.wav --engine remote
 ```
+
+### Choosing which model the host serves
+
+`PTIFY_HOST_ENGINE` selects it — `bytedance` (default) or `ptify`. Both
+checkpoints ship in the image, so switching is a redeploy with a different
+environment value, not a rebuild.
+
+**This used to be a label and nothing more, and that was a real bug.** The host
+loaded ByteDance's weights unconditionally and applied `PTIFY_HOST_ENGINE` only
+to the *response*, so a host deployed as `ptify` served the pretrained baseline
+and stamped `ptify` on the result — 0.787 reported under the name of the model
+that scores 0.840. Nothing raised, nothing logged. Since
+`python -m evaluation --engine remote` is the supported way to score on the GPU,
+every remote benchmark row would have inherited it.
+
+`HOSTED_ENGINES` now maps each name to a file **and to the digest that file must
+have**, checked at container start. A mismatch refuses to serve. The digest is
+load-bearing rather than belt-and-braces: the inference library validates a
+checkpoint by **size alone**, and Phase 18 caught the published release carrying
+the 260MB *training* checkpoint where the 172MB deployable was expected — size
+accepts both.
+
+`tests/test_remote_host_weights.py` pins all of it, and each test there was
+verified to **fail** against the pre-fix version.
 
 `GET /v1/engines` will report `remote` as `available` once `PTIFY_REMOTE_URL` is
 set. That reports **configuration, not reachability** — deliberately, because
