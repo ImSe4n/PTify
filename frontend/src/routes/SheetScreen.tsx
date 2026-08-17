@@ -13,14 +13,16 @@
 
 import { useEffect, useState } from "react";
 
-import { ApiError, artifactUrl, authHeaders, downloadArtifact, getJob } from "../api/client";
+import { ApiError, downloadArtifact, fetchArtifactText, getJob } from "../api/client";
 import type { JobOut } from "../api/types";
+import { navigate } from "../router";
 
-export function SheetScreen({ jobId, onBack }: { jobId: string; onBack: () => void }) {
+export function SheetScreen({ jobId, page: wanted }: { jobId: string; page: number }) {
   const [job, setJob] = useState<JobOut | null>(null);
-  const [page, setPage] = useState(1);
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const onBack = () => navigate({ screen: "job", jobId });
 
   useEffect(() => {
     getJob(jobId)
@@ -30,21 +32,35 @@ export function SheetScreen({ jobId, onBack }: { jobId: string; onBack: () => vo
 
   const pageCount = job?.artifacts.svg?.length ?? 0;
 
+  // The URL is untrusted: `?p=99` on a 2-page score is a 404 from the API
+  // (jobs.py:297-300 refuses out-of-range), so clamp once the count is known.
+  const page = pageCount > 0 ? Math.min(Math.max(1, wanted), pageCount) : wanted;
+
+  // ...and rewrite the address to match, so the URL never keeps claiming a page
+  // that does not exist. Replace, so it does not add a history entry.
+  useEffect(() => {
+    if (pageCount > 0 && page !== wanted) {
+      navigate({ screen: "sheet", jobId, page }, { replace: true });
+    }
+  }, [jobId, page, wanted, pageCount]);
+
+  const goToPage = (n: number) =>
+    // replace, not push: otherwise Back walks backwards through every page
+    // turn instead of leaving the sheet.
+    navigate({ screen: "sheet", jobId, page: n }, { replace: true });
+
   useEffect(() => {
     if (!job || pageCount === 0) return;
     let cancelled = false;
     setSvg(null);
 
-    (async () => {
-      try {
-        const res = await fetch(artifactUrl(jobId, "svg", page), { headers: authHeaders() });
-        if (!res.ok) throw new Error(`could not load page ${page}`);
-        const text = await res.text();
+    fetchArtifactText(jobId, "svg", page)
+      .then((text) => {
         if (!cancelled) setSvg(text);
-      } catch (err) {
-        if (!cancelled) setError((err as Error).message);
-      }
-    })();
+      })
+      .catch((e: ApiError) => {
+        if (!cancelled) setError(e.message);
+      });
 
     return () => {
       cancelled = true;
@@ -91,7 +107,7 @@ export function SheetScreen({ jobId, onBack }: { jobId: string; onBack: () => vo
         <div className="sheet-pager">
           <button
             className="icon-btn"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => goToPage(Math.max(1, page - 1))}
             disabled={page <= 1}
             aria-label="Previous page"
           >
@@ -102,7 +118,7 @@ export function SheetScreen({ jobId, onBack }: { jobId: string; onBack: () => vo
           </span>
           <button
             className="icon-btn"
-            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+            onClick={() => goToPage(Math.min(pageCount, page + 1))}
             disabled={page >= pageCount}
             aria-label="Next page"
           >

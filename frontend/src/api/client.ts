@@ -203,22 +203,42 @@ export function artifactUrl(id: string, fmt: OutputFormat, page?: number): strin
 }
 
 /**
- * Downloads an artifact as a blob.
+ * Fetches an artifact.
  *
- * Fetched rather than linked because the URL needs an Authorization header --
- * a plain <a href> cannot carry one, and the API accepts no token in the query
- * string (deliberately: it would put a credential into server logs).
+ * EVERY artifact goes through here, because the URL needs an Authorization
+ * header -- a plain <a href>, an <img src> or an <audio src> cannot carry one,
+ * and the API accepts no token in the query string (deliberately: it would put
+ * a credential into server logs). So an artifact can only ever be reached by
+ * fetch, and playback has to load the MIDI into memory rather than pointing an
+ * element at the URL.
+ *
+ * Errors go through parseApiError like every other call. Before Phase 7 the
+ * sheet viewer hand-rolled this fetch and threw a bare Error, which was the one
+ * place in the app where an API error lost its code and message.
  */
+async function fetchArtifact(id: string, fmt: OutputFormat, page?: number): Promise<Response> {
+  const res = await fetch(artifactUrl(id, fmt, page), { headers: authHeaders() });
+  if (!res.ok) throw await parseApiError(res);
+  return res;
+}
+
+export const fetchArtifactBlob = (id: string, fmt: OutputFormat, page?: number) =>
+  fetchArtifact(id, fmt, page).then((r) => r.blob());
+
+export const fetchArtifactText = (id: string, fmt: OutputFormat, page?: number) =>
+  fetchArtifact(id, fmt, page).then((r) => r.text());
+
+export const fetchArtifactBytes = (id: string, fmt: OutputFormat, page?: number) =>
+  fetchArtifact(id, fmt, page).then((r) => r.arrayBuffer());
+
+/** Downloads an artifact through the browser's save flow. */
 export async function downloadArtifact(
   id: string,
   fmt: OutputFormat,
   filename: string,
   page?: number,
 ): Promise<void> {
-  const res = await fetch(artifactUrl(id, fmt, page), { headers: authHeaders() });
-  if (!res.ok) throw await parseApiError(res);
-
-  const blob = await res.blob();
+  const blob = await fetchArtifactBlob(id, fmt, page);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

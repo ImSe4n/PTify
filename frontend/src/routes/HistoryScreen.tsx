@@ -12,7 +12,8 @@
 import { useEffect, useState } from "react";
 
 import { ApiError, listJobs } from "../api/client";
-import type { JobOut, JobState, Summary } from "../api/types";
+import type { JobOut, Summary } from "../api/types";
+import { navigate } from "../router";
 
 function relative(epochSeconds: number): string {
   const diff = Date.now() / 1000 - epochSeconds;
@@ -38,12 +39,7 @@ function describe(job: JobOut): string {
   return bits.join(" · ") || "done";
 }
 
-interface Props {
-  onOpen: (jobId: string, state: JobState) => void;
-  onNew: () => void;
-}
-
-export function HistoryScreen({ onOpen, onNew }: Props) {
+export function HistoryScreen() {
   const [jobs, setJobs] = useState<JobOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,7 +59,7 @@ export function HistoryScreen({ onOpen, onNew }: Props) {
             Finished jobs and their files expire an hour after they complete.
           </p>
         </div>
-        <button className="btn" onClick={onNew}>
+        <button className="btn" onClick={() => navigate({ screen: "upload" })}>
           New transcription
         </button>
       </header>
@@ -92,7 +88,10 @@ export function HistoryScreen({ onOpen, onNew }: Props) {
               <li key={job.job_id}>
                 <button
                   className={`job-row${openable ? "" : " is-inert"}`}
-                  onClick={() => openable && onOpen(job.job_id, job.state)}
+                  // One route for both states: JobScreen reads the job and
+                  // picks Waiting or Result. The URL says which job, not which
+                  // screen.
+                  onClick={() => openable && navigate({ screen: "job", jobId: job.job_id })}
                   disabled={!openable}
                 >
                   <span className="job-when">

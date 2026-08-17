@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, downloadArtifact, getJob, getResultJson } from "../api/client";
 import type { JobOut, OutputFormat, Summary } from "../api/types";
 import { PianoRoll, noteName } from "../roll/PianoRoll";
+import { fmtClock } from "../ui/format";
 
 const DOWNLOADS: { fmt: OutputFormat; label: string; desc: string; file: string }[] = [
   { fmt: "midi", label: "MIDI", desc: "notes + pedal (CC64)", file: "transcription.mid" },
@@ -23,11 +24,6 @@ const DOWNLOADS: { fmt: OutputFormat; label: string; desc: string; file: string 
   { fmt: "pdf", label: "PDF", desc: "engraved score", file: "score.pdf" },
   { fmt: "json", label: "JSON", desc: "the piano-roll payload", file: "transcription.json" },
 ];
-
-function fmtClock(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
 
 export function ResultScreen({
   jobId,

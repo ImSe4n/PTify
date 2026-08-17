@@ -1,31 +1,36 @@
 /**
  * The app shell: theme, navigation, and which screen is showing.
  *
- * Screen state is held here rather than in a router because the flow is a
- * pipeline (upload -> waiting -> result) whose steps carry a job id, and
- * Phase 6 has no deep-linking requirement. A router is a Phase 7 concern once
- * a transcription has a shareable URL.
+ * Phase 7 replaced `useState<Screen>` with a hash router (see router.ts), so a
+ * transcription now has a shareable URL and survives a refresh. This file is
+ * back to being a pure route -> component switch.
+ *
+ * THE AUTH GUARD IS A RENDER-TIME CHECK, NOT AN EFFECT.
+ *
+ * Phase 6 force-navigated to the auth screen from an effect that had `screen`
+ * in its own dependencies. Under a router that would also destroy the URL the
+ * user was trying to reach. Returning <AuthScreen/> from the render path
+ * instead preserves the hash, so signing in drops you exactly where you were
+ * headed -- with no `?next=` parameter and no redirect dance.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useAuth } from "./auth/AuthContext";
 import { AuthScreen } from "./routes/AuthScreen";
 import { UploadScreen } from "./routes/UploadScreen";
-import { WaitingScreen } from "./routes/WaitingScreen";
-import { ResultScreen } from "./routes/ResultScreen";
+import { JobScreen } from "./routes/JobScreen";
 import { HistoryScreen } from "./routes/HistoryScreen";
 import { SheetScreen } from "./routes/SheetScreen";
+import { navigate, useRoute, type Route } from "./router";
 
-export type Screen = "auth" | "upload" | "waiting" | "result" | "sheet" | "history";
 type Theme = "light" | "dark";
 
 const THEME_KEY = "ptify.theme";
 
 export function App() {
   const { me, accountsEnabled, loading } = useAuth();
-  const [screen, setScreen] = useState<Screen>("upload");
-  const [jobId, setJobId] = useState<string | null>(null);
+  const route = useRoute();
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem(THEME_KEY) as Theme) || "light",
   );
@@ -39,16 +44,13 @@ export function App() {
   // without accounts everything runs anonymously and there is nothing to show.
   const needsAuth = accountsEnabled && !me;
 
+  // The one remaining navigation: someone who signed in while sitting ON the
+  // sign-in URL has nowhere to be sent back to.
   useEffect(() => {
-    if (loading) return;
-    if (needsAuth) setScreen("auth");
-    else if (screen === "auth") setScreen("upload");
-  }, [loading, needsAuth, screen]);
-
-  const openJob = useCallback((id: string, target: Screen = "waiting") => {
-    setJobId(id);
-    setScreen(target);
-  }, []);
+    if (!loading && !needsAuth && route.screen === "auth") {
+      navigate({ screen: "upload" }, { replace: true });
+    }
+  }, [loading, needsAuth, route.screen]);
 
   if (loading) {
     return (
@@ -61,43 +63,37 @@ export function App() {
     );
   }
 
+  if (needsAuth) {
+    return (
+      <>
+        <div className="grain" />
+        <div className="app">
+          <main className="app-main">
+            <AuthScreen />
+          </main>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <div className="grain" />
       <div className="app">
-        {screen !== "auth" && (
-          <Header
-            screen={screen}
-            theme={theme}
-            onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            onNavigate={setScreen}
-          />
-        )}
+        <Header
+          route={route}
+          theme={theme}
+          onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+        />
 
         <main className="app-main">
-          {screen === "auth" && <AuthScreen />}
-          {screen === "upload" && <UploadScreen onSubmitted={(id) => openJob(id)} />}
-          {screen === "waiting" && jobId && (
-            <WaitingScreen
-              jobId={jobId}
-              onDone={() => setScreen("result")}
-              onLeave={() => setScreen("history")}
-            />
+          {route.screen === "auth" && <AuthScreen />}
+          {route.screen === "upload" && <UploadScreen />}
+          {route.screen === "job" && <JobScreen jobId={route.jobId} />}
+          {route.screen === "sheet" && (
+            <SheetScreen jobId={route.jobId} page={route.page} />
           )}
-          {screen === "result" && jobId && (
-            <ResultScreen jobId={jobId} onOpenSheet={() => setScreen("sheet")} />
-          )}
-          {screen === "sheet" && jobId && (
-            <SheetScreen jobId={jobId} onBack={() => setScreen("result")} />
-          )}
-          {screen === "history" && (
-            <HistoryScreen
-              onOpen={(id, state) =>
-                openJob(id, state === "succeeded" ? "result" : "waiting")
-              }
-              onNew={() => setScreen("upload")}
-            />
-          )}
+          {route.screen === "history" && <HistoryScreen />}
         </main>
       </div>
     </>
@@ -105,19 +101,18 @@ export function App() {
 }
 
 interface HeaderProps {
-  screen: Screen;
+  route: Route;
   theme: Theme;
   onToggleTheme: () => void;
-  onNavigate: (s: Screen) => void;
 }
 
-function Header({ screen, theme, onToggleTheme, onNavigate }: HeaderProps) {
+function Header({ route, theme, onToggleTheme }: HeaderProps) {
   const { me, signOut, accountsEnabled } = useAuth();
   const initials = me?.email ? me.email.slice(0, 2).toLowerCase() : null;
 
   return (
     <header className="app-header">
-      <button className="brand" onClick={() => onNavigate("upload")}>
+      <button className="brand" onClick={() => navigate({ screen: "upload" })}>
         <span className="serif brand-word">PTify</span>
         <span className="brand-dot" aria-hidden="true" />
       </button>
@@ -126,8 +121,8 @@ function Header({ screen, theme, onToggleTheme, onNavigate }: HeaderProps) {
         {(["upload", "history"] as const).map((s) => (
           <button
             key={s}
-            className={`nav-link${screen === s ? " is-active" : ""}`}
-            onClick={() => onNavigate(s)}
+            className={`nav-link${route.screen === s ? " is-active" : ""}`}
+            onClick={() => navigate({ screen: s })}
           >
             {s === "upload" ? "New" : "Transcriptions"}
           </button>

@@ -11,6 +11,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ApiError, getEngines, submitJob } from "../api/client";
 import type { EngineOut, OutputFormat } from "../api/types";
+import { navigate } from "../router";
+import { rememberTitle } from "../titles";
 
 const ACCEPT = ".mp3,.wav,.m4a,.flac,.ogg,.aiff,.aif";
 
@@ -28,7 +30,7 @@ function humanSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function UploadScreen({ onSubmitted }: { onSubmitted: (jobId: string) => void }) {
+export function UploadScreen() {
   const [engines, setEngines] = useState<EngineOut[]>([]);
   const [engine, setEngine] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -81,7 +83,10 @@ export function UploadScreen({ onSubmitted }: { onSubmitted: (jobId: string) => 
         title: title.trim(),
         composer: composer.trim(),
       });
-      onSubmitted(res.job_id);
+      // The server does not echo the title back on JobOut, so keep it for this
+      // tab. See titles.ts -- the durable fix is an api/models.py change.
+      rememberTitle(res.job_id, title);
+      navigate({ screen: "job", jobId: res.job_id });
     } catch (err) {
       const e = err as ApiError;
       // Both limits are 429 and mean different things, so branch on the code.

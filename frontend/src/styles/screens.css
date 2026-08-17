@@ -27,6 +27,13 @@
   background: var(--bg);
 }
 
+/* Waiting on the one getJob a deep link needs before it knows which screen to
+   show. Deliberately empty: a spinner for a request that usually resolves in
+   under 100ms is more distracting than blank space. */
+.boot-inline {
+  min-height: 40vh;
+}
+
 /* --- header ------------------------------------------------------------- */
 
 .app-header {
