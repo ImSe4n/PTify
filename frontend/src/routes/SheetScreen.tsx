@@ -151,7 +151,7 @@ export function SheetScreen({ jobId, page: wanted }: { jobId: string; page: numb
           )}
         </div>
         <p className="sheet-caption">
-          Engraved from the transcription. Multi-page scores are normal — SVG
+          Engraved from the transcription. Multi-page scores are normal: SVG
           exports one file per page.
         </p>
       </div>

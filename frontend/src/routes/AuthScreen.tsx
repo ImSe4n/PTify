@@ -69,14 +69,14 @@ export function AuthScreen() {
         <div className="auth-pitch-body">
           <p className="prose">
             Transcription is probabilistic. PTify shows you not just the result,
-            but how much of it was measured rather than estimated — so you always
+            but how much of it was measured rather than estimated, so you always
             know which rhythms to believe.
           </p>
 
           <dl className="auth-facts">
             <div>
               <dt className="mono">0.840</dt>
-              <dd>onset F1 on MAPS — a piano and room the model never trained on</dd>
+              <dd>onset F1 on MAPS, a piano and room the model never trained on</dd>
             </div>
             <div>
               <dt className="mono">+5.3</dt>
@@ -145,7 +145,7 @@ export function AuthScreen() {
 
           {pending && (
             <p className="auth-note mono">
-              hashing your password — 600,000 rounds, by design
+              hashing your password: 600,000 rounds, by design
             </p>
           )}
 

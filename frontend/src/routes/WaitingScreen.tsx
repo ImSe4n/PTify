@@ -134,7 +134,7 @@ export function WaitingScreen({ jobId, onDone, onLeave }: Props) {
             : cancelled
               ? "Stopped at a stage boundary."
               : indeterminate
-                ? "The model reports no progress while it runs. This is expected — the elapsed clock is the real signal."
+                ? "The model reports no progress while it runs. This is expected; the elapsed clock is the real signal."
                 : "Working through the pipeline."}
         </p>
 
@@ -168,7 +168,7 @@ export function WaitingScreen({ jobId, onDone, onLeave }: Props) {
 
         {error && (
           <p className="form-error" role="alert">
-            {error} — falling back to polling.
+            {error}. Falling back to polling.
           </p>
         )}
 
@@ -186,7 +186,7 @@ export function WaitingScreen({ jobId, onDone, onLeave }: Props) {
 
         {!isTerminal(state) && (
           <p className="waiting-fineprint">
-            Cancelling takes effect at the next stage boundary — the model cannot
+            Cancelling takes effect at the next stage boundary. The model cannot
             be interrupted mid-inference, so a running stage finishes first.
           </p>
         )}
