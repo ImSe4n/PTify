@@ -36,10 +36,18 @@ def _client(tmp_path, **kw):
 
 # --- GET /v1/engines ------------------------------------------------------
 
-def test_engines_lists_all_three(tmp_path):
+def test_engines_lists_everything_the_factory_can_build(tmp_path):
+    # Derived from ENGINE_NAMES rather than a literal, for the reason
+    # ENGINE_NAMES exists: an engine the factory can build but the endpoint
+    # does not advertise is invisible to every client, and a literal here goes
+    # stale the moment an engine is added. (This test previously hardcoded
+    # three names and broke when `remote` was added in Phase 9 -- the
+    # endpoint was right and the assertion was stale.)
+    from transcriber.engine import ENGINE_NAMES
+
     with _client(tmp_path) as c:
         names = [e["name"] for e in c.get("/v1/engines").json()]
-    assert names == ["bytedance", "basicpitch", "ptify"]
+    assert names == list(ENGINE_NAMES)
 
 
 def test_ptify_advertises_pedal_and_the_crnn_sample_rate(tmp_path):

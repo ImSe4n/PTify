@@ -94,8 +94,7 @@ async def transcribe_task(ctx: dict, job_id: str, spec_data: dict) -> dict:
     pays the model load once (measured 50.6s cold / 17-19s warm for ByteDance)
     rather than once per job -- the same reasoning as the in-process backend.
     """
-    from transcriber.ptify import PtifyWeightsMissing
-    from transcriber.weights import CheckpointInvalid
+    from transcriber.engine import engine_unavailable_errors
 
     from .inproc import _EngineCache
     from .pipeline import PipelineError, run as run_pipeline
@@ -132,11 +131,12 @@ async def transcribe_task(ctx: dict, job_id: str, spec_data: dict) -> dict:
         if store is not None:
             store.mark_failed(job_id, exc.code, exc.message)
         return {"job_id": job_id, "state": "failed", "code": exc.code}
-    except (PtifyWeightsMissing, CheckpointInvalid) as exc:
-        # `cache.get()` loads the engine, so weights problems are raised here
-        # rather than inside the pipeline. Same reasoning as inproc.py: an
-        # operator who has not supplied a model file is a 503, not a server
-        # bug reported as internal_error.
+    except engine_unavailable_errors() as exc:
+        # `cache.get()` loads the engine, so weights problems and an
+        # unconfigured GPU host are raised here rather than inside the
+        # pipeline. Same reasoning as inproc.py: an operator who has not
+        # supplied a model file, or whose host is down, is a 503 -- not a
+        # server bug reported as internal_error.
         if store is not None:
             store.mark_failed(job_id, "engine_unavailable", str(exc))
         return {"job_id": job_id, "state": "failed",
