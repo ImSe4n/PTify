@@ -13,7 +13,7 @@ State of the codebase, the traps in it, and what the next phase needs.
 |---|---|
 | **Last completed** | **Phase 7-8 — the frontend plays, links, and looks like a product.** |
 | **Branch** | `phase-7-playback-and-motion`, off `phase-6-frontend` |
-| **Tests** | 994 Python, ~2⅓ min, no model or network. **Plus 88 browser checks** — `cd frontend && npm run test:browser`. |
+| **Tests** | 994 Python, ~2⅓ min, no model or network. **Plus 104 browser checks** — `npm run test:fixtures` then `npm run test:browser`. |
 | **Next** | **Phase 9: a free GPU host for inference** (§9). Then back to the model track. |
 
 **Phase 7-8 in one paragraph.** The frontend got a hash router (a transcription
@@ -387,10 +387,14 @@ frontend/               React + Vite SPA (Phases 6-8). NOT a Python package
                         usePlayback. Plays summary.notes, NOT the MIDI -- §4
   src/roll/PianoRoll.tsx    canvas; measured vs pedal-estimated note lengths
   src/roll/FallingNotes.tsx the performance view; one draw, moved by transform
+  src/roll/hands.ts         a PORT of notation/score.py:_split_point -- see §4
+  src/roll/noteColour.ts    the colour schemes; none may erase the estimated mark
+  src/roll/viewOptions.ts   speed, transposition, scheme. Presentation only
   src/routes/           Auth Upload(3 steps) Waiting Job Result Sheet History
   src/ui/Reveal.tsx     word-by-word heading reveal
   src/styles/tokens.css the design system: palette, type scale, motion
-  tests/browser/        88 checks over the REAL stack. npm run test:browser
+  tests/browser/        104 checks over the REAL stack. npm run test:browser
+                        fixtures.mjs rebuilds what they need (jobs expire)
 ```
 
 **The frontend has no unit tests, on purpose, and Phase 7 is the evidence.**
@@ -476,6 +480,33 @@ margin survives the line break — measured at 112px against 96px on the display
 headline. Use a real space character with `white-space: pre-wrap`. Note also
 that `innerText` reports **no whitespace** between `inline-block` spans even
 when the visual gap is real, so assert the rendered geometry, not the string.
+
+**`frontend/src/roll/hands.ts` is a PORT of `notation/score.py:_split_point`,
+and the two must not drift.** The engraver does not split hands at middle C —
+it picks the treble/bass boundary from the piece's own pitch distribution by
+Otsu's method, because the left hand crosses above middle C constantly. The roll
+colours by hand using the same rule, so a note drawn as left-hand is on the bass
+staff of the printed score. If they diverge, **the two views of one
+transcription disagree in public** and nothing raises. `var/p7sum.json` carries
+`__split` computed by the real Python function, and the `view-controls` suite
+asserts the port agrees (measured: 63 = 63). **The durable fix is exposing
+`split_point` on the summary** — a small `api/pipeline.py` change — after which
+this port and its test should be deleted rather than maintained.
+
+**Transposition and speed are PRESENTATION, and must never reach a file.** They
+change what is drawn and sounded; the MIDI download stays the measurement. The
+UI says so explicitly when a transposition is active. Shipping a shifted export
+under the same job id would make the artifact disagree with the model that
+produced it.
+
+**A `replace` across similar JSX blocks can silently miss one.** Adding
+`view={viewOpts}` to the roll and the falling view landed on FallingNotes and
+ViewControls but **not** PianoRoll, whose props are indented differently — so
+the colour schemes typechecked, the toggle updated state, the active pill
+changed, and the canvas never repainted. Nothing errored. It was caught only by
+sampling the canvas colour histogram before and after the toggle and finding
+them byte-identical. **When a prop must reach several call sites, assert on the
+OUTPUT of each, not on the state that feeds them.**
 
 **A 200 from `/v1/auth/me` is NOT proof that anyone is signed in.** When the
 server has no `PTIFY_API_KEY`, an unauthenticated request is a perfectly valid

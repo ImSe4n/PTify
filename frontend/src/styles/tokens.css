@@ -146,6 +146,10 @@
   --paper: #ffffff;
   --sheet-desk: #efe9e4;
 
+  /* The second hand's hue. Warm slate against the ink teal: far enough apart
+     to separate at a glance, close enough that a two-colour roll still reads as
+     one palette rather than as a chart. */
+  --hand-left: #8a6a86;
   --note: #1f5f6b; /* the roll is ink, not black */
   --note-est: #b8873f; /* estimated lengths are ochre -- see --highlight */
   --pedal-band: rgba(31, 95, 107, 0.08);
@@ -196,6 +200,7 @@
   --paper: #f5f2ee;
   --sheet-desk: #0b0c0d;
 
+  --hand-left: #c193c6;
   --note: #5fc9dc;
   --note-est: #d9a44f;
   --pedal-band: rgba(95, 201, 220, 0.09);
@@ -242,6 +247,7 @@
     --paper: #f5f2ee;
     --sheet-desk: #0b0c0d;
 
+    --hand-left: #c193c6;
     --note: #5fc9dc;
     --note-est: #d9a44f;
     --pedal-band: rgba(95, 201, 220, 0.09);

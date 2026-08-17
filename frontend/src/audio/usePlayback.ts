@@ -29,6 +29,12 @@ export interface PositionSource {
 
 export interface Playback {
   isPlaying: boolean;
+  /** Playback rate; 1 is the recorded tempo. */
+  speed: number;
+  setSpeed(rate: number): void;
+  /** Sounding transposition in semitones. Never affects the exported MIDI. */
+  transpose: number;
+  setTranspose(semitones: number): void;
   status: EngineStatus;
   error: string | null;
   /** `M:SS`, updated only when the string changes. */
@@ -39,6 +45,8 @@ export interface Playback {
 }
 
 export function usePlayback(summary: Summary | null): Playback {
+  const [speed, setSpeedState] = useState(1);
+  const [transpose, setTransposeState] = useState(0);
   const engineRef = useRef<PlaybackEngine | null>(null);
   const subscribersRef = useRef(new Set<(t: number) => void>());
   const rafRef = useRef<number | null>(null);
@@ -62,6 +70,10 @@ export function usePlayback(summary: Summary | null): Playback {
       },
     });
     engineRef.current = engine;
+    // A remounted engine (a new transcription, or StrictMode) starts at the
+    // defaults, so re-apply whatever the controls currently say.
+    engine.setSpeed(speed);
+    engine.setTranspose(transpose);
 
     return () => {
       engine.dispose();
@@ -138,5 +150,27 @@ export function usePlayback(summary: Summary | null): Playback {
     [publish],
   );
 
-  return { isPlaying, status, error, clock, positionSource, toggle, seek };
+  const setSpeed = useCallback((rate: number) => {
+    setSpeedState(rate);
+    engineRef.current?.setSpeed(rate);
+  }, []);
+
+  const setTranspose = useCallback((semitones: number) => {
+    setTransposeState(semitones);
+    engineRef.current?.setTranspose(semitones);
+  }, []);
+
+  return {
+    isPlaying,
+    speed,
+    setSpeed,
+    transpose,
+    setTranspose,
+    status,
+    error,
+    clock,
+    positionSource,
+    toggle,
+    seek,
+  };
 }

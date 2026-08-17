@@ -29,6 +29,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Summary } from "../api/types";
 import type { PositionSource } from "./PianoRoll";
+import { assignHands, splitPoint } from "./hands";
+import { noteAlpha, noteColour, octaveHues } from "./noteColour";
+import { DEFAULT_VIEW, type ViewOptions } from "./viewOptions";
 
 /** Vertical pixels per second at zoom 1. Falling views want more room per
     second than a horizontal roll: notes are read as they arrive, not scanned. */
@@ -93,6 +96,8 @@ export interface FallingNotesProps {
   zoom: number;
   position?: number;
   positionSource?: PositionSource;
+  /** Colour scheme and transposition. Presentation only. */
+  view?: ViewOptions;
   onSeek?: (seconds: number) => void;
 }
 
@@ -101,6 +106,7 @@ export function FallingNotes({
   zoom,
   position = 0,
   positionSource,
+  view = DEFAULT_VIEW,
   onSeek,
 }: FallingNotesProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -118,6 +124,9 @@ export function FallingNotes({
     () => [...summary.notes].sort((a, b) => a.onset - b.onset),
     [summary.notes],
   );
+
+  // Same split as the roll and the engraver. See hands.ts.
+  const hands = useMemo(() => assignHands(notes, splitPoint(notes)), [notes]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -163,6 +172,14 @@ export function FallingNotes({
       bar: cssVar(wrap, "--roll-bar"),
       beat: cssVar(wrap, "--roll-beat"),
       black: cssVar(wrap, "--roll-black"),
+      handLeft: cssVar(wrap, "--hand-left"),
+    };
+    const palette = {
+      note: c.note,
+      est: c.est,
+      left: c.handLeft,
+      right: c.note,
+      octave: octaveHues(c.note),
     };
 
     canvas.width = size.w * dpr;
@@ -202,14 +219,15 @@ export function FallingNotes({
     }
 
     // The notes. y is measured from the BOTTOM so later notes sit higher.
-    for (const n of notes) {
+    notes.forEach((n, i) => {
+      const pitch = Math.max(21, Math.min(108, n.pitch + view.transpose));
       const h = Math.max(3, (n.offset - n.onset) * pps);
       const y = fieldH - n.offset * pps;
-      const x = geo.x(n.pitch);
-      const w = geo.w(n.pitch);
+      const x = geo.x(pitch);
+      const w = geo.w(pitch);
       // Velocity drives alpha here too, so dynamics read as weight.
-      g.globalAlpha = 0.5 + 0.45 * (n.velocity / 127);
-      g.fillStyle = isBlackKey(n.pitch) ? c.est : c.note;
+      g.globalAlpha = noteAlpha(view.scheme, n.velocity);
+      g.fillStyle = noteColour(view.scheme, palette, { ...n, pitch }, hands[i]);
 
       // Fill the key's width bar a hairline, so a falling note visibly lines
       // up with the key it is about to strike.
@@ -219,9 +237,9 @@ export function FallingNotes({
       g.beginPath();
       g.roundRect(x + inset, y, bw, h, r);
       g.fill();
-    }
+    });
     g.globalAlpha = 1;
-  }, [notes, summary, geo, pps, size.w, fieldH, themeTick]);
+  }, [notes, hands, view, summary, geo, pps, size.w, fieldH, themeTick]);
 
   // --- the keyboard: repainted per frame, but only 88 small rectangles -------
   const paintKeys = useCallback(
@@ -247,7 +265,9 @@ export function FallingNotes({
       const lit = new Set<number>();
       for (const n of notes) {
         if (n.onset > seconds) break;
-        if (n.offset > seconds) lit.add(n.pitch);
+        if (n.offset > seconds) {
+          lit.add(Math.max(21, Math.min(108, n.pitch + view.transpose)));
+        }
       }
 
       g.fillStyle = c.bg;
@@ -276,7 +296,7 @@ export function FallingNotes({
       g.lineTo(size.w, 1);
       g.stroke();
     },
-    [notes, geo, size.w],
+    [notes, geo, size.w, view.transpose],
   );
 
   // Sizing a canvas CLEARS it, so the repaint has to happen in the same effect.

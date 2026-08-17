@@ -20,6 +20,9 @@
  *   - `npm run dev` on :5173
  *   - var/p7tok.txt   a bearer token for an account
  *   - var/p7job.json  {"job_id": "..."} for a SUCCEEDED job with svg+midi
+ *   - var/p7sum.json  that job's /result/json, plus a "__split" field holding
+ *                     notation.score._split_point() for it -- the hand-split
+ *                     port is checked against the real engraver, not a guess
  *   - var/clip25.wav  a short recording to upload
  *
  * A job's artifacts expire after PTIFY_JOB_TTL_SECONDS (1 hour by default), so
@@ -40,6 +43,7 @@ const SUITES = [
   ["falling-notes", "the falling view and its lit keyboard"],
   ["motion", "curtain, word stagger, arrow slide, reduced motion"],
   ["roll-reveal", "the entrance sweep and its replay guards"],
+  ["view-controls", "speed, transposition, hand splitting, colour schemes"],
 ];
 
 const only = process.argv[2];

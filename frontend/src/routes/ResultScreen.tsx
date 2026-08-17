@@ -17,6 +17,8 @@ import { ApiError, downloadArtifact, getJob, getResultJson } from "../api/client
 import type { JobOut, OutputFormat, Summary } from "../api/types";
 import { PianoRoll, noteName } from "../roll/PianoRoll";
 import { FallingNotes } from "../roll/FallingNotes";
+import { ViewControls } from "./ViewControls";
+import { DEFAULT_VIEW, type ColourScheme, type ViewOptions } from "../roll/viewOptions";
 import { usePlayback } from "../audio/usePlayback";
 import { Transport } from "./Transport";
 import { fmtClock } from "../ui/format";
@@ -44,6 +46,7 @@ export function ResultScreen({
   const [zoom, setZoom] = useState(1);
   const [explain, setExplain] = useState(false);
   const [view, setView] = useState<"roll" | "falling">("roll");
+  const [viewOpts, setViewOpts] = useState<ViewOptions>(DEFAULT_VIEW);
 
   const playback = usePlayback(summary);
 
@@ -228,6 +231,7 @@ export function ResultScreen({
               zoom={zoom}
               positionSource={playback.positionSource}
               follow={playback.isPlaying}
+              view={viewOpts}
               onSeek={playback.seek}
             />
           ) : (
@@ -235,9 +239,25 @@ export function ResultScreen({
               summary={summary}
               zoom={zoom}
               positionSource={playback.positionSource}
+              view={viewOpts}
               onSeek={playback.seek}
             />
           )}
+
+          <ViewControls
+            view={viewOpts}
+            speed={playback.speed}
+            transpose={playback.transpose}
+            onSpeed={playback.setSpeed}
+            onTranspose={(n) => {
+              // One value drives BOTH the engine and the drawing -- if these
+              // ever diverged the roll would show a pitch the audio does not
+              // play, which is the same class of defect as the MIDI drift.
+              playback.setTranspose(n);
+              setViewOpts((v) => ({ ...v, transpose: n }));
+            }}
+            onScheme={(scheme: ColourScheme) => setViewOpts((v) => ({ ...v, scheme }))}
+          />
 
           {/* The legend describes how the ROLL encodes things -- estimated
               tails, pedal bands. The falling view draws none of those, so

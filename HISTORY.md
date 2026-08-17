@@ -2686,8 +2686,15 @@ in Phase 6, every seam Phase 4 left was sufficient. 994 Python tests still pass.
 - **A full visual redraw** against songscription.ai — DM Sans throughout,
   rounded surfaces, white cards on warm bone, teal-ink accent. See §4 of
   HANDOFF for what was deliberately *not* copied.
-- **88 browser checks** in `frontend/tests/browser/`, one command:
-  `npm run test:browser`.
+- **Practice controls**: playback speed (0.5x-2x), transposition (+/-12
+  semitones), and four colour schemes including **left/right hand**, split by
+  the same Otsu rule the engraver uses so the roll and the printed grand staff
+  agree. Speed and transposition are presentation only — the MIDI download
+  stays the measurement, and the UI says so.
+- **104 browser checks** in `frontend/tests/browser/`, one command:
+  `npm run test:browser`, plus `npm run test:fixtures` to rebuild the live job
+  they need (artifacts expire after an hour, which was the most repeated
+  interruption of the phase).
 
 **Issues found — every one of them by driving a browser**
 - **The MIDI artifact is in a different time base from the roll.** Playback was
@@ -2710,6 +2717,11 @@ in Phase 6, every seam Phase 4 left was sufficient. 994 Python tests still pass.
   repaint was left to the render loop — but when paused there is no next frame.
 - **A word gap made of `margin-left` indents every wrapped line** (112px against
   96px on the display headline). Now a real space with `white-space: pre-wrap`.
+- **A prop reached two of three call sites.** `view={viewOpts}` was added to
+  FallingNotes and ViewControls but missed PianoRoll, whose JSX is indented
+  differently. It typechecked, the toggle updated state, the active pill moved —
+  and the canvas never repainted. Found by diffing the canvas colour histogram
+  across a scheme change and seeing it byte-identical.
 - **`npm ci` had been broken since Phase 6** — `playwright` was in the lockfile
   but not `package.json`. Now a declared devDependency; `npm ci` verified clean.
 

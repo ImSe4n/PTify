@@ -22,6 +22,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Note, Summary } from "../api/types";
 import { prefersReducedMotion } from "../ui/useReducedMotion";
+import { assignHands, splitPoint } from "./hands";
+import { noteAlpha, noteColour, octaveHues } from "./noteColour";
+import { DEFAULT_VIEW, type ViewOptions } from "./viewOptions";
 
 /** Vertical pixels per semitone. */
 const ROW_H = 8;
@@ -89,6 +92,8 @@ export interface PianoRollProps {
   positionSource?: PositionSource;
   /** Whether to keep the playhead in view. */
   follow?: boolean;
+  /** Colour scheme and transposition. Presentation only. */
+  view?: ViewOptions;
   onSeek?: (seconds: number) => void;
 }
 
@@ -106,6 +111,7 @@ export function PianoRoll({
   position = 0,
   positionSource,
   follow = false,
+  view = DEFAULT_VIEW,
   onSeek,
 }: PianoRollProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -115,13 +121,23 @@ export function PianoRoll({
   const playheadRef = useRef<HTMLDivElement>(null);
 
   const [lo, hi] = useMemo(() => {
+    // The visible range follows the transposition, or a shifted note would be
+    // drawn outside its own lanes.
     const [a, b] = summary.pitch_range;
-    return [Math.max(21, a - PITCH_PAD), Math.min(108, b + PITCH_PAD)];
-  }, [summary.pitch_range]);
+    const t = view.transpose;
+    return [Math.max(21, a + t - PITCH_PAD), Math.min(108, b + t + PITCH_PAD)];
+  }, [summary.pitch_range, view.transpose]);
 
   const estimated = useMemo(
     () => markEstimated(summary.notes, summary.pedals),
     [summary.notes, summary.pedals],
+  );
+
+  // The same split the ENGRAVER uses, ported in hands.ts -- so a note the roll
+  // colours as left-hand is on the bass staff of the printed score.
+  const hands = useMemo(
+    () => assignHands(summary.notes, splitPoint(summary.notes)),
+    [summary.notes],
   );
 
   const pps = PPS_BASE * zoom;
@@ -181,6 +197,7 @@ export function PianoRoll({
       rule: cssVar(wrap, "--rule"),
       muted: cssVar(wrap, "--muted"),
       faint: cssVar(wrap, "--faint"),
+      handLeft: cssVar(wrap, "--hand-left"),
     };
 
     roll.width = width * dpr;
@@ -238,23 +255,39 @@ export function PianoRoll({
     }
 
     // Notes. Velocity drives alpha, so dynamics are visible as weight.
+    //
+    // The scheme picks the BASE hue; the estimated-length marking is applied on
+    // top exactly as before. No scheme may erase it -- a note whose length is
+    // interpolated has to keep saying so, whatever else it is coloured by.
+    const palette = {
+      note: c.note,
+      est: c.est,
+      left: c.handLeft,
+      right: c.note,
+      octave: octaveHues(c.note),
+    };
+
     summary.notes.forEach((n, i) => {
       if (n.onset > cutoff) return;
       const x = n.onset * pps;
       const w = Math.max(2.5, (n.offset - n.onset) * pps);
-      const y = (hi - n.pitch) * ROW_H;
-      const alpha = 0.45 + 0.5 * (n.velocity / 127);
+      const y = (hi - (n.pitch + view.transpose)) * ROW_H;
+      const alpha = noteAlpha(view.scheme, n.velocity);
+      const base = noteColour(view.scheme, palette, n, hands[i]);
 
       if (estimated[i]) {
         // Solid onset cap = measured. Translucent tail = interpolated.
         g.globalAlpha = alpha * 0.45;
-        g.fillStyle = c.est;
+        g.fillStyle = base;
         g.fillRect(x, y, w, ROW_H - 1);
+        // The cap stays the ochre `est` colour in EVERY scheme, so "this
+        // length is a guess" survives colouring by hand or by octave.
         g.globalAlpha = alpha;
+        g.fillStyle = c.est;
         g.fillRect(x, y, Math.min(2.5, w), ROW_H - 1);
       } else {
         g.globalAlpha = alpha;
-        g.fillStyle = c.note;
+        g.fillStyle = base;
         g.fillRect(x, y, w, ROW_H - 1);
       }
     });
@@ -297,7 +330,7 @@ export function PianoRoll({
     k.moveTo(KEY_W - 0.5, 0);
     k.lineTo(KEY_W - 0.5, height);
     k.stroke();
-  }, [summary, estimated, lo, hi, pps, width, height]);
+  }, [summary, estimated, hands, view, lo, hi, pps, width, height]);
 
   // Held in a ref so the reveal loop can call the CURRENT draw without being a
   // dependency of it -- otherwise a theme change mid-sweep restarts the sweep.

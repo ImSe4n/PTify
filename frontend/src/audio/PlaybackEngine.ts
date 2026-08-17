@@ -335,6 +335,19 @@ export class PlaybackEngine {
   /** Seconds into the piece that the current run started from. */
   private offset = 0;
   private playing = false;
+  /**
+   * Playback rate and transposition.
+   *
+   * SPEED SCALES THE CLOCK, NOT THE NOTES. `position` is piece-time, so a
+   * half-speed run advances it at half the rate of the audio context -- every
+   * consumer (playhead, scrub bar, scroll-follow) keeps working untouched
+   * because they all read piece-time. Scheduling divides by the same factor.
+   *
+   * TRANSPOSE IS PRESENTATION ONLY. It shifts what is sounded and drawn and
+   * never what is exported: the MIDI download stays the measurement.
+   */
+  private speed = 1;
+  private transpose = 0;
   private cursor = 0;
   private timer: number | null = null;
   private disposed = false;
@@ -354,7 +367,47 @@ export class PlaybackEngine {
 
   get position(): number {
     if (!this.playing || !this.ctx) return this.offset;
-    return Math.min(this.ctx.currentTime - this.startedAt + this.offset, this.duration);
+    const elapsed = (this.ctx.currentTime - this.startedAt) * this.speed;
+    return Math.min(elapsed + this.offset, this.duration);
+  }
+
+  /**
+   * Change the rate mid-flight.
+   *
+   * The clock has to be rebased first: `startedAt` is an origin measured at the
+   * OLD rate, so applying a new one without re-anchoring would retroactively
+   * reinterpret everything already played and jump the playhead.
+   */
+  setSpeed(speed: number): void {
+    const next = Math.max(0.25, Math.min(4, speed));
+    if (next === this.speed) return;
+
+    if (this.playing && this.ctx) {
+      this.offset = this.position;
+      this.startedAt = this.ctx.currentTime;
+      this.speed = next;
+      // Notes already handed to WebAudio are locked to the old rate, so the
+      // queue has to be rebuilt from here.
+      this.silence();
+      this.seekCursor(this.offset);
+      this.applyPedalState(this.offset);
+      this.pump();
+    } else {
+      this.speed = next;
+    }
+  }
+
+  /** Shift sounding pitch by semitones. Presentation only -- see the field. */
+  setTranspose(semitones: number): void {
+    const next = Math.max(-12, Math.min(12, Math.round(semitones)));
+    if (next === this.transpose) return;
+    this.transpose = next;
+    if (this.playing) {
+      // Ringing notes keep the old pitch, so restart the scheduled window.
+      this.silence();
+      this.seekCursor(this.position);
+      this.pump();
+    }
   }
 
   private setStatus(status: EngineStatus, detail?: string): void {
@@ -513,9 +566,17 @@ export class PlaybackEngine {
       const n = this.notes[this.cursor++];
       // Absolute time on the audio clock. Notes fractionally in the past (the
       // first tick after a seek) are clamped to "now" rather than dropped.
-      const when = Math.max(this.ctx.currentTime, this.startedAt + n.time - this.offset);
+      // Piece-time -> context-time. Dividing by the rate is what makes a
+      // half-speed run place notes twice as far apart on the audio clock.
+      const when = Math.max(
+        this.ctx.currentTime,
+        this.startedAt + (n.time - this.offset) / this.speed,
+      );
+      // Clamp rather than drop: a transposition can push a note off the 88-key
+      // range, and silence there is better than an out-of-range sample.
+      const midi = Math.max(21, Math.min(108, n.midi + this.transpose));
       try {
-        this.voice.note(n.midi, n.velocity, when, n.duration);
+        this.voice.note(midi, n.velocity, when, n.duration / this.speed);
       } catch {
         // One unplayable note must never take down the transport.
       }
