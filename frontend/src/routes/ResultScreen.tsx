@@ -16,6 +16,12 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, downloadArtifact, getJob, getResultJson } from "../api/client";
 import type { JobOut, OutputFormat, Summary } from "../api/types";
 import { PianoRoll, noteName } from "../roll/PianoRoll";
+import { FallingNotes } from "../roll/FallingNotes";
+import { ViewControls } from "./ViewControls";
+import { DEFAULT_VIEW, type ColourScheme, type ViewOptions } from "../roll/viewOptions";
+import { usePlayback } from "../audio/usePlayback";
+import { Transport } from "./Transport";
+import { fmtClock } from "../ui/format";
 
 const DOWNLOADS: { fmt: OutputFormat; label: string; desc: string; file: string }[] = [
   { fmt: "midi", label: "MIDI", desc: "notes + pedal (CC64)", file: "transcription.mid" },
@@ -23,11 +29,6 @@ const DOWNLOADS: { fmt: OutputFormat; label: string; desc: string; file: string 
   { fmt: "pdf", label: "PDF", desc: "engraved score", file: "score.pdf" },
   { fmt: "json", label: "JSON", desc: "the piano-roll payload", file: "transcription.json" },
 ];
-
-function fmtClock(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
 
 export function ResultScreen({
   jobId,
@@ -44,6 +45,10 @@ export function ResultScreen({
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [explain, setExplain] = useState(false);
+  const [view, setView] = useState<"roll" | "falling">("roll");
+  const [viewOpts, setViewOpts] = useState<ViewOptions>(DEFAULT_VIEW);
+
+  const playback = usePlayback(summary);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +66,34 @@ export function ResultScreen({
       cancelled = true;
     };
   }, [jobId]);
+
+  // Space is the universal play/pause, but it also scrolls the page and
+  // activates whatever button has focus -- so it must be prevented, and must
+  // stand aside when the user is typing or has a control focused.
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== " " && ev.key !== "k") return;
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        tag === "BUTTON" ||
+        el?.isContentEditable
+      ) {
+        return;
+      }
+
+      ev.preventDefault();
+      playback.toggle();
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [playback]);
 
   const facts = useMemo(() => {
     if (!summary) return [];
@@ -146,7 +179,20 @@ export function ResultScreen({
       <div className="result-body">
         <section className="result-roll">
           <div className="roll-toolbar">
-            <span className="mono roll-duration">{fmtClock(summary.duration)}</span>
+            {/* Two ways to read the same notes: the roll scans a whole piece,
+                the falling view shows what is being played. */}
+            <div className="view-toggle" role="group" aria-label="View">
+              {(["roll", "falling"] as const).map((v) => (
+                <button
+                  key={v}
+                  className={view === v ? "is-active" : ""}
+                  onClick={() => setView(v)}
+                  aria-pressed={view === v}
+                >
+                  {v === "roll" ? "roll" : "falling"}
+                </button>
+              ))}
+            </div>
             <span className="roll-toolbar-spacer" />
             <span className="mono roll-zoom-label">zoom</span>
             <div className="roll-zoom">
@@ -168,21 +214,85 @@ export function ResultScreen({
             </div>
           </div>
 
-          <PianoRoll summary={summary} zoom={zoom} />
+          <Transport
+            duration={summary.duration}
+            isPlaying={playback.isPlaying}
+            status={playback.status}
+            error={playback.error}
+            clock={playback.clock}
+            positionSource={playback.positionSource}
+            onToggle={playback.toggle}
+            onSeek={playback.seek}
+          />
 
+          {view === "roll" ? (
+            <PianoRoll
+              summary={summary}
+              zoom={zoom}
+              positionSource={playback.positionSource}
+              follow={playback.isPlaying}
+              view={viewOpts}
+              onSeek={playback.seek}
+            />
+          ) : (
+            <FallingNotes
+              summary={summary}
+              zoom={zoom}
+              positionSource={playback.positionSource}
+              view={viewOpts}
+              onSeek={playback.seek}
+            />
+          )}
+
+          <ViewControls
+            view={viewOpts}
+            speed={playback.speed}
+            transpose={playback.transpose}
+            onSpeed={playback.setSpeed}
+            onTranspose={(n) => {
+              // One value drives BOTH the engine and the drawing -- if these
+              // ever diverged the roll would show a pitch the audio does not
+              // play, which is the same class of defect as the MIDI drift.
+              playback.setTranspose(n);
+              setViewOpts((v) => ({ ...v, transpose: n }));
+            }}
+            onScheme={(scheme: ColourScheme) => setViewOpts((v) => ({ ...v, scheme }))}
+          />
+
+          {/* The legend describes how the ROLL encodes things -- estimated
+              tails, pedal bands. The falling view draws none of those, so
+              repeating them there would explain marks that are not on screen. */}
           <div className="roll-legend">
-            <span className="legend-item">
-              <span className="swatch swatch-measured" aria-hidden="true" />
-              measured
-            </span>
-            <span className="legend-item">
-              <span className="swatch swatch-estimated" aria-hidden="true" />
-              length estimated under pedal
-            </span>
-            <span className="legend-item">
-              <span className="swatch swatch-pedal" aria-hidden="true" />
-              sustain pedal
-            </span>
+            {view === "roll" ? (
+              <>
+                <span className="legend-item">
+                  <span className="swatch swatch-measured" aria-hidden="true" />
+                  measured
+                </span>
+                <span className="legend-item">
+                  <span className="swatch swatch-estimated" aria-hidden="true" />
+                  length estimated under pedal
+                </span>
+                <span className="legend-item">
+                  <span className="swatch swatch-pedal" aria-hidden="true" />
+                  sustain pedal
+                </span>
+              </>
+            ) : (
+              <span className="legend-item">notes fall onto the keyboard as they sound</span>
+            )}
+            {viewOpts.scheme === "hands" && (
+              <>
+                <span className="legend-item">
+                  <span className="swatch swatch-rh" aria-hidden="true" />
+                  right hand
+                </span>
+                <span className="legend-item">
+                  <span className="swatch swatch-lh" aria-hidden="true" />
+                  left hand
+                </span>
+              </>
+            )}
             <span className="roll-toolbar-spacer" />
             <span className="mono legend-note">darker = louder</span>
           </div>

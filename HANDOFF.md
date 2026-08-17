@@ -11,10 +11,22 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 6 — the frontend exists and runs against the real backend.** Preceded by **Phase 5.5**, the first human run of the assembled stack. |
-| **Branch** | `phase-6-frontend`, off `phase-5c-arq-end-to-end` |
-| **Tests** | 994 passing, ~2⅔ min, no model or network needed. **No JS tests — see below.** |
-| **Next** | Phase 7-8: playback against the roll, a real sheet view, deep links |
+| **Last completed** | **Phase 7-8 — the frontend plays, links, and looks like a product.** |
+| **Branch** | `phase-7-playback-and-motion`, off `phase-6-frontend` |
+| **Tests** | 994 Python, ~2⅓ min. **104 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
+| **Next** | **Phase 9: a free GPU host for inference** (§9). Then back to the model track. |
+
+**Phase 7-8 in one paragraph.** The frontend got a hash router (a transcription
+now has a URL), playback through a sampled piano on the WebAudio clock, a
+second falling-notes view, a stepped upload flow, and a full visual redraw
+against songscription.ai. **The backend changed not one line** — same as Phase
+6. The load-bearing decision is that playback reads `summary.notes` rather than
+the MIDI artifact, and that was not a preference: the dev drift guard measured
+the two **0.908s apart**, because `api/pipeline.py:264-273` deliberately exports
+*quantised* notes when a notation format is requested. Six defects were found,
+**all six by driving a browser or by looking at a screenshot, none by
+typechecking** — including an entrance animation that never ran in dev under
+StrictMode and would have run in production. §4 carries the ones that recur.
 
 **Phase 6 in one paragraph.** `frontend/` is a React + Vite SPA (~1,900 lines)
 covering auth, upload, live progress, the piano roll, history and a sheet
@@ -179,9 +191,10 @@ hardware**, not cited. Room acoustics alone cost **12.9 points** (§6).
 - `evaluation/maps.py` — MAPS Disklavier corpus, fetched by range request
 - `benchmarks/` — corpus manifests + real-audio baselines (no audio committed)
 - `tests/` — 500 tests, all pure functions
+- `frontend/` — React SPA: router, playback, two roll views, motion (6-8)
 
-**Not started:** auth/persistence (5), frontend (6–8), deploy (10),
-training runs (14.5–17 — the *data pipeline* for them is done).
+**Not started:** a GPU host for inference (9 — see §9, this is the current
+blocker), deploy (10), further training runs (the *data pipeline* is done).
 
 **Phase 4 in one paragraph.** `POST /v1/jobs` uploads audio and returns a job
 id; the work runs on a worker and the client polls `GET /v1/jobs/{id}` or
@@ -223,6 +236,13 @@ set PTIFY_JWT_SECRET=<32+ hex chars>
 cd frontend && npm install && npm run dev        # http://localhost:5173
 # Vite proxies /v1 and /healthz to 127.0.0.1:8000, so the browser sees one
 # origin and CORS never enters the picture in dev.
+
+# the 88 browser checks. They drive the REAL stack, so both servers above must
+# be up, and they need live fixtures -- see tests/browser/run.mjs for the list.
+# A job's artifacts expire after an hour; a stale fixture is the usual reason
+# these go red with no code change.
+cd frontend && npm run test:browser
+cd frontend && npm run test:browser -- routing   # one suite
 
 # the backend (Phase 4). The editable install is REQUIRED -- notation/ imports
 # from transcriber/, which only resolved because the repo root happened to be
@@ -353,15 +373,40 @@ training/               inputs to a training run. No model, no torch at import
   train.py              the fine-tuning loop. `--resume auto`, `--augment`
   kaggle/               notebooks: smoke_run (14.5), full_run (16b)
 
-frontend/               React + Vite SPA (Phase 6). NOT a Python package
+frontend/               React + Vite SPA (Phases 6-8). NOT a Python package
   src/api/types.ts      hand-written from api/models.py, checked against the wire
   src/api/client.ts     fetch wrapper + parseApiError() over THREE envelopes
+                        fetchArtifact* is the ONLY way to reach an artifact:
+                        they need an Authorization header, so <audio src>,
+                        <img src> and <a href> can never load one
   src/api/sse.ts        fetch-based SSE reader (EventSource cannot send a header)
+  src/router.ts         hand-rolled hash router. #/j/{id} says WHICH JOB, never
+                        which screen -- JobScreen picks Waiting vs Result
   src/auth/             token in localStorage; kind==="user" is the signed-in test
-  src/roll/PianoRoll.tsx  canvas; measured vs pedal-estimated note lengths
-  src/routes/           Auth Upload Waiting Result Sheet History
+  src/audio/            PlaybackEngine (audio clock + lookahead scheduler) and
+                        usePlayback. Plays summary.notes, NOT the MIDI -- §4
+  src/roll/PianoRoll.tsx    canvas; measured vs pedal-estimated note lengths
+  src/roll/FallingNotes.tsx the performance view; one draw, moved by transform
+  src/roll/hands.ts         SEQUENTIAL hand assignment (Viterbi). NOT a pitch
+                            threshold -- see §4. 93.1% vs engraved ground truth
+  src/roll/noteColour.ts    the colour schemes; none may erase the estimated mark
+  src/roll/viewOptions.ts   speed, transposition, scheme. Presentation only
+  src/routes/           Auth Upload(3 steps) Waiting Job Result Sheet History
+  src/ui/Reveal.tsx     word-by-word heading reveal
   src/styles/tokens.css the design system: palette, type scale, motion
+  tests/browser/        104 checks over the REAL stack. npm run test:browser
+                        fixtures.mjs rebuilds what they need (jobs expire)
 ```
+
+**The frontend has no unit tests, on purpose, and Phase 7 is the evidence.**
+Every defect in both frontend phases was found by driving a browser or by
+looking at a screenshot; none would have failed a type check, and most render a
+*plausible* screen. `tests/browser/` is six scripts that exit non-zero — not a
+framework. They drive the real API and need live fixtures (`var/p7tok.txt`,
+`var/p7job.json`, `var/clip25.wav`); see the header of `tests/browser/run.mjs`.
+**A job's artifacts expire after an hour**, so a fixture that worked this
+morning is a 404 this afternoon — that is the most common reason these go red
+with no code change.
 
 **`training/` is a build-time dependency of a checkpoint, not a runtime
 dependency of the app.** Nothing in `transcriber/`, `api/` or `notation/`
@@ -391,6 +436,126 @@ and `COMPARE_ENGINES` (see the §4 trap).
 ## 4. Traps — things that have already bitten
 
 Each of these cost real debugging time. They are non-obvious and will recur.
+
+**The MIDI artifact and the roll payload are in DIFFERENT TIME BASES, and both
+are correct.** When a job requests any notation format, `api/pipeline.py:264-273`
+exports the **quantised** notes so the MIDI matches the engraved page.
+`Summary.notes` is the raw measurement, and the roll draws that. Measured on one
+25s clip: the same 297 notes, onsets up to **0.908s apart**. So anything that
+plays, scrubs, or highlights against the roll must read `summary.notes` —
+playing the MIDI puts the playhead visibly out of step with the sound on exactly
+the jobs that asked for a score, and only those, which reads as "sometimes it
+feels laggy" rather than as a bug. `PlaybackEngine.checkDrift()` warns in dev if
+they ever diverge again; it should be silent.
+
+**A canvas animation CANNOT be verified by sampling pixels EVERY frame.**
+`getImageData` on a full piano roll costs more than one frame, so a per-frame
+sampler starves the very loop it is observing. Doing this produced a 221ms gap
+in the trace and a confident, wrong conclusion that the 7d entrance sweep never
+ran — while it was running fine. The fix is to have the animation **report what
+it drew** (`window.__ptifyReveal`, dev-only) and assert on that; sample pixels
+only for the finished state.
+
+**StrictMode can CONSUME a once-only animation guard.** The 7d sweep claimed its
+"already revealed" ref at the *top* of the effect. React's double-invoked mount
+used the claim on the throwaway first pass, so the real mount returned early:
+**the animation never ran in development and would have run in production**.
+Claim a once-only guard when the work COMPLETES, not when it starts. The same
+shape applies to anything ref-guarded against re-running.
+
+**Effect declaration order decides who wins the canvas.** `PianoRoll` has a
+full-repaint effect and a sweep effect. Effects run in declaration order, so on
+mount the repaint fired *after* the sweep and painted `draw(1)` straight over
+its first frames. A `sweeping` ref makes the repaint yield. Any second writer to
+the same canvas needs the same arbitration.
+
+**Sizing a canvas CLEARS it, so the repaint must be in the same effect.** The
+falling view's keyboard vanished on a theme toggle because the resize effect set
+`canvas.width` (which blanks it) and left the repaint to the render loop — and
+while paused there is no next frame. Found by looking at a screenshot; every
+numeric assertion passed.
+
+**A word gap made of `margin-left` indents every WRAPPED line.** `.rv-word +
+.rv-word { margin-left }` looks right on one line and ragged on two, because the
+margin survives the line break — measured at 112px against 96px on the display
+headline. Use a real space character with `white-space: pre-wrap`. Note also
+that `innerText` reports **no whitespace** between `inline-block` spans even
+when the visual gap is real, so assert the rendered geometry, not the string.
+
+**A PITCH THRESHOLD CANNOT ASSIGN HANDS, and it fails in a way that looks
+fine.** `frontend/src/roll/hands.ts` first split at a single pitch, chosen by
+Otsu on the piece's distribution -- a port of the rule `notation/score.py:65`
+uses to pick a treble/bass STAFF boundary. It typechecked, it drew, and it was
+wrong: measured on a 297-note Scarlatti at its chosen cut of 63, **67 notes
+(22.6%) were single-note hand flips**, and a smooth descending line
+65 -> 64 -> 60 -> 64 had only the 60 flipped to the left hand, because 60 < 63.
+
+A staff and a hand are different objects. A staff is a region of the PAGE, so
+one cut is a reasonable answer there. A hand is a physical thing that occupies
+one place at a time, moves continuously, and spans about an octave -- so "which
+hand" cannot be answered per note. It depends on where that hand already was.
+It is now Viterbi/beam search over the note sequence with costs for movement,
+reach, crossing and register.
+
+**The measurement is what settled it, and the FIRST metric was also wrong.**
+Counting "single-note flips" punishes correct output: in two-voice writing the
+hands alternate constantly by design, and the sequential model scores 34.7%
+flips against the threshold's 22.6% while being obviously better. Scored instead
+against **engraved ground truth** -- eight published piano scores whose staves
+record the composer's own hand assignment -- over 6,273 notes:
+
+| | threshold | sequential |
+|---|---|---|
+| **weighted mean** | 88.1% | **93.1%** |
+| worst piece (Bach BWV 846) | 71.2% | **75.5%** |
+| best (Joplin) | 89.4% | **98.0%** |
+
+Better on all eight. `frontend/tests/browser/hand-benchmark.mjs` runs it and
+**exits non-zero if the model ever loses to a fixed cut**. Rebuild the ground
+truth with the music21 snippet in section 9 if `var/handtruth.json` is missing.
+
+**The cost constants were swept, not guessed** -- accuracy is a broad plateau of
+~93% across move 0.22-0.5 and register bias 0.18-0.32, with only 1.85 points
+between the best and worst of 40 configurations. A central value is used rather
+than the argmax, because a 0.2-point peak inside that plateau is noise.
+
+**Transposition and speed are PRESENTATION, and must never reach a file.** They
+change what is drawn and sounded; the MIDI download stays the measurement. The
+UI says so explicitly when a transposition is active. Shipping a shifted export
+under the same job id would make the artifact disagree with the model that
+produced it.
+
+**A `replace` across similar JSX blocks can silently miss one.** Adding
+`view={viewOpts}` to the roll and the falling view landed on FallingNotes and
+ViewControls but **not** PianoRoll, whose props are indented differently — so
+the colour schemes typechecked, the toggle updated state, the active pill
+changed, and the canvas never repainted. Nothing errored. It was caught only by
+sampling the canvas colour histogram before and after the toggle and finding
+them byte-identical. **When a prop must reach several call sites, assert on the
+OUTPUT of each, not on the state that feeds them.**
+
+**A 200 IS NOT A PROMISE OF JSON, and the error names the wrong layer.** The
+symptom is `Unexpected token '<', "<!doctype "... is not valid JSON` — which
+reads like a parser bug and is actually a routing one. The Vite dev server
+proxies `/v1` to the API, but anything the proxy does not forward falls through
+to the **SPA fallback**, which serves `index.html` with status **200**. So
+`res.ok` is true and `res.json()` chokes on `<!doctype html>`.
+
+Reproduce: `curl -i http://localhost:5173/v1/nope` → `200 text/html`.
+
+Two distinct causes produce it, and both look identical from the browser:
+1. **A path the API does not define** — a typo, or a route removed server-side
+   while the client still calls it.
+2. **The dev server's proxy stopped forwarding**, which happened after a
+   `npm run build` rewrote `tsconfig.json` and Vite reloaded its config: the
+   backend answered `/v1/engines` on :8000 perfectly while :5173 returned HTML
+   for the same path. **Restarting the dev server fixes it, and nothing in the
+   app is wrong.** Check `curl` against BOTH ports before touching code.
+
+`request()` now checks `content-type` and raises `not_json` naming the path and
+pointing at port 8000. `parseApiError` does the same on the error path, because
+an unreachable proxy answers `500 text/plain` and the old code reported a bare
+status the user could not act on.
 
 **A 200 from `/v1/auth/me` is NOT proof that anyone is signed in.** When the
 server has no `PTIFY_API_KEY`, an unauthenticated request is a perfectly valid
@@ -1286,32 +1451,124 @@ both.
 
 ## 9. What the next phase should know
 
-### Phase 7-8: what Phase 6 deliberately left
+### Phase 9: get inference off this CPU. THE HOSTING IS THE BLOCKER, NOT THE CODE.
 
-The shell works end to end against the real API. What is *not* built:
+**The code already asks for a GPU.** `transcriber/bytedance.py:149` is
+`self._device = "cuda" if torch.cuda.is_available() else "cpu"`. It resolves to
+CPU because there is nothing to resolve to — measured on this machine:
 
-- **Playback.** `PianoRoll` already takes a `position` prop and moves the
-  playhead by transform, and `onSeek` fires on a click, but **nothing drives
-  them** — there is no audio clock. The MIDI is downloadable; scheduling it
-  through WebAudio is the Phase 7 job. Do not redraw the canvas to animate:
-  the playhead is a separate div for exactly this reason.
-- **Deep links.** Screen state is `useState` in `App.tsx`, so a transcription
-  has no shareable URL and a refresh returns to Upload. A router is the fix,
-  and it is a Phase 7 decision rather than an oversight — Phase 6 had no
-  requirement that a job be linkable.
-- **The sheet view is a page viewer**, not an interactive score: it fetches the
-  server's SVG per page. Linking a notehead back to a note in the roll needs
-  Verovio's element ids, which the current render path does not surface.
-- **No JS tests.** Deliberate: no CI, no linter, no JS precedent in the repo,
-  and `testpaths = ["tests"]` will not collect them. If Phase 7 adds Vitest,
-  add it as its own decision with its own reasoning, and note that the three
-  Phase 6 bugs were all browser-only — a unit test would have caught **none**
-  of them. What actually pays here is driving a browser.
-- **`JobOut` exposes neither the title nor the original filename** (both live
-  on `JobSpec`, server-side only), so History rows are keyed by a job-id prefix
-  and Result falls back to the detected key. If a filename in the UI matters,
-  that is a small `api/models.py` change — and the right one, rather than
-  smuggling it through a client-side cache.
+| | |
+|---|---|
+| GPU | AMD Radeon integrated, **1GB shared VRAM** |
+| torch build | `2.2.2+cpu` — compiled with **no CUDA at all** (`torch.version.cuda is None`) |
+| `torch.cuda.is_available()` | `False` |
+
+Installing a CUDA build changes nothing: there is no NVIDIA device to find. §7
+already records why (CUDA impossible on AMD; ROCm needs Linux *and* excludes
+integrated GPUs). **This is hardware, so the fix is a host, not a flag.**
+
+What it costs today: a 25-second clip takes **~2 minutes** end to end, and
+ByteDance runs at ~1.87x real time on the real corpus. That is the whole reason
+this phase exists.
+
+**The seam is already cut and already tested.** `api/queue.py` is an ABC plus a
+factory shaped exactly like `get_engine()`, and `api/arq_queue.py` ships
+written, tested and unused for precisely this moment. A worker on a GPU host
+pulls jobs through Redis; **the pipeline and the routes do not change.** Phase
+5c already proved a separate worker process can complete a job the API then
+serves.
+
+**Free options, with the constraint that actually decides it.** A transcription
+is a *background job triggered by an HTTP request*, not an interactive notebook
+cell — so the question is not "who gives a free GPU" but "who will run one for
+an unattended queue worker":
+
+| | free tier | fits a queue worker? |
+|---|---|---|
+| **HF Spaces + ZeroGPU** | H200, ~3.5 min/day free (25 min on $9 PRO) | **Best fit.** Serverless, allocates a GPU per call and releases it. Bursty inference is exactly its model. Daily quota is the binding limit. |
+| **Kaggle** | T4 16GB, 30 h/week, 9h sessions, background execution | Good for *batch* re-scoring and training. Not reachable as an HTTP worker. |
+| **Colab free** | T4 ~15GB, ~30 h/week | **No.** Disconnects after ~90 min idle; background execution is Pro-only. |
+| **Modal** | monthly free credits, Python-native serverless | Real candidate; credits run out rather than resetting daily. |
+
+**Recommended: Hugging Face Spaces + ZeroGPU**, with the inproc queue kept as
+the local default. It is the only free tier whose *shape* matches a job queue.
+Verify the daily quota against a real 25s clip before committing — 3.5 min/day
+is roughly a handful of transcriptions, which may be fine for a demo and is not
+fine for anything else. **Do not delete the CPU path**: it is the only thing
+that runs on this machine.
+
+### Rebuilding the hand-assignment ground truth
+
+`var/handtruth.json` is not committed (it is derived). To regenerate:
+
+```python
+# .venv/Scripts/python.exe
+import music21 as m21, json
+picks = ['bach/bwv846', 'chopin/mazurka06-2', 'joplin/maple_leaf_rag',
+         'mozart/k545/movement1_exposition',
+         'schumann_clara/polonaise_op1n1', 'schumann_clara/polonaise_op1n2',
+         'schumann_clara/polonaise_op1n3', 'schumann_clara/polonaise_op1n4']
+out = []
+for c in picks:
+    s = m21.corpus.parse(c)
+    if len(s.parts) != 2:      # a grand staff, or it says nothing about hands
+        continue
+    notes = []
+    for pi, p in enumerate(s.parts):
+        for n in p.recurse().notes:
+            # getOffsetInHierarchy, NOT .offset -- see the music21 trap above
+            off = float(n.getOffsetInHierarchy(s)); ql = float(n.quarterLength) or 0.25
+            for pit in (n.pitches if n.isChord else [n.pitch]):
+                notes.append({'onset': round(off*0.5, 4),
+                              'offset': round((off+ql)*0.5, 4),
+                              'pitch': pit.midi, 'velocity': 70,
+                              'hand': 'right' if pi == 0 else 'left'})
+    notes.sort(key=lambda x: (x['onset'], x['pitch']))
+    out.append({'name': c, 'notes': notes})
+json.dump(out, open('var/handtruth.json', 'w'))
+```
+
+6,273 notes across eight scores. The upper staff is the right hand: that is what
+a grand staff means, and it is the only ground truth for hand assignment that
+does not require a performance video.
+
+### After Phase 9: back to the model track
+
+Two open numbers, both with the cause already isolated. Neither needs new
+ideas — they need the compute Phase 9 unlocks.
+
+1. **The frame-head regression.** Phase 19 showed ~⅔ of the offset problem was
+   decode calibration (fixed: `frame_threshold` 0.1 → 0.01) and the remaining
+   third is a **real frame-head regression** from the augmented run. That is the
+   next training run's target. Read §4's warning first: *check the decode path
+   before the loss* — ~10h of GPU quota was nearly spent on the wrong hypothesis
+   once already.
+2. **Trill F1 on real repertoire is 0.337**, and the cause is known: trills sit
+   inside polyphony, other voices interleave, and `detect_trills` walks a single
+   sorted note list. **That is a voice-separation problem, not a learning
+   problem** — symbolic, no GPU, and `tools/benchmark_notation` can score a fix
+   directly.
+
+**Context for how much headroom is left:** Phase 16b ran **6,555 steps**. One
+epoch is 70,517 steps at effective batch 8, so the published +5.3 onset F1 came
+from **under 10% of a single epoch**. The result is real; it is nowhere near
+converged.
+
+### Phase 7-8 left these, deliberately
+
+- **The sheet view is still a page viewer**, not an interactive score. Linking a
+  notehead back to a note needs Verovio element ids the render path does not
+  surface — a backend change, and its own phase.
+- **`JobOut` still exposes neither the title nor the original filename.**
+  `frontend/src/titles.ts` keeps the title in `sessionStorage` so it survives a
+  refresh in the submitting tab, and falls back to the detected key anywhere
+  else. The durable fix is an `api/models.py` change, and the file says so.
+- **No note-level highlighting during playback.** It needs a per-frame repaint
+  of the active region, which is what the canvas architecture exists to avoid.
+- **`smplr` samples come from a third-party CDN** — the app's first external
+  request. A blocked host falls back to a synthesised voice (verified by
+  blocking it), but self-hosting the samples is the real fix if that ever
+  matters.
 
 ### The notation scoreboard exists now — use it before changing a detector
 

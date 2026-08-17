@@ -1,51 +1,81 @@
 /*
  * PTify design tokens.
  *
- * WHAT CARRIED OVER FROM THE MOCKUP, AND WHY
+ * THE REFERENCE IS songscription.ai -- the closest thing this project has to a
+ * direct competitor, and a real shipped product rather than a template. The
+ * previous revision of this file chased an editorial "warm paper" look with a
+ * serif display face and 2px corners. It was distinctive, but it read as a
+ * magazine rather than as software, and none of it matched the category.
  *
- * The mockup's vocabulary was already right: a warm paper palette, Newsreader
- * for display, IBM Plex Mono for every number, 2px radii, a grain overlay. That
- * vocabulary deliberately avoids the documented tells of generated UI -- Inter
- * everywhere, purple-blue gradients, uniform 16px radii, identical card padding.
- * So the palette and the type PAIRING are kept unchanged.
+ * WHAT THE REFERENCE ACTUALLY DOES, AND WHAT IS COPIED
  *
- * WHAT CHANGED: THE RHYTHM
+ *  - ONE typeface for the whole UI (DM Sans), not a serif/sans pairing. The
+ *    hierarchy comes from weight and tight leading, not from a second family.
+ *  - A two-hue palette: teal (173deg) for every action, warm bone/beige
+ *    (24-27deg) for every surface. Warm neutrals evoke sheet-music paper
+ *    without being literal about it, which is exactly this product's problem.
+ *  - Rounded, consistently: 6px small controls, 8px inputs and CTAs, 12-16px
+ *    cards, full pills for anything carrying a label. Nothing is sharp.
+ *  - Soft, low-contrast shadows rather than borders for elevation.
+ *  - Generous vertical rhythm (96px section padding) against dense cards.
  *
- * The mockup was mechanically even -- a flat type scale (30/22/17/14/13 repeated
- * on every screen), symmetric 1fr/1fr grids, and the same 22px padding on every
- * panel. Evenness is what read as machine-made, not the colours. So the scale
- * below is deliberately NON-uniform: it jumps hard at the top (--fs-display is
- * 5x --fs-body) and stays tight at the bottom, which is how editorial type
- * behaves and how the sphericalwaves reference gets its character.
+ * WHAT IS DELIBERATELY NOT COPIED -- THIS IS NOT A CLONE
  *
- * The one constraint: Auth/Upload/History can take full editorial drama, but
- * the Result screen is a dense TOOL -- piano roll, transport, trust panel. There
- * the typography carries the character and the layout stays a working
- * instrument. --fs-display is not for the roll.
+ * The reference is a direct competitor. Matching it exactly would be both a
+ * worse product decision and an obvious one, so the STRUCTURE is borrowed and
+ * the identity is not:
+ *
+ *  - The hue is INK, not teal. #1F5F6B sits at 191deg against their 173deg --
+ *    close enough to belong to the same category, far enough to read as a
+ *    different company. It is also a deeper, less saturated colour: theirs is a
+ *    bright product teal, this is closer to fountain-pen ink on manuscript
+ *    paper, which is what this product is actually about.
+ *  - Their pure-black text on bone. PTify keeps a near-black (#141414) because
+ *    the piano roll sits on these surfaces and pure black notes against pure
+ *    black text is a muddle.
+ *  - No yellow CTA. Theirs is the loudest thing on their page; here the accent
+ *    does that work and the one warm highlight is reserved for the ESTIMATED
+ *    state in the roll, where it means something specific.
+ *  - The mono face stays. The reference has no monospace in its UI; PTify uses
+ *    it for every measured number, because the whole product is an argument
+ *    about which numbers were measured. That is a real difference in what the
+ *    two things are, so it should be a visible one.
+ *
+ * The dark theme is NOT the reference's marketing dark mode -- it is the shape
+ * of their APP theme (near-black surfaces, one bright accent), which is what a
+ * transcription workspace actually wants, carried out in this product's own
+ * hue rather than theirs.
  */
 
 :root {
-  /* --- type ------------------------------------------------------------- */
-  --font-display: "Newsreader", Georgia, "Times New Roman", serif;
-  --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* --- type --------------------------------------------------------------
+     One family. The reference proves a single well-set sans carries a whole
+     product; a display serif was the loudest "designed by committee" tell in
+     the previous revision. Mono survives ONLY for numerals and labels. */
+  --font-body: "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-display: "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  /* A deliberately uneven scale. The gap between --fs-display and --fs-h1 is
-     the whole point: editorial pages establish hierarchy with a cliff, not a
-     gradient. */
-  --fs-display: clamp(3.5rem, 9vw, 7.5rem); /* 56 -> 120px */
-  --fs-h1: clamp(2rem, 4vw, 3rem); /* 32 -> 48px */
+  /* Big and tight at the top, ordinary at the bottom. The reference's h1 is
+     60px on 60px -- a 1.0 ratio -- which is what makes the headline read as a
+     statement rather than as a paragraph that got bigger. */
+  --fs-display: clamp(2.25rem, 5.2vw, 3.75rem); /* 36 -> 60px */
+  --fs-h1: clamp(1.75rem, 3.4vw, 2.25rem); /* 28 -> 36px */
   --fs-h2: 1.5rem; /* 24px */
-  --fs-h3: 1.0625rem; /* 17px */
-  --fs-body: 0.9375rem; /* 15px */
-  --fs-small: 0.8125rem; /* 13px */
-  --fs-micro: 0.6875rem; /* 11px -- mono labels, letterspaced */
+  --fs-h3: 1.25rem; /* 20px */
+  --fs-body: 1rem; /* 16px */
+  --fs-small: 0.875rem; /* 14px */
+  --fs-micro: 0.6875rem; /* 11px -- mono chips, letterspaced, uppercase */
 
-  --lh-tight: 0.92;
+  --lh-tight: 1;
   --lh-snug: 1.15;
-  --lh-body: 1.6;
+  --lh-body: 1.5;
 
-  /* --- spacing: a 4px base, but used unevenly on purpose ---------------- */
+  /* Large headings get negative tracking; small text does not. */
+  --tracking-display: -0.03em;
+  --tracking-h2: -0.025em;
+
+  /* --- spacing: a 4px base ---------------------------------------------- */
   --sp-1: 0.25rem;
   --sp-2: 0.5rem;
   --sp-3: 0.75rem;
@@ -53,117 +83,189 @@
   --sp-5: 1.5rem;
   --sp-6: 2rem;
   --sp-7: 3rem;
-  --sp-8: 4.5rem;
-  --sp-9: 7rem;
-  --sp-10: 10rem;
+  --sp-8: 4rem;
+  --sp-9: 6rem;
+  --sp-10: 8rem;
 
-  /* Sharp by design. A 2px radius reads as printed matter; 16px everywhere is
-     the single most recognisable tell of a generated layout. */
-  --radius: 2px;
-  --radius-pill: 999px;
+  /* --- radii: the single biggest visual change ---------------------------
+     Small controls 6, inputs and buttons 8, cards 12-16, pills for labels. */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 9999px;
 
   --rule-width: 1px;
+
+  /* --- motion ------------------------------------------------------------
+     Unchanged from the previous revision and still correct: an uneven ladder,
+     because four evenly-spaced durations are the motion equivalent of a flat
+     type scale. --ease-out-expo is for entrances only; on a hover, which has
+     to confirm inside ~150ms, it just feels sluggish. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-in-cubic: cubic-bezier(0.55, 0.055, 0.675, 0.19);
+  --dur-tap: 90ms;
   --dur-fast: 120ms;
   --dur: 220ms;
   --dur-slow: 420ms;
+  --dur-entrance: 640ms;
+  --stagger: 42ms;
 
-  --measure: 68ch;
+  --measure: 62ch;
   --page-max: 1180px;
 }
 
-/* --- light: paper ------------------------------------------------------- */
+/* --- light: bone + ink ---------------------------------------------------- */
 :root,
 [data-theme="light"] {
-  --bg: #efe9dc;
-  --panel: #f7f2e7;
-  --elev: #e7e0d0;
-  --rule: #d6cdba;
-  --rule-strong: #c2b8a1;
-  --ink: #26221b;
-  --muted: #6f685a;
-  --faint: #a29a89;
-  --accent: #a8322a;
-  --accent-ink: #fbf8f1;
-  --sepia: #8f7538;
-  --good: #4b7a52;
-  --paper: #fbf8f1;
-  --sheet-desk: #d9d1c0;
+  --bg: #faf7f5; /* warm bone, not white */
+  --panel: #ffffff; /* cards are true white against it */
+  --elev: #f9f4f1; /* warm beige, for hovers and inset areas */
+  --rule: #ededed;
+  --rule-strong: #dfcec3; /* the warm beige card border */
+  --ink: #141414;
+  --muted: #5c5c5c;
+  --faint: #8a8a8a;
 
-  --note: #26221b;
-  --note-est: #8f7538;
-  --pedal-band: rgba(143, 117, 56, 0.15);
-  --roll-row-a: #f1ecdf;
-  --roll-row-b: #e9e2d1;
-  --roll-black: #e0d8c5;
-  --roll-beat: #e2dac8;
-  --roll-bar: #cabfa7;
+  --accent: #1f5f6b; /* deep ink-teal. every primary action. */
+  --accent-ink: #ffffff;
+  --accent-dark: #12414a;
+  --accent-mid: #2d7b88;
+  --accent-soft: #a8ccd2;
+  --accent-tint: #f2f7f8;
 
-  --grain-opacity: 0.05;
-  --grain-blend: multiply;
-  --shadow-page: 0 2px 24px rgba(38, 34, 27, 0.18);
+  /* Warm ochre, and it appears in exactly one place: a note whose length was
+     ESTIMATED under pedal. It is the product's one honest caveat, so it gets
+     the product's one warm colour. */
+  --highlight: #b8873f;
+  --sepia: #8a6d3b;
+  --good: #38946a;
+  --warn: #b45309;
+
+  --paper: #ffffff;
+  --sheet-desk: #efe9e4;
+
+  /* The second hand's hue. Warm slate against the ink teal: far enough apart
+     to separate at a glance, close enough that a two-colour roll still reads as
+     one palette rather than as a chart. */
+  --hand-left: #8a6a86;
+  --note: #1f5f6b; /* the roll is ink, not black */
+  --note-est: #b8873f; /* estimated lengths are ochre -- see --highlight */
+  --pedal-band: rgba(31, 95, 107, 0.08);
+  --roll-row-a: #ffffff;
+  --roll-row-b: #faf7f5;
+  --roll-black: #f1ece8;
+  --roll-beat: #f0ebe7;
+  --roll-bar: #e2d9d2;
+
+  --grain-opacity: 0;
+  --grain-blend: normal;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  /* The reference's signature "floating screenshot" halo. */
+  --shadow-even: 0 2px 16px 4px rgba(0, 0, 0, 0.07);
+  --shadow-page: var(--shadow-even);
 }
 
-/* --- dark: night -------------------------------------------------------- */
+/* --- dark: the workspace -------------------------------------------------
+   Modelled on the reference's APP theme rather than its marketing dark mode:
+   near-black surfaces and a brighter mint, which is what their piano roll
+   screenshot actually shows and what a dense tool wants at night. */
 [data-theme="dark"] {
-  --bg: #1b1813;
-  --panel: #221e17;
-  --elev: #2c2820;
-  --rule: #39332a;
-  --rule-strong: #4a4335;
-  --ink: #ece4d3;
-  --muted: #9a9182;
-  --faint: #6b6455;
-  --accent: #d5604e;
-  --accent-ink: #1b1813;
+  --bg: #111113;
+  --panel: #17181a;
+  --elev: #1d1f22;
+  --rule: #26282c;
+  --rule-strong: #34373d;
+  --ink: #f7f8f8;
+  --muted: #a8adb4;
+  --faint: #6b6f76;
+
+  --accent: #5fc9dc;
+  --accent-ink: #06222a;
+  --accent-dark: #2f8fa3;
+  --accent-mid: #3fa6bb;
+  --accent-soft: #1f5f6b;
+  --accent-tint: #14262b;
+
+  --highlight: #d9a44f;
   --sepia: #c2a15f;
-  --good: #7fae82;
-  --paper: #f3ede0;
-  --sheet-desk: #131009;
+  --good: #4ec48c;
+  --warn: #e0a458;
 
-  --note: #ece4d3;
-  --note-est: #c2a15f;
-  --pedal-band: rgba(194, 161, 95, 0.13);
-  --roll-row-a: #211d16;
-  --roll-row-b: #1c1912;
-  --roll-black: #161309;
-  --roll-beat: #2a251c;
-  --roll-bar: #3a3327;
+  --paper: #f5f2ee;
+  --sheet-desk: #0b0c0d;
 
-  --grain-opacity: 0.045;
-  --grain-blend: screen;
-  --shadow-page: 0 2px 24px rgba(0, 0, 0, 0.5);
+  --hand-left: #c193c6;
+  --note: #5fc9dc;
+  --note-est: #d9a44f;
+  --pedal-band: rgba(95, 201, 220, 0.09);
+  --roll-row-a: #17181a;
+  --roll-row-b: #141517;
+  --roll-black: #0f1011;
+  --roll-beat: #1e2023;
+  --roll-bar: #2d3035;
+
+  --grain-opacity: 0;
+  --grain-blend: normal;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 1px 2px -1px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.55), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+  --shadow-even: 0 2px 16px 4px rgba(0, 0, 0, 0.35);
+  --shadow-page: var(--shadow-even);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #1b1813;
-    --panel: #221e17;
-    --elev: #2c2820;
-    --rule: #39332a;
-    --rule-strong: #4a4335;
-    --ink: #ece4d3;
-    --muted: #9a9182;
-    --faint: #6b6455;
-    --accent: #d5604e;
-    --accent-ink: #1b1813;
+    --bg: #111113;
+    --panel: #17181a;
+    --elev: #1d1f22;
+    --rule: #26282c;
+    --rule-strong: #34373d;
+    --ink: #f7f8f8;
+    --muted: #a8adb4;
+    --faint: #6b6f76;
+
+    --accent: #5fc9dc;
+    --accent-ink: #06222a;
+    --accent-dark: #2f8fa3;
+    --accent-mid: #3fa6bb;
+    --accent-soft: #1f5f6b;
+    --accent-tint: #14262b;
+
+    --highlight: #d9a44f;
     --sepia: #c2a15f;
-    --good: #7fae82;
-    --paper: #f3ede0;
-    --sheet-desk: #131009;
+    --good: #4ec48c;
+    --warn: #e0a458;
 
-    --note: #ece4d3;
-    --note-est: #c2a15f;
-    --pedal-band: rgba(194, 161, 95, 0.13);
-    --roll-row-a: #211d16;
-    --roll-row-b: #1c1912;
-    --roll-black: #161309;
-    --roll-beat: #2a251c;
-    --roll-bar: #3a3327;
+    --paper: #f5f2ee;
+    --sheet-desk: #0b0c0d;
 
-    --grain-opacity: 0.045;
-    --grain-blend: screen;
-    --shadow-page: 0 2px 24px rgba(0, 0, 0, 0.5);
+    --hand-left: #c193c6;
+    --note: #5fc9dc;
+    --note-est: #d9a44f;
+    --pedal-band: rgba(95, 201, 220, 0.09);
+    --roll-row-a: #17181a;
+    --roll-row-b: #141517;
+    --roll-black: #0f1011;
+    --roll-beat: #1e2023;
+    --roll-bar: #2d3035;
+
+    --grain-opacity: 0;
+    --grain-blend: normal;
+
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+    --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 1px 2px -1px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.55), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+    --shadow-even: 0 2px 16px 4px rgba(0, 0, 0, 0.35);
+    --shadow-page: var(--shadow-even);
   }
 }
 
@@ -173,6 +275,11 @@
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+    /* Zeroing the DURATION alone is not enough for anything staggered: the
+       delays survive, so a word-by-word reveal degrades into words POPPING in
+       sequence -- more distracting than the animation it was meant to spare. */
+    transition-delay: 0ms !important;
   }
 }

@@ -20,17 +20,13 @@ import { ApiError, cancelJob, getJob } from "../api/client";
 import { streamJob } from "../api/sse";
 import type { JobOut } from "../api/types";
 import { isTerminal } from "../api/types";
+import { fmtClock } from "../ui/format";
 
 /** Stages where the engine genuinely reports no sub-progress. */
 const SILENT_STAGES = ["transcribing", "loading model"];
 
 function isSilent(stage: string): boolean {
   return SILENT_STAGES.some((s) => stage.startsWith(s));
-}
-
-function fmtClock(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 interface Props {
