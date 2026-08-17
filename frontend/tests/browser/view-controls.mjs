@@ -3,7 +3,6 @@ import fs from "node:fs";
 
 const TOKEN = fs.readFileSync("C:/Users/SeanN/LivePianoSynthesizer/var/p7tok.txt", "utf8").trim();
 const JOB = JSON.parse(fs.readFileSync("C:/Users/SeanN/LivePianoSynthesizer/var/p7job.json", "utf8")).job_id;
-const SUMMARY = "C:/Users/SeanN/LivePianoSynthesizer/var/p7sum.json";
 const BASE = "http://localhost:5173";
 
 const results = [];
@@ -71,37 +70,38 @@ ok(
   `octaves ${octaves.length} vs uniform ${uniform.length}`,
 );
 
-// --- the split matches the ENGRAVER's, not a guess ---------------------------
-// notation/score.py:65 chooses the treble/bass boundary by Otsu on the pitch
-// distribution. If the roll used a different rule it would colour a note as
-// left-hand that the printed score puts on the treble staff.
-const expectedSplit = await page.evaluate(async (path) => {
-  const res = await fetch("/v1/jobs/" + path.job + "/result/json", {
-    headers: { Authorization: "Bearer " + localStorage.getItem("ptify.token") },
-  });
-  const s = await res.json();
-  const pitches = s.notes.map((n) => n.pitch);
-  const variance = (xs) => {
-    const m = xs.reduce((a, b) => a + b, 0) / xs.length;
-    return xs.reduce((a, x) => a + (x - m) ** 2, 0) / xs.length;
-  };
-  let best = 60, bestScore = null;
-  for (let cut = 48; cut <= 72; cut++) {
-    const low = pitches.filter((p) => p < cut);
-    const high = pitches.filter((p) => p >= cut);
-    if (!low.length || !high.length) continue;
-    const score = (low.length * variance(low) + high.length * variance(high)) / pitches.length;
-    if (bestScore === null || score < bestScore) { best = cut; bestScore = score; }
+// --- hand assignment is a SEQUENTIAL model, not a pitch cut -----------------
+// The details are scored offline against engraved ground truth by
+// tests/browser/hand-benchmark.mjs (93.1% vs 88.1% for a fixed cut). What is
+// checked HERE is the property a threshold cannot have: that two notes on the
+// same side of every plausible cut can still be assigned to different hands,
+// and that the colouring is not a function of pitch alone.
+await scheme("Hands");
+const byPitch = await page.evaluate(() => {
+  const c = document.querySelector(".roll-canvas");
+  const g = c.getContext("2d", { willReadFrequently: true });
+  const d = g.getImageData(0, 0, c.width, c.height).data;
+  // Collect the distinct note colours found in each horizontal band. If hands
+  // were a pitch threshold, every band would carry exactly one colour.
+  const bands = new Map();
+  for (let y = 0; y < c.height; y += 2) {
+    for (let x = 0; x < c.width; x += 2) {
+      const i = (y * c.width + x) * 4;
+      const spread = Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]);
+      if (spread < 30) continue;
+      const band = y >> 4;
+      const key = `${d[i] >> 5},${d[i + 1] >> 5},${d[i + 2] >> 5}`;
+      const set = bands.get(band) ?? new Set();
+      set.add(key);
+      bands.set(band, set);
+    }
   }
-  return best;
-}, { job: JOB });
-// The Python value, recorded into the fixture by notation.score._split_point.
-// This is the point of the check: the port must not drift from the engraver.
-const pythonSplit = JSON.parse(fs.readFileSync(SUMMARY, "utf8")).__split;
+  return [...bands.values()].filter((s) => s.size > 1).length;
+});
 ok(
-  "the hand split matches the engraver's algorithm",
-  expectedSplit === pythonSplit,
-  `js ${expectedSplit} vs python ${pythonSplit}`,
+  "hands are not a function of pitch alone",
+  byPitch > 0,
+  `${byPitch} pitch bands carry both hands — a threshold would give 0`,
 );
 
 // --- transposition ------------------------------------------------------------

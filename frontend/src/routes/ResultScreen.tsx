@@ -281,6 +281,18 @@ export function ResultScreen({
             ) : (
               <span className="legend-item">notes fall onto the keyboard as they sound</span>
             )}
+            {viewOpts.scheme === "hands" && (
+              <>
+                <span className="legend-item">
+                  <span className="swatch swatch-rh" aria-hidden="true" />
+                  right hand
+                </span>
+                <span className="legend-item">
+                  <span className="swatch swatch-lh" aria-hidden="true" />
+                  left hand
+                </span>
+              </>
+            )}
             <span className="roll-toolbar-spacer" />
             <span className="mono legend-note">darker = louder</span>
           </div>

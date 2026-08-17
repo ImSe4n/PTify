@@ -13,7 +13,7 @@ State of the codebase, the traps in it, and what the next phase needs.
 |---|---|
 | **Last completed** | **Phase 7-8 — the frontend plays, links, and looks like a product.** |
 | **Branch** | `phase-7-playback-and-motion`, off `phase-6-frontend` |
-| **Tests** | 994 Python, ~2⅓ min, no model or network. **Plus 104 browser checks** — `npm run test:fixtures` then `npm run test:browser`. |
+| **Tests** | 994 Python, ~2⅓ min. **104 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
 | **Next** | **Phase 9: a free GPU host for inference** (§9). Then back to the model track. |
 
 **Phase 7-8 in one paragraph.** The frontend got a hash router (a transcription
@@ -387,7 +387,8 @@ frontend/               React + Vite SPA (Phases 6-8). NOT a Python package
                         usePlayback. Plays summary.notes, NOT the MIDI -- §4
   src/roll/PianoRoll.tsx    canvas; measured vs pedal-estimated note lengths
   src/roll/FallingNotes.tsx the performance view; one draw, moved by transform
-  src/roll/hands.ts         a PORT of notation/score.py:_split_point -- see §4
+  src/roll/hands.ts         SEQUENTIAL hand assignment (Viterbi). NOT a pitch
+                            threshold -- see §4. 93.1% vs engraved ground truth
   src/roll/noteColour.ts    the colour schemes; none may erase the estimated mark
   src/roll/viewOptions.ts   speed, transposition, scheme. Presentation only
   src/routes/           Auth Upload(3 steps) Waiting Job Result Sheet History
@@ -481,17 +482,42 @@ headline. Use a real space character with `white-space: pre-wrap`. Note also
 that `innerText` reports **no whitespace** between `inline-block` spans even
 when the visual gap is real, so assert the rendered geometry, not the string.
 
-**`frontend/src/roll/hands.ts` is a PORT of `notation/score.py:_split_point`,
-and the two must not drift.** The engraver does not split hands at middle C —
-it picks the treble/bass boundary from the piece's own pitch distribution by
-Otsu's method, because the left hand crosses above middle C constantly. The roll
-colours by hand using the same rule, so a note drawn as left-hand is on the bass
-staff of the printed score. If they diverge, **the two views of one
-transcription disagree in public** and nothing raises. `var/p7sum.json` carries
-`__split` computed by the real Python function, and the `view-controls` suite
-asserts the port agrees (measured: 63 = 63). **The durable fix is exposing
-`split_point` on the summary** — a small `api/pipeline.py` change — after which
-this port and its test should be deleted rather than maintained.
+**A PITCH THRESHOLD CANNOT ASSIGN HANDS, and it fails in a way that looks
+fine.** `frontend/src/roll/hands.ts` first split at a single pitch, chosen by
+Otsu on the piece's distribution -- a port of the rule `notation/score.py:65`
+uses to pick a treble/bass STAFF boundary. It typechecked, it drew, and it was
+wrong: measured on a 297-note Scarlatti at its chosen cut of 63, **67 notes
+(22.6%) were single-note hand flips**, and a smooth descending line
+65 -> 64 -> 60 -> 64 had only the 60 flipped to the left hand, because 60 < 63.
+
+A staff and a hand are different objects. A staff is a region of the PAGE, so
+one cut is a reasonable answer there. A hand is a physical thing that occupies
+one place at a time, moves continuously, and spans about an octave -- so "which
+hand" cannot be answered per note. It depends on where that hand already was.
+It is now Viterbi/beam search over the note sequence with costs for movement,
+reach, crossing and register.
+
+**The measurement is what settled it, and the FIRST metric was also wrong.**
+Counting "single-note flips" punishes correct output: in two-voice writing the
+hands alternate constantly by design, and the sequential model scores 34.7%
+flips against the threshold's 22.6% while being obviously better. Scored instead
+against **engraved ground truth** -- eight published piano scores whose staves
+record the composer's own hand assignment -- over 6,273 notes:
+
+| | threshold | sequential |
+|---|---|---|
+| **weighted mean** | 88.1% | **93.1%** |
+| worst piece (Bach BWV 846) | 71.2% | **75.5%** |
+| best (Joplin) | 89.4% | **98.0%** |
+
+Better on all eight. `frontend/tests/browser/hand-benchmark.mjs` runs it and
+**exits non-zero if the model ever loses to a fixed cut**. Rebuild the ground
+truth with the music21 snippet in section 9 if `var/handtruth.json` is missing.
+
+**The cost constants were swept, not guessed** -- accuracy is a broad plateau of
+~93% across move 0.22-0.5 and register bias 0.18-0.32, with only 1.85 points
+between the best and worst of 40 configurations. A central value is used rather
+than the argmax, because a 0.2-point peak inside that plateau is noise.
 
 **Transposition and speed are PRESENTATION, and must never reach a file.** They
 change what is drawn and sounded; the MIDI download stays the measurement. The
@@ -1447,6 +1473,41 @@ Verify the daily quota against a real 25s clip before committing — 3.5 min/day
 is roughly a handful of transcriptions, which may be fine for a demo and is not
 fine for anything else. **Do not delete the CPU path**: it is the only thing
 that runs on this machine.
+
+### Rebuilding the hand-assignment ground truth
+
+`var/handtruth.json` is not committed (it is derived). To regenerate:
+
+```python
+# .venv/Scripts/python.exe
+import music21 as m21, json
+picks = ['bach/bwv846', 'chopin/mazurka06-2', 'joplin/maple_leaf_rag',
+         'mozart/k545/movement1_exposition',
+         'schumann_clara/polonaise_op1n1', 'schumann_clara/polonaise_op1n2',
+         'schumann_clara/polonaise_op1n3', 'schumann_clara/polonaise_op1n4']
+out = []
+for c in picks:
+    s = m21.corpus.parse(c)
+    if len(s.parts) != 2:      # a grand staff, or it says nothing about hands
+        continue
+    notes = []
+    for pi, p in enumerate(s.parts):
+        for n in p.recurse().notes:
+            # getOffsetInHierarchy, NOT .offset -- see the music21 trap above
+            off = float(n.getOffsetInHierarchy(s)); ql = float(n.quarterLength) or 0.25
+            for pit in (n.pitches if n.isChord else [n.pitch]):
+                notes.append({'onset': round(off*0.5, 4),
+                              'offset': round((off+ql)*0.5, 4),
+                              'pitch': pit.midi, 'velocity': 70,
+                              'hand': 'right' if pi == 0 else 'left'})
+    notes.sort(key=lambda x: (x['onset'], x['pitch']))
+    out.append({'name': c, 'notes': notes})
+json.dump(out, open('var/handtruth.json', 'w'))
+```
+
+6,273 notes across eight scores. The upper staff is the right hand: that is what
+a grand staff means, and it is the only ground truth for hand assignment that
+does not require a performance video.
 
 ### After Phase 9: back to the model track
 

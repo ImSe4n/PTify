@@ -1321,6 +1321,12 @@
     color-mix(in srgb, var(--note-est) 40%, transparent) 2.5px
   );
 }
+.swatch-rh {
+  background: var(--note);
+}
+.swatch-lh {
+  background: var(--hand-left);
+}
 .swatch-pedal {
   background: var(--pedal-band);
   border: 1px solid var(--rule);

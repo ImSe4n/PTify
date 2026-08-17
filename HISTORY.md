@@ -2687,10 +2687,14 @@ in Phase 6, every seam Phase 4 left was sufficient. 994 Python tests still pass.
   rounded surfaces, white cards on warm bone, teal-ink accent. See §4 of
   HANDOFF for what was deliberately *not* copied.
 - **Practice controls**: playback speed (0.5x-2x), transposition (+/-12
-  semitones), and four colour schemes including **left/right hand**, split by
-  the same Otsu rule the engraver uses so the roll and the printed grand staff
-  agree. Speed and transposition are presentation only — the MIDI download
-  stays the measurement, and the UI says so.
+  semitones), and four colour schemes including **left/right hand**. Speed and
+  transposition are presentation only — the MIDI download stays the measurement,
+  and the UI says so.
+- **Hand assignment is sequential (Viterbi), not a pitch threshold.** The first
+  attempt split at one pitch and produced 67 single-note hand flips in 25
+  seconds. Rebuilt with costs for movement, reach, crossing and register, then
+  **scored against engraved ground truth** — eight published piano scores,
+  6,273 notes: **93.1% against a threshold's 88.1%, better on all eight**.
 - **104 browser checks** in `frontend/tests/browser/`, one command:
   `npm run test:browser`, plus `npm run test:fixtures` to rebuild the live job
   they need (artifacts expire after an hour, which was the most repeated

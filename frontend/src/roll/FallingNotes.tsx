@@ -29,7 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Summary } from "../api/types";
 import type { PositionSource } from "./PianoRoll";
-import { assignHands, splitPoint } from "./hands";
+import { assignHands } from "./hands";
 import { noteAlpha, noteColour, octaveHues } from "./noteColour";
 import { DEFAULT_VIEW, type ViewOptions } from "./viewOptions";
 
@@ -125,8 +125,8 @@ export function FallingNotes({
     [summary.notes],
   );
 
-  // Same split as the roll and the engraver. See hands.ts.
-  const hands = useMemo(() => assignHands(notes, splitPoint(notes)), [notes]);
+  // Same assignment as the roll. See hands.ts.
+  const hands = useMemo(() => assignHands(notes), [notes]);
 
   useEffect(() => {
     const el = wrapRef.current;

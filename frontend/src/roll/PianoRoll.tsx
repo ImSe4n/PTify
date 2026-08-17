@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Note, Summary } from "../api/types";
 import { prefersReducedMotion } from "../ui/useReducedMotion";
-import { assignHands, splitPoint } from "./hands";
+import { assignHands } from "./hands";
 import { noteAlpha, noteColour, octaveHues } from "./noteColour";
 import { DEFAULT_VIEW, type ViewOptions } from "./viewOptions";
 
@@ -133,12 +133,9 @@ export function PianoRoll({
     [summary.notes, summary.pedals],
   );
 
-  // The same split the ENGRAVER uses, ported in hands.ts -- so a note the roll
-  // colours as left-hand is on the bass staff of the printed score.
-  const hands = useMemo(
-    () => assignHands(summary.notes, splitPoint(summary.notes)),
-    [summary.notes],
-  );
+  // Sequential hand assignment -- see hands.ts for why a pitch threshold is
+  // the wrong model rather than a badly tuned one.
+  const hands = useMemo(() => assignHands(summary.notes), [summary.notes]);
 
   const pps = PPS_BASE * zoom;
   const rows = hi - lo + 1;
