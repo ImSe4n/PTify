@@ -28,6 +28,7 @@ body {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
+
 a {
   color: inherit;
 }
@@ -60,8 +61,10 @@ textarea {
   background-clip: padding-box;
 }
 
-/* Paper grain. Kept from the mockup: it is the cheapest thing that stops a
-   flat background reading as a default. */
+/* Paper grain. Retired with the editorial palette -- the reference is a clean
+   warm bone, and a noise overlay over teal cards reads as a rendering fault
+   rather than as texture. --grain-opacity is 0 in both themes; the element is
+   kept so the removal is one token away from being reversed. */
 .grain {
   position: fixed;
   inset: 0;
@@ -75,60 +78,71 @@ textarea {
 
 /* --- type primitives ---------------------------------------------------- */
 
+/* Kept as a class name so call sites did not all have to change, but there is
+   no serif any more: the reference carries a whole product on one sans, and a
+   display serif was the loudest generated-UI tell in the previous revision. */
 .serif {
   font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 .mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-/* The editorial cliff. Used only where a page can afford to be a page. */
+/* 60px on 60px. The 1.0 ratio is what makes a headline read as a statement
+   rather than as a paragraph that got bigger. */
 .display {
   font-family: var(--font-display);
   font-size: var(--fs-display);
   line-height: var(--lh-tight);
-  font-weight: 400;
-  letter-spacing: -0.03em;
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  color: var(--ink);
   margin: 0;
   text-wrap: balance;
 }
 .display em {
-  font-style: italic;
+  font-style: normal;
   color: var(--accent);
 }
 
 .h1 {
   font-family: var(--font-display);
   font-size: var(--fs-h1);
-  line-height: var(--lh-snug);
-  font-weight: 500;
-  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: var(--tracking-h2);
+  color: var(--ink);
   margin: 0;
 }
 
 .h2 {
   font-family: var(--font-display);
   font-size: var(--fs-h2);
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: var(--tracking-h2);
+  color: var(--ink);
   margin: 0;
 }
 
-/* Section markers: small, letterspaced mono. Editorial pages label their
-   sections rather than relying on size alone. */
+/* Small uppercase mono labels. The reference uses exactly this for its
+   instrument chips, at 11px with negative tracking. */
 .eyebrow {
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
-  letter-spacing: 0.14em;
+  font-weight: 500;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--accent);
   margin: 0;
 }
 
 .lede {
   font-size: 1.0625rem;
-  line-height: 1.55;
+  line-height: 1.6;
   color: var(--muted);
   max-width: var(--measure);
   margin: 0;
@@ -136,6 +150,7 @@ textarea {
 
 .prose {
   color: var(--muted);
+  line-height: 1.6;
   max-width: var(--measure);
   margin: 0;
 }
@@ -146,113 +161,169 @@ textarea {
   letter-spacing: -0.02em;
 }
 
+/* A pill. The reference puts one around anything that carries a label. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* A white card on the bone background. The workhorse surface. */
+.card {
+  background: var(--panel);
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
 /* --- buttons ------------------------------------------------------------ */
 
+/* Solid teal, 8px, a soft shadow. The previous revision lifted on hover with a
+   coloured glow; the reference just darkens slightly, which is quieter and
+   survives being used forty times on one screen. */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--sp-2);
-  height: 44px;
+  height: 42px;
   padding: 0 var(--sp-5);
   border: var(--rule-width) solid transparent;
   border-radius: var(--radius);
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: var(--fs-body);
-  font-weight: 500;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  font-weight: 600;
   cursor: pointer;
-  /* Motion with intent: it lifts and settles rather than snapping. */
+  box-shadow: var(--shadow);
   transition:
-    transform var(--dur-fast) var(--ease),
-    box-shadow var(--dur) var(--ease),
     background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur-tap) var(--ease),
     opacity var(--dur) var(--ease);
 }
 .btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 90%, #000);
+  box-shadow: var(--shadow-md);
 }
 .btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: none;
+  transform: scale(0.985);
 }
 .btn:disabled {
   cursor: not-allowed;
-  background: transparent;
-  border-color: var(--rule-strong);
+  background: var(--elev);
+  border-color: var(--rule);
   color: var(--faint);
-}
-
-.btn-ghost {
-  background: transparent;
-  border-color: var(--rule-strong);
-  color: var(--ink);
-}
-.btn-ghost:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
   box-shadow: none;
 }
 
-/* An underline that grows from the left -- a link that behaves like a link,
-   with a state change you can actually see. */
+.btn-sm {
+  height: 34px;
+  padding: 0 var(--sp-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-small);
+}
+
+.btn-lg {
+  height: 56px;
+  padding: 0 var(--sp-6);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+}
+
+.btn-ghost {
+  background: var(--panel);
+  border-color: var(--rule-strong);
+  color: var(--ink);
+  box-shadow: none;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--panel);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Tertiary: no background, no border. The reference's nav uses this for
+   everything that is not the one primary action. */
+.btn-quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  font-weight: 500;
+}
+.btn-quiet:hover:not(:disabled) {
+  background: var(--elev);
+  color: var(--ink);
+  box-shadow: none;
+}
+
 .btn-link {
-  position: relative;
+  display: inline;
   height: auto;
-  padding: 0 0 2px;
+  padding: 0;
   background: none;
   border: none;
-  color: var(--ink);
+  box-shadow: none;
+  color: var(--accent);
+  font-family: var(--font-body);
   font-size: var(--fs-small);
+  font-weight: 600;
   cursor: pointer;
-}
-.btn-link::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  height: 1px;
-  background: var(--accent);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform var(--dur) var(--ease);
-}
-.btn-link:hover::after,
-.btn-link:focus-visible::after {
-  transform: scaleX(1);
+  transition: color var(--dur) var(--ease);
 }
 .btn-link:hover {
-  color: var(--accent);
+  background: none;
+  box-shadow: none;
+  color: var(--accent-dark);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* --- fields ------------------------------------------------------------- */
 
 .field {
   display: block;
-  margin-bottom: var(--sp-5);
+  margin-bottom: var(--sp-4);
 }
 .field-label {
   display: block;
   font-size: var(--fs-small);
-  color: var(--muted);
-  margin-bottom: var(--sp-1);
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: var(--sp-2);
 }
+/* Boxed, not underlined. An underline input is an editorial convention; the
+   reference boxes everything at 8px with a 2px teal focus ring. */
 .field-input {
   width: 100%;
-  height: 40px;
-  padding: 0 2px;
-  background: transparent;
-  border: none;
-  border-bottom: var(--rule-width) solid var(--rule-strong);
+  height: 42px;
+  padding: 0 var(--sp-3);
+  background: var(--panel);
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius);
   color: var(--ink);
-  font-size: 1rem;
-  transition: border-color var(--dur) var(--ease);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 .field-input:focus {
   outline: none;
-  border-bottom-color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .field-input::placeholder {
   color: var(--faint);
@@ -264,7 +335,7 @@ textarea {
   width: 100%;
   max-width: var(--page-max);
   margin: 0 auto;
-  padding: var(--sp-8) var(--sp-6) var(--sp-9);
+  padding: var(--sp-7) var(--sp-6) var(--sp-9);
 }
 
 .rule {
@@ -278,6 +349,9 @@ textarea {
   flex-direction: column;
 }
 
+/* The plain entrance, kept for the TOOL screens (Result, Sheet). An instrument
+   should simply be there; making it perform on arrival is a cost paid every
+   time you open a transcription. */
 .fade-in {
   animation: fadeIn var(--dur-slow) var(--ease) both;
 }
@@ -287,6 +361,77 @@ textarea {
     transform: translateY(8px);
   }
   to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- entrances: the editorial screens ------------------------------------ */
+
+/* Auth / Upload / History can take the drama the Result screen cannot (see the
+   note at the top of tokens.css). Direct children arrive in sequence rather
+   than as one block. The travel is 14px against fade-in's 8px, because a longer
+   duration needs more distance or it reads as slow rather than considered. */
+.enter-stagger > * {
+  animation: enterUp var(--dur-entrance) var(--ease-out-expo) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger));
+}
+@keyframes enterUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- word-by-word heading reveal ----------------------------------------- */
+
+.reveal {
+  /* The mask each word rises out of is the outer span's overflow, so the
+     wrapper must not clip the descenders of the line above. */
+  display: block;
+}
+.rv-word {
+  display: inline-block;
+  overflow: hidden;
+  /* Room for descenders inside the mask, pulled back out of the layout. */
+  padding-bottom: 0.12em;
+  margin-bottom: -0.12em;
+  vertical-align: bottom;
+}
+/* The space between words.
+   NOT a margin. `.rv-word + .rv-word { margin-left }` looks right on one line
+   and indents every WRAPPED line, because the margin survives the line break --
+   measured at 112px against 96px on the two-line display headline, a visibly
+   ragged left edge. A real space character between the spans wraps correctly
+   and collapses at a break, which is exactly the behaviour wanted; `white-space:
+   pre-wrap` on the wrapper is what stops JSX from stripping it. */
+.reveal {
+  white-space: pre-wrap;
+}
+.rv-inner {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(0.9em);
+  transition:
+    opacity var(--dur-entrance) var(--ease-out-expo),
+    transform var(--dur-entrance) var(--ease-out-expo);
+  transition-delay: calc(var(--i, 0) * var(--stagger));
+}
+.reveal.is-shown .rv-inner {
+  opacity: 1;
+  transform: none;
+}
+
+/* Reduced motion: show the words, do not stagger them. The global rule in
+   tokens.css zeroes duration and delay, but the FROM state here is opacity 0 --
+   a zeroed transition would still start invisible and never be told to change.
+   So the resting state has to be asserted directly. */
+@media (prefers-reduced-motion: reduce) {
+  .rv-inner {
     opacity: 1;
     transform: none;
   }

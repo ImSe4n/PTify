@@ -29,8 +29,11 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 
+/** The upload flow asks one thing at a time; each step is a real URL. */
+export type UploadStep = "file" | "output" | "details";
+
 export type Route =
-  | { screen: "upload" }
+  | { screen: "upload"; step: UploadStep }
   | { screen: "auth" }
   | { screen: "history" }
   | { screen: "job"; jobId: string }
@@ -49,10 +52,16 @@ export function parseHash(hash: string): Route {
   const [path, query] = raw.split("?");
   const parts = path.split("/").filter(Boolean);
 
-  if (parts.length === 0) return { screen: "upload" };
+  if (parts.length === 0) return { screen: "upload", step: "file" };
 
   if (parts[0] === "sign-in") return { screen: "auth" };
   if (parts[0] === "history") return { screen: "history" };
+
+  if (parts[0] === "new") {
+    const step = parts[1];
+    if (step === "output" || step === "details") return { screen: "upload", step };
+    return { screen: "upload", step: "file" };
+  }
 
   if (parts[0] === "j" && parts[1]) {
     const jobId = decodeURIComponent(parts[1]);
@@ -62,7 +71,7 @@ export function parseHash(hash: string): Route {
     return { screen: "job", jobId };
   }
 
-  return { screen: "upload" };
+  return { screen: "upload", step: "file" };
 }
 
 /** `?p=3` -> 3. Floors, and clamps to at least 1 -- a deep link is untrusted. */
@@ -77,7 +86,8 @@ function parsePage(query: string | undefined): number {
 export function formatRoute(route: Route): string {
   switch (route.screen) {
     case "upload":
-      return "#/";
+      // The first step IS the root, so the common case keeps a clean URL.
+      return route.step === "file" ? "#/" : `#/new/${route.step}`;
     case "auth":
       return "#/sign-in";
     case "history":

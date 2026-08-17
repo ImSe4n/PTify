@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Note, Summary } from "../api/types";
+import { prefersReducedMotion } from "../ui/useReducedMotion";
 
 /** Vertical pixels per semitone. */
 const ROW_H = 8;
@@ -30,6 +31,10 @@ const PPS_BASE = 44;
 const KEY_W = 54;
 /** Padding in semitones above and below the piece's range. */
 const PITCH_PAD = 3;
+/** How long the entrance sweep takes. */
+const REVEAL_MS = 900;
+/** If one full paint costs more than this, the piece is too dense to animate. */
+const FRAME_BUDGET_MS = 8;
 
 const isBlackKey = (midi: number) => [1, 3, 6, 8, 10].includes(((midi % 12) + 12) % 12);
 
@@ -145,11 +150,20 @@ export function PianoRoll({
     };
   }, []);
 
-  useEffect(() => {
+  /**
+   * Paint the roll.
+   *
+   * `reveal` is 0..1 and clips the drawing to that fraction of the piece, which
+   * is what the entrance sweep animates. Everything else calls it with 1, so
+   * the ordinary path is byte-for-byte what it was before 7d.
+   */
+  const draw = useCallback((reveal: number) => {
     const wrap = wrapRef.current;
     const roll = rollRef.current;
     const keys = keysRef.current;
     if (!wrap || !roll || !keys) return;
+
+    const cutoff = summary.duration * reveal;
 
     // Cap DPR at 2: beyond that the memory cost grows quadratically for no
     // visible gain on a chart of flat rectangles.
@@ -190,7 +204,7 @@ export function PianoRoll({
       const spb = 60 / summary.bpm;
       const beatsPerBar = parseInt(summary.time_signature?.split("/")[0] ?? "4", 10) || 4;
       let i = 0;
-      for (let t = 0; t <= summary.duration + 0.01; t += spb) {
+      for (let t = 0; t <= Math.min(summary.duration, cutoff) + 0.01; t += spb) {
         const x = Math.round(t * pps) + 0.5;
         g.strokeStyle = i % beatsPerBar === 0 ? c.bar : c.beat;
         g.lineWidth = 1;
@@ -218,11 +232,14 @@ export function PianoRoll({
     // Sustain spans behind the notes: the reason some lengths are estimates.
     g.fillStyle = c.pedal;
     for (const p of summary.pedals) {
-      g.fillRect(p.onset * pps, 0, Math.max(1, (p.offset - p.onset) * pps), height);
+      if (p.onset > cutoff) continue;
+      const end = Math.min(p.offset, cutoff);
+      g.fillRect(p.onset * pps, 0, Math.max(1, (end - p.onset) * pps), height);
     }
 
     // Notes. Velocity drives alpha, so dynamics are visible as weight.
     summary.notes.forEach((n, i) => {
+      if (n.onset > cutoff) return;
       const x = n.onset * pps;
       const w = Math.max(2.5, (n.offset - n.onset) * pps);
       const y = (hi - n.pitch) * ROW_H;
@@ -280,7 +297,106 @@ export function PianoRoll({
     k.moveTo(KEY_W - 0.5, 0);
     k.lineTo(KEY_W - 0.5, height);
     k.stroke();
-  }, [summary, estimated, lo, hi, pps, width, height, themeTick]);
+  }, [summary, estimated, lo, hi, pps, width, height]);
+
+  // Held in a ref so the reveal loop can call the CURRENT draw without being a
+  // dependency of it -- otherwise a theme change mid-sweep restarts the sweep.
+  const drawRef = useRef(draw);
+  drawRef.current = draw;
+
+  /**
+   * Is a sweep currently in charge of the canvas?
+   *
+   * React runs effects in declaration order, so on mount the full-repaint below
+   * fires AFTER the sweep effect and painted draw(1) straight over the sweep's
+   * first frames -- the animation ran, invisibly, every time. Symptom: the roll
+   * is already complete at t=0 and no amount of sampling ever catches it
+   * partial. The sweep claims the canvas while it runs; the repaint yields.
+   */
+  const sweeping = useRef(false);
+
+  // The ordinary path: a full repaint on any layout or theme change. This is
+  // exactly the effect that existed before 7d, plus the yield.
+  useEffect(() => {
+    if (sweeping.current) return;
+    draw(1);
+  }, [draw, themeTick]);
+
+  /**
+   * 7d -- the entrance sweep.
+   *
+   * The reference site's signature is a WebGL hero. The equivalent here is made
+   * of the actual data: the roll draws itself in, left to right, so the sweep
+   * IS the time axis and the entrance teaches you how to read the chart before
+   * you have found the legend. It costs one rAF loop and no dependency.
+   *
+   * Four things stop it being a nuisance:
+   *
+   *  - It runs ONCE per transcription, guarded on the summary's identity. Get
+   *    that wrong and every theme toggle replays a 900ms animation -- and the
+   *    theme path is the one documented trap in this file.
+   *  - It is BUDGETED, not guessed. The first paint is timed, and if it cost
+   *    more than one frame's worth the sweep is skipped outright. A Scarlatti
+   *    at 297 notes is ~1ms; a Brahms sonata at tens of thousands is not, and
+   *    the machine it runs on is not knowable in advance.
+   *  - It is decorative, unlike the playhead, so it honours reduced motion.
+   *  - It is skipped when resuming mid-piece, where an entrance would be a lie
+   *    about where playback is.
+   */
+  const revealedFor = useRef<Summary | null>(null);
+  useEffect(() => {
+    if (revealedFor.current === summary) return;
+
+    if (prefersReducedMotion() || position > 0 || summary.notes.length === 0) return;
+
+    // Time the full paint that just happened rather than predicting it.
+    const t0 = performance.now();
+    drawRef.current(1);
+    if (performance.now() - t0 > FRAME_BUDGET_MS) return;
+
+    let raf = 0;
+    sweeping.current = true;
+    const start = performance.now();
+    const step = () => {
+      const t = Math.min(1, (performance.now() - start) / REVEAL_MS);
+      if (t >= 1) {
+        sweeping.current = false;
+        // Claim the sweep only once it has actually FINISHED. Marking it at the
+        // top of the effect meant StrictMode's mount/unmount/remount consumed
+        // the claim on the throwaway first mount, and the real one returned
+        // early -- so the animation never ran in dev, and would have run in
+        // production, which is the worst of both.
+        revealedFor.current = summary;
+      }
+      // Cubic ease-out, NOT the expo twin of --ease-out-expo.
+      //
+      // Measured: expo puts 72% of the piece on screen in the first frame and
+      // then crawls, so the sweep is over before the eye finds it and the rest
+      // reads as a stall. Cubic keeps the same "fast then settling" character
+      // while leaving the motion actually visible across the 900ms.
+      const eased = t >= 1 ? 1 : 1 - (1 - t) ** 3;
+      // A canvas animation has no DOM to assert on, and sampling pixels once
+      // per frame costs MORE than a frame -- getImageData on a full roll
+      // starves the very loop it is trying to observe, which is how this
+      // animation was verified as "not running" while it was running fine. So
+      // the loop records what it drew, and the browser test reads that.
+      if (import.meta.env.DEV) {
+        const w = window as unknown as { __ptifyReveal?: number[] };
+        (w.__ptifyReveal ??= []).push(eased);
+      }
+      drawRef.current(eased);
+      if (t < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      // Unmounting mid-sweep must not leave the next paint yielding forever.
+      sweeping.current = false;
+    };
+    // `position` is read once at mount on purpose: this must not re-run when
+    // playback moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary]);
 
   // `pps` changes when the user zooms. The subscription below outlives that,
   // so reading it from a ref is what keeps a zoom mid-playback from leaving the

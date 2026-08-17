@@ -22,9 +22,55 @@
   min-height: 0;
 }
 
+/* --- M1: the curtain ----------------------------------------------------- */
+
+/* The auth probe used to leave a blank viewport -- a flash of nothing before
+   the app appears. This holds the brand mark instead and slides away when the
+   probe resolves.
+   svh not vh, so mobile browser chrome does not leave a gap. */
 .boot {
-  min-height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Deliberately TALLER than the viewport. A panel that exactly covers the
+     screen uncovers the app the instant it starts moving, so the page shows
+     through below its bottom edge for the whole 640ms. The extra height is what
+     it slides through. */
+  height: 200vh;
+  height: 200svh;
+  /* ...and the mark stays on the visible half rather than at the true centre. */
+  align-items: flex-start;
+  padding-top: calc(50svh - 0.5em);
   background: var(--bg);
+  /* -102 rather than -100: at fractional device pixel ratios, exactly -100vh
+     can leave a one-pixel sliver of the panel on screen. */
+  transition: transform var(--dur-entrance) cubic-bezier(0.8, 0, 0.2, 1);
+}
+.boot.is-lifting {
+  transform: translateY(-102vh);
+}
+.boot-mark {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  color: var(--ink);
+  animation: bootPulse 1.6s var(--ease) infinite;
+}
+@keyframes bootPulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* Waiting on the one getJob a deep link needs before it knows which screen to
@@ -40,10 +86,12 @@
   display: flex;
   align-items: center;
   gap: var(--sp-6);
-  height: 60px;
+  height: 64px;
   padding: 0 var(--sp-6);
   border-bottom: var(--rule-width) solid var(--rule);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -59,15 +107,22 @@
   cursor: pointer;
 }
 .brand-word {
-  font-size: 1.35rem;
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
 }
+ /* Not a dot: four stacked hairlines, a staff. It is a notation product, and
+   this is the one mark that says so without a musical-note cliche. */
 .brand-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
+  width: 10px;
+  height: 9px;
+  border-radius: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--accent) 0 1px,
+    transparent 1px 3px
+  );
   align-self: center;
 }
 .brand-lg .brand-word {
@@ -79,40 +134,32 @@
 
 .app-nav {
   display: flex;
-  gap: var(--sp-5);
+  gap: var(--sp-1);
 }
+/* A quiet pill rather than an underlined italic link. The reference's nav is
+   plain weight-500 text that only changes colour, with the active state
+   carried by a soft tinted pill. */
 .nav-link {
-  position: relative;
   background: none;
   border: none;
-  padding: 0 0 3px;
-  font-family: var(--font-display);
-  font-size: 0.95rem;
-  font-style: italic;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  font-weight: 500;
   color: var(--muted);
   cursor: pointer;
-  transition: color var(--dur) var(--ease);
-}
-.nav-link::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  height: 2px;
-  background: var(--accent);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform var(--dur) var(--ease);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
 }
 .nav-link:hover {
   color: var(--ink);
+  background: var(--elev);
 }
 .nav-link.is-active {
-  color: var(--ink);
-}
-.nav-link.is-active::after {
-  transform: scaleX(1);
+  color: var(--accent);
+  background: var(--accent-tint);
 }
 
 .app-header-end {
@@ -125,32 +172,44 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
   background: none;
   border: none;
   color: var(--muted);
   font-size: var(--fs-small);
+  font-weight: 500;
   cursor: pointer;
-  transition: color var(--dur) var(--ease);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
 }
 .theme-toggle:hover {
   color: var(--ink);
+  background: var(--elev);
 }
 .avatar {
   width: 30px;
   height: 30px;
-  border-radius: 50%;
-  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius-pill);
+  background: var(--accent-tint);
+  border: var(--rule-width) solid color-mix(in srgb, var(--accent) 25%, transparent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
-  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 /* --- shared screen furniture -------------------------------------------- */
 
+ /* A hairline under the section head. Printed scores rule off a system; it is
+   a small piece of the source material rather than a generic divider. */
 .screen-head {
   margin-bottom: var(--sp-7);
+  padding-bottom: var(--sp-5);
+  border-bottom: var(--rule-width) solid var(--rule);
 }
 .screen-head .eyebrow {
   margin-bottom: var(--sp-3);
@@ -161,9 +220,9 @@
 
 .section-title {
   font-size: var(--fs-h3);
-  font-style: italic;
-  font-weight: 500;
-  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--ink);
   margin: 0 0 var(--sp-2);
 }
 .section-hint {
@@ -198,17 +257,24 @@
 }
 
 .icon-btn {
-  width: 26px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   font-size: 1.05rem;
   cursor: pointer;
-  transition: color var(--dur) var(--ease);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
 }
 .icon-btn:hover:not(:disabled) {
   color: var(--ink);
+  background: var(--elev);
 }
 .icon-btn:disabled {
   opacity: 0.35;
@@ -216,8 +282,11 @@
 }
 
 .empty {
-  padding: var(--sp-9) 0;
-  border-top: var(--rule-width) solid var(--rule);
+  padding: var(--sp-8) var(--sp-6);
+  background: var(--panel);
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius-xl);
+  text-align: center;
 }
 .empty .h2 {
   margin-bottom: var(--sp-3);
@@ -239,7 +308,14 @@
   justify-content: center;
   gap: var(--sp-6);
   padding: var(--sp-8) var(--sp-8) var(--sp-8) var(--sp-9);
-  background: var(--panel);
+  /* The reference's hero is a vertical wash from bone through mint. It is the
+     single move that stops a landing page reading as a white rectangle. */
+  background: linear-gradient(
+    170deg,
+    var(--bg) 30%,
+    var(--accent-tint) 70%,
+    var(--elev) 100%
+  );
   border-right: var(--rule-width) solid var(--rule);
 }
 .auth-pitch-body {
@@ -259,7 +335,9 @@
 }
 .auth-facts dt {
   font-size: 2rem;
-  font-weight: 500;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.02em;
   letter-spacing: -0.03em;
   color: var(--accent);
 }
@@ -306,91 +384,299 @@
 
 /* --- upload -------------------------------------------------------------- */
 
-.upload-grid {
+/* --- upload: a stepped flow --------------------------------------------- */
+
+.upload-head {
+  max-width: 46rem;
+}
+
+/* The progress rail. Three steps, so a bar is more honest than a percentage. */
+.step-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  list-style: none;
+  margin: 0 0 var(--sp-7);
+  padding: 0;
+}
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+/* The connector between steps. It fills as the step is completed, which is the
+   one place a progress line belongs -- between things, not under them. */
+.step-item + .step-item::before {
+  content: "";
+  width: var(--sp-7);
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--rule);
+  transition: background var(--dur-slow) var(--ease);
+}
+.step-item.is-done + .step-item::before,
+.step-item.is-current::before {
+  background: var(--accent);
+}
+.step-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3) var(--sp-1) var(--sp-1);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.step-dot:disabled {
+  cursor: default;
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--elev);
+  border: var(--rule-width) solid var(--rule);
+  font-size: var(--fs-micro);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.step-item.is-current .step-dot {
+  color: var(--ink);
+  background: var(--accent-tint);
+}
+.step-item.is-current .step-num {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.step-item.is-done .step-dot {
+  color: var(--muted);
+}
+.step-item.is-done .step-num {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+
+/* Each step animates in as its own panel. Keyed on the step in the component,
+   so React remounts it and the animation actually re-runs. */
+.step-panel {
+  animation: stepIn var(--dur-slow) var(--ease-out-expo) both;
+}
+@keyframes stepIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.step-block + .step-block {
+  margin-top: var(--sp-7);
+}
+
+/* Children of a step arrive in sequence rather than as one block. */
+.engine-list .engine,
+.format-row .chip {
+  animation: stepIn var(--dur-slow) var(--ease-out-expo) both;
+  animation-delay: calc(120ms + var(--i, 0) * var(--stagger));
+}
+
+.step-file {
+  max-width: 46rem;
+}
+
+.step-details {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-  gap: var(--sp-8);
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--sp-6);
   align-items: start;
 }
-.upload-main {
+.details-card {
+  padding: var(--sp-6);
+  background: var(--panel);
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+/* What is about to be sent, restated before the one irreversible click. */
+.summary-card {
+  padding: var(--sp-5);
+  background: var(--accent-tint);
+  border: var(--rule-width) solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: var(--radius-xl);
+  position: sticky;
+  top: calc(64px + var(--sp-5));
+}
+.summary-list {
+  margin: var(--sp-4) 0 var(--sp-5);
+}
+.summary-list > div {
+  padding: var(--sp-3) 0;
+  border-bottom: var(--rule-width) solid color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.summary-list > div:last-child {
+  border-bottom: none;
+}
+.summary-list dt {
+  font-size: var(--fs-micro);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: var(--sp-1);
+}
+.summary-list dd {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink);
+}
+.summary-file {
+  word-break: break-all;
+}
+.summary-chips {
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-7);
-  min-width: 0;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+/* Back / Continue, pinned below the panel. */
+.step-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-7);
+  padding-top: var(--sp-5);
+  border-top: var(--rule-width) solid var(--rule);
+}
+
+@media (max-width: 900px) {
+  .step-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .summary-card {
+    position: static;
+  }
+  .step-label {
+    display: none;
+  }
 }
 
 .drop {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-align: center;
   gap: var(--sp-2);
+  min-height: 260px;
   padding: var(--sp-8) var(--sp-5);
-  border: 1px dashed var(--rule-strong);
-  border-radius: var(--radius);
+  background: var(--accent);
+  border: 2px dashed color-mix(in srgb, var(--accent-ink) 32%, transparent);
+  border-radius: var(--radius-lg);
+  color: var(--accent-ink);
   cursor: pointer;
+  box-shadow: var(--shadow-md);
   transition:
     border-color var(--dur) var(--ease),
-    background var(--dur) var(--ease);
+    background var(--dur) var(--ease),
+    transform var(--dur-tap) var(--ease);
 }
 .drop:hover,
 .drop.is-dragging {
-  border-color: var(--accent);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--accent) 92%, #000);
+  border-color: var(--accent-ink);
+}
+.drop:active {
+  transform: scale(0.995);
 }
 .drop.has-file {
-  border-color: var(--accent);
   border-style: solid;
-  background: var(--panel);
+  border-color: var(--accent-ink);
 }
 .drop-mark {
   font-size: 1.9rem;
-  font-style: italic;
-  color: var(--rule-strong);
+  color: color-mix(in srgb, var(--accent-ink) 75%, transparent);
 }
+/* A light-on-dark button inside the inverted panel. The reference puts a bright
+   yellow here; borrowing that exact move would have been the most recognisable
+   thing on the page, and it is not needed -- the panel is already the only dark
+   block on the screen, so the contrast is doing the work. */
 .drop-title {
-  font-size: 1.1rem;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--sp-3) var(--sp-6);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--accent-dark);
+  font-size: var(--fs-body);
+  font-weight: 600;
   word-break: break-all;
+  box-shadow: var(--shadow);
 }
 .drop-sub {
   font-size: var(--fs-small);
-  color: var(--muted);
+  color: color-mix(in srgb, var(--accent-ink) 82%, transparent);
+  margin-top: var(--sp-2);
 }
 .drop-formats {
   font-size: var(--fs-micro);
-  color: var(--faint);
-  margin-top: var(--sp-3);
+  color: color-mix(in srgb, var(--accent-ink) 66%, transparent);
+  margin-top: var(--sp-4);
 }
 
 .engine-list {
-  border-top: var(--rule-width) solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
 }
+ /* A selectable card, the way the reference builds every option list: white on
+   bone, a warm border, and a teal border + tint when chosen. */
 .engine {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
   width: 100%;
   text-align: left;
-  padding: var(--sp-4) var(--sp-2) var(--sp-4) var(--sp-3);
-  background: transparent;
-  border: none;
-  border-bottom: var(--rule-width) solid var(--rule);
-  border-left: 2px solid transparent;
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--panel);
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition:
-    border-left-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
     background var(--dur) var(--ease),
-    padding-left var(--dur) var(--ease);
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur-tap) var(--ease);
 }
 .engine:hover:not(:disabled) {
-  background: var(--panel);
-  padding-left: var(--sp-4);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
 }
 .engine.is-selected {
-  border-left-color: var(--accent);
-  background: var(--panel);
-  padding-left: var(--sp-4);
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: var(--shadow-sm);
+}
+.engine:active:not(.is-unavailable) {
+  transform: scale(0.985);
 }
 .engine.is-unavailable {
   opacity: 0.5;
@@ -441,29 +727,44 @@
 .format-row {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-3) var(--sp-5);
+  gap: var(--sp-3);
 }
+ /* Selectable pills. The reference puts a full radius on anything carrying a
+   label, and a toggled format is exactly that. */
 .chip {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--sp-2);
-  background: none;
-  border: none;
-  padding: var(--sp-1) 0;
+  background: var(--panel);
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius-pill);
+  padding: var(--sp-2) var(--sp-4);
   cursor: pointer;
   color: var(--muted);
-  transition: color var(--dur) var(--ease);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    transform var(--dur-tap) var(--ease);
+}
+/* M5: press feedback. These are the controls on Upload you click most, and
+   90ms of give is the difference between a form and an instrument. */
+.chip:active {
+  transform: scale(0.985);
 }
 .chip.is-on {
-  color: var(--ink);
+  color: var(--accent);
+  background: var(--accent-tint);
+  border-color: var(--accent);
 }
 .chip:hover {
   color: var(--ink);
+  border-color: var(--accent);
 }
 .chip-box {
   width: 15px;
   height: 15px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   border: var(--rule-width) solid var(--rule-strong);
   display: inline-flex;
   align-items: center;
@@ -478,19 +779,14 @@
   border-color: var(--accent);
 }
 .chip-label {
-  font-size: var(--fs-body);
+  font-size: var(--fs-small);
+  font-weight: 600;
 }
 .chip-hint {
   font-size: var(--fs-micro);
   color: var(--faint);
 }
 
-.upload-aside {
-  padding-left: var(--sp-6);
-  border-left: var(--rule-width) solid var(--rule);
-  position: sticky;
-  top: calc(60px + var(--sp-5));
-}
 .field-pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -525,13 +821,16 @@
 
 .progress {
   position: relative;
-  height: 2px;
-  background: var(--rule);
+  height: 8px;
+  background: var(--elev);
+  border: var(--rule-width) solid var(--rule);
+  border-radius: var(--radius-pill);
   overflow: hidden;
 }
 .progress-fill {
   display: block;
   height: 100%;
+  border-radius: var(--radius-pill);
   background: var(--accent);
   transition: width var(--dur-slow) var(--ease);
 }
@@ -585,7 +884,7 @@
    the page grow instead pushes the legend below the fold, which hides the one
    thing that explains what the colours mean. 60px is the sticky header. */
 .result {
-  height: calc(100vh - 60px);
+  height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -595,8 +894,7 @@
   align-items: center;
   gap: var(--sp-5);
   padding: var(--sp-4) var(--sp-6);
-  border-bottom: var(--rule-width) solid var(--rule);
-  background: var(--panel);
+  background: transparent;
 }
 .result-title {
   display: flex;
@@ -616,13 +914,21 @@
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--sp-5);
   min-height: 0;
+  padding: 0 var(--sp-6) var(--sp-5);
 }
+/* A white card floating on the bone background, with the reference's soft even
+   halo -- the same treatment it gives its product screenshots. */
 .result-roll {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border-right: var(--rule-width) solid var(--rule);
+  background: var(--panel);
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-even);
+  overflow: hidden;
 }
 
 .roll-toolbar {
@@ -854,19 +1160,22 @@
 
 .view-toggle {
   display: flex;
-  border: var(--rule-width) solid var(--rule-strong);
-  border-radius: var(--radius);
-  overflow: hidden;
+  gap: 2px;
+  padding: 3px;
+  background: var(--elev);
+  border: var(--rule-width) solid var(--rule);
+  border-radius: var(--radius-pill);
 }
 .view-toggle button {
-  padding: var(--sp-1) var(--sp-3);
+  padding: var(--sp-1) var(--sp-4);
   border: none;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: 0.04em;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  font-weight: 600;
   transition:
     background var(--dur) var(--ease),
     color var(--dur) var(--ease);
@@ -875,8 +1184,9 @@
   color: var(--ink);
 }
 .view-toggle button.is-active {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--panel);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
 }
 
 .roll-legend {
@@ -896,7 +1206,8 @@
 }
 .swatch {
   width: 20px;
-  height: 7px;
+  height: 8px;
+  border-radius: var(--radius-pill);
   display: inline-block;
 }
 .swatch-measured {
@@ -921,6 +1232,9 @@
 .result-aside {
   overflow: auto;
   background: var(--panel);
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-even);
 }
 .aside-block {
   padding: var(--sp-5) var(--sp-5) var(--sp-4);
@@ -1003,12 +1317,12 @@
 }
 .trust-value {
   font-size: 1.2rem;
-  font-weight: 500;
+  font-weight: 700;
+  letter-spacing: -0.015em;
   margin: 0 0 var(--sp-1);
 }
 .trust-caption {
   font-size: var(--fs-small);
-  font-style: italic;
   color: var(--muted);
   line-height: 1.5;
   margin: 0;
@@ -1082,24 +1396,31 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: var(--rule-width) solid var(--rule-strong);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
 }
+/* Each row is a card. A bordered table reads as a spreadsheet; the reference
+   makes every list item its own white surface. */
 .job-row {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) 0.7fr 0.8fr minmax(0, 1.6fr) 32px;
   gap: var(--sp-4);
   align-items: center;
   width: 100%;
-  padding: var(--sp-4) var(--sp-2) var(--sp-4) 0;
-  background: none;
-  border: none;
-  border-bottom: var(--rule-width) solid var(--rule);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--panel);
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius-lg);
   text-align: left;
   cursor: pointer;
-  transition: background var(--dur) var(--ease);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 .job-row:hover:not(:disabled) {
-  background: var(--elev);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
 }
 .job-row.is-inert {
   cursor: default;
@@ -1123,19 +1444,30 @@
   font-size: var(--fs-small);
   color: var(--muted);
 }
+ /* A status pill. The reference badges every piece of state this way. */
 .job-state {
+  justify-self: start;
+  padding: 2px var(--sp-3);
+  border-radius: var(--radius-pill);
+  background: var(--elev);
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   color: var(--muted);
 }
 .job-state.is-succeeded {
+  background: color-mix(in srgb, var(--good) 14%, transparent);
   color: var(--good);
 }
 .job-state.is-running {
+  background: var(--accent-tint);
   color: var(--accent);
 }
 .job-state.is-failed {
-  color: var(--sepia);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
 }
 .job-desc {
   font-size: var(--fs-small);
@@ -1144,9 +1476,38 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* --- M4: the arrow slide -------------------------------------------------
+   The nicest thing the reference does. The arrow occupies a FIXED slot that is
+   always in the layout but invisible, so nothing reflows on hover; the row's
+   text slides toward it while the arrow fades in.
+
+   THE TWO DURATIONS ARE THE EFFECT. The arrow lands at 300ms while the slide is
+   still settling until 400ms, which is what makes the arrow read as ARRIVING
+   rather than as travelling alongside the text. Collapsing them to one duration
+   loses the whole thing. */
 .job-arrow {
   text-align: right;
-  color: var(--faint);
+  color: var(--accent);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition:
+    opacity 300ms var(--ease),
+    transform 300ms var(--ease);
+}
+.job-row:hover:not(:disabled) .job-arrow,
+.job-row:focus-visible:not(:disabled) .job-arrow {
+  opacity: 1;
+  transform: none;
+}
+.job-row:not(:disabled) .job-when,
+.job-row:not(:disabled) .job-desc {
+  transition: transform 400ms var(--ease-out-expo);
+}
+.job-row:hover:not(:disabled) .job-when,
+.job-row:focus-visible:not(:disabled) .job-when,
+.job-row:hover:not(:disabled) .job-desc,
+.job-row:focus-visible:not(:disabled) .job-desc {
+  transform: translateX(6px);
 }
 
 /* --- sheet --------------------------------------------------------------- */
@@ -1164,7 +1525,7 @@
   gap: var(--sp-4);
   padding: var(--sp-3) var(--sp-6);
   border-bottom: var(--rule-width) solid var(--rule);
-  background: var(--panel);
+  background: transparent;
 }
 .sheet-bar-spacer {
   flex: 1;
@@ -1188,12 +1549,32 @@
   align-items: center;
   padding: var(--sp-7) var(--sp-5);
 }
+ /* The reference frames every product screenshot in a white rounded card with
+   a soft even halo. An engraved page is exactly that. */
 .sheet-page {
   width: 100%;
   max-width: 780px;
   background: var(--paper);
-  box-shadow: var(--shadow-page);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-even);
   padding: var(--sp-6);
+}
+/* M6: the page turn. The reference scales its modals in from 0.1, which reads
+   as a photo gallery; a document should arrive already being a document, so
+   this is 0.985. Keyed on the page number in SheetScreen so it re-runs on each
+   turn rather than firing once and never again. */
+.sheet-svg {
+  animation: pageTurn var(--dur-slow) var(--ease-out-expo) both;
+}
+@keyframes pageTurn {
+  from {
+    opacity: 0;
+    transform: scale(0.985) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .sheet-svg svg {
   width: 100%;
@@ -1243,17 +1624,6 @@
     padding: var(--sp-8) var(--sp-6);
     border-right: none;
     border-bottom: var(--rule-width) solid var(--rule);
-  }
-  .upload-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--sp-6);
-  }
-  .upload-aside {
-    padding-left: 0;
-    border-left: none;
-    border-top: var(--rule-width) solid var(--rule);
-    padding-top: var(--sp-5);
-    position: static;
   }
   .job-row {
     grid-template-columns: minmax(0, 1fr) auto;

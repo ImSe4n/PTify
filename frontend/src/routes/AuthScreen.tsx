@@ -12,6 +12,7 @@
 import { useState, type FormEvent } from "react";
 
 import { ApiError } from "../api/client";
+import { Reveal } from "../ui/Reveal";
 import { useAuth } from "../auth/AuthContext";
 
 export function AuthScreen() {
@@ -42,13 +43,28 @@ export function AuthScreen() {
   }
 
   return (
-    <div className="auth fade-in">
-      <section className="auth-pitch">
+    <div className="auth enter-stagger">
+      <section className="auth-pitch" style={{ "--i": 0 } as React.CSSProperties}>
         <p className="eyebrow">recording → midi → engraved score</p>
 
-        <h1 className="display">
-          Notes you can read, edit, and&nbsp;<em>trust</em>.
-        </h1>
+        {/* Pre-split, because this line carries markup: a naive whitespace
+            split would lose both the non-breaking space and the emphasis. */}
+        <Reveal
+          as="h1"
+          className="display"
+          label="Notes you can read, edit, and trust."
+        >
+          {[
+            "Notes",
+            "you",
+            "can",
+            "read,",
+            "edit,",
+            <span key="trust">
+              and&nbsp;<em>trust</em>.
+            </span>,
+          ]}
+        </Reveal>
 
         <div className="auth-pitch-body">
           <p className="prose">
@@ -70,7 +86,7 @@ export function AuthScreen() {
         </div>
       </section>
 
-      <section className="auth-form-side">
+      <section className="auth-form-side" style={{ "--i": 1 } as React.CSSProperties}>
         <form className="auth-form" onSubmit={onSubmit}>
           <div className="brand brand-lg">
             <span className="serif brand-word">PTify</span>

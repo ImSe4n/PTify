@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 
 import { ApiError, listJobs } from "../api/client";
 import type { JobOut, Summary } from "../api/types";
+import { Reveal } from "../ui/Reveal";
 import { navigate } from "../router";
 
 function relative(epochSeconds: number): string {
@@ -50,16 +51,16 @@ export function HistoryScreen() {
   }, []);
 
   return (
-    <div className="page history fade-in">
-      <header className="screen-head history-head">
+    <div className="page history enter-stagger">
+      <header className="screen-head history-head" style={{ "--i": 0 } as React.CSSProperties}>
         <div>
           <p className="eyebrow">your work</p>
-          <h1 className="h1">Transcriptions.</h1>
+          <Reveal as="h1" className="h1">Transcriptions.</Reveal>
           <p className="lede">
             Finished jobs and their files expire an hour after they complete.
           </p>
         </div>
-        <button className="btn" onClick={() => navigate({ screen: "upload" })}>
+        <button className="btn" onClick={() => navigate({ screen: "upload", step: "file" })}>
           New transcription
         </button>
       </header>
@@ -71,7 +72,7 @@ export function HistoryScreen() {
       )}
 
       {jobs && jobs.length === 0 && (
-        <div className="empty">
+        <div className="empty" style={{ "--i": 1 } as React.CSSProperties}>
           <p className="h2 serif">Nothing here yet.</p>
           <p className="prose">
             Upload a piano recording and it will show up here — with the notes,
@@ -81,7 +82,7 @@ export function HistoryScreen() {
       )}
 
       {jobs && jobs.length > 0 && (
-        <ul className="job-list">
+        <ul className="job-list" style={{ "--i": 1 } as React.CSSProperties}>
           {jobs.map((job) => {
             const openable = job.state === "succeeded" || job.state === "running";
             return (

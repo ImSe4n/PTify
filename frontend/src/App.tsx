@@ -48,25 +48,25 @@ export function App() {
   // sign-in URL has nowhere to be sent back to.
   useEffect(() => {
     if (!loading && !needsAuth && route.screen === "auth") {
-      navigate({ screen: "upload" }, { replace: true });
+      navigate({ screen: "upload", step: "file" }, { replace: true });
     }
   }, [loading, needsAuth, route.screen]);
 
-  if (loading) {
-    return (
-      <>
-        <div className="grain" />
-        <div className="boot" role="status">
-          <span className="sr-only">Loading</span>
-        </div>
-      </>
-    );
-  }
+  // The curtain stays mounted for one transition after the probe resolves, so
+  // it can slide away rather than vanishing. Unmounting on `loading` alone is
+  // why this used to be a flash of nothing.
+  const [curtain, setCurtain] = useState(true);
+  useEffect(() => {
+    if (loading) return;
+    const t = setTimeout(() => setCurtain(false), 700);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   if (needsAuth) {
     return (
       <>
         <div className="grain" />
+        {curtain && <Curtain lifting={!loading} />}
         <div className="app">
           <main className="app-main">
             <AuthScreen />
@@ -79,6 +79,7 @@ export function App() {
   return (
     <>
       <div className="grain" />
+      {curtain && <Curtain lifting={!loading} />}
       <div className="app">
         <Header
           route={route}
@@ -88,7 +89,7 @@ export function App() {
 
         <main className="app-main">
           {route.screen === "auth" && <AuthScreen />}
-          {route.screen === "upload" && <UploadScreen />}
+          {route.screen === "upload" && <UploadScreen step={route.step} />}
           {route.screen === "job" && <JobScreen jobId={route.jobId} />}
           {route.screen === "sheet" && (
             <SheetScreen jobId={route.jobId} page={route.page} />
@@ -97,6 +98,19 @@ export function App() {
         </main>
       </div>
     </>
+  );
+}
+
+/** M1: the panel that covers the app until the auth probe resolves. */
+function Curtain({ lifting }: { lifting: boolean }) {
+  return (
+    <div className={`boot${lifting ? " is-lifting" : ""}`} role="status">
+      <span className="sr-only">Loading</span>
+      <span className="boot-mark" aria-hidden="true">
+        <span className="serif brand-word">PTify</span>
+        <span className="brand-dot" />
+      </span>
+    </div>
   );
 }
 
@@ -112,7 +126,7 @@ function Header({ route, theme, onToggleTheme }: HeaderProps) {
 
   return (
     <header className="app-header">
-      <button className="brand" onClick={() => navigate({ screen: "upload" })}>
+      <button className="brand" onClick={() => navigate({ screen: "upload", step: "file" })}>
         <span className="serif brand-word">PTify</span>
         <span className="brand-dot" aria-hidden="true" />
       </button>
@@ -122,7 +136,7 @@ function Header({ route, theme, onToggleTheme }: HeaderProps) {
           <button
             key={s}
             className={`nav-link${route.screen === s ? " is-active" : ""}`}
-            onClick={() => navigate({ screen: s })}
+            onClick={() => navigate(s === "upload" ? { screen: "upload", step: "file" } : { screen: "history" })}
           >
             {s === "upload" ? "New" : "Transcriptions"}
           </button>

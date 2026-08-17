@@ -143,7 +143,7 @@ export function SheetScreen({ jobId, page: wanted }: { jobId: string; page: numb
         <div className="sheet-page">
           {svg ? (
             // The SVG comes from our own Verovio render, not from user input.
-            <div className="sheet-svg" dangerouslySetInnerHTML={{ __html: svg }} />
+            <div key={page} className="sheet-svg" dangerouslySetInnerHTML={{ __html: svg }} />
           ) : (
             <div className="sheet-loading">
               <span className="sr-only">Loading page {page}</span>
