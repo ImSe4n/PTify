@@ -1,0 +1,261 @@
+{
+  "question": "Is PTify's frame head miscalibrated (same ranking, lower values) or genuinely worse (poorer ranking)?",
+  "n_tracks": 4,
+  "tracks": [
+    "ENSTDkCl-grieg_butterfly",
+    "ENSTDkAm-grieg_butterfly",
+    "ENSTDkCl-ty_maerz",
+    "ENSTDkAm-ty_maerz"
+  ],
+  "by_engine": {
+    "bytedance": {
+      "per_track": {
+        "ENSTDkCl-grieg_butterfly": {
+          "n_frames": 10000,
+          "sounding_fraction": 0.0474,
+          "activation_quantiles_all": {
+            "p1": 0.0,
+            "p5": 0.0,
+            "p10": 0.0,
+            "p25": 0.0,
+            "p50": 2e-05,
+            "p75": 0.00033,
+            "p90": 0.00226,
+            "p95": 0.02855,
+            "p99": 0.99589
+          },
+          "mean_activation_sounding": 0.781,
+          "mean_activation_silent": 0.00251,
+          "median_activation_sounding": 0.98036,
+          "median_activation_silent": 2e-05,
+          "auc": 0.9907,
+          "sounding_above_threshold": {
+            "0.1": 0.86151,
+            "0.05": 0.87742,
+            "0.02": 0.90015,
+            "0.01": 0.91919
+          }
+        },
+        "ENSTDkAm-grieg_butterfly": {
+          "n_frames": 10000,
+          "sounding_fraction": 0.0474,
+          "activation_quantiles_all": {
+            "p1": 0.0,
+            "p5": 0.0,
+            "p10": 0.0,
+            "p25": 0.0,
+            "p50": 4e-05,
+            "p75": 0.00042,
+            "p90": 0.00314,
+            "p95": 0.06665,
+            "p99": 0.99533
+          },
+          "mean_activation_sounding": 0.76622,
+          "mean_activation_silent": 0.00463,
+          "median_activation_sounding": 0.97585,
+          "median_activation_silent": 3e-05,
+          "auc": 0.99018,
+          "sounding_above_threshold": {
+            "0.1": 0.86475,
+            "0.05": 0.88738,
+            "0.02": 0.91219,
+            "0.01": 0.92753
+          }
+        },
+        "ENSTDkCl-ty_maerz": {
+          "n_frames": 14000,
+          "sounding_fraction": 0.04388,
+          "activation_quantiles_all": {
+            "p1": 0.0,
+            "p5": 0.0,
+            "p10": 0.0,
+            "p25": 0.0,
+            "p50": 0.0,
+            "p75": 0.00012,
+            "p90": 0.00126,
+            "p95": 0.01908,
+            "p99": 0.99548
+          },
+          "mean_activation_sounding": 0.7887,
+          "mean_activation_silent": 0.00267,
+          "median_activation_sounding": 0.97443,
+          "median_activation_silent": 0.0,
+          "auc": 0.98953,
+          "sounding_above_threshold": {
+            "0.1": 0.8604,
+            "0.05": 0.87686,
+            "0.02": 0.89462,
+            "0.01": 0.91091
+          }
+        },
+        "ENSTDkAm-ty_maerz": {
+          "n_frames": 14000,
+          "sounding_fraction": 0.04387,
+          "activation_quantiles_all": {
+            "p1": 0.0,
+            "p5": 0.0,
+            "p10": 0.0,
+            "p25": 0.0,
+            "p50": 1e-05,
+            "p75": 0.00015,
+            "p90": 0.00205,
+            "p95": 0.05938,
+            "p99": 0.99343
+          },
+          "mean_activation_sounding": 0.75236,
+          "mean_activation_silent": 0.00603,
+          "median_activation_sounding": 0.96686,
+          "median_activation_silent": 0.0,
+          "auc": 0.98358,
+          "sounding_above_threshold": {
+            "0.1": 0.83302,
+            "0.05": 0.84388,
+            "0.02": 0.8607,
+            "0.01": 0.87282
+          }
+        }
+      },
+      "mean": {
+        "n_frames": 12000.0,
+        "sounding_fraction": 0.04564,
+        "mean_activation_sounding": 0.77207,
+        "mean_activation_silent": 0.00396,
+        "median_activation_sounding": 0.97437,
+        "median_activation_silent": 1e-05,
+        "auc": 0.9885
+      }
+    },
+    "ptify": {
+      "per_track": {
+        "ENSTDkCl-grieg_butterfly": {
+          "n_frames": 10000,
+          "sounding_fraction": 0.0474,
+          "activation_quantiles_all": {
+            "p1": 0.0,
+            "p5": 0.0,
+            "p10": 0.0,
+            "p25": 0.0,
+            "p50": 4e-05,
+            "p75": 0.00047,
+            "p90": 0.00236,
+            "p95": 0.00982,
+            "p99": 0.74985
+          },
+          "mean_activation_sounding": 0.28714,
+          "mean_activation_silent": 0.0015,
+          "median_activation_sounding": 0.0663,
+          "median_activation_silent": 3e-05,
+          "auc": 0.97946,
+          "sounding_above_threshold": {
+            "0.1": 0.44976,
+            "0.05": 0.53595,
+            "0.02": 0.6543,
+            "0.01": 0.75233
+          }
+        },
+        "ENSTDkAm-grieg_butterfly": {
+          "n_frames": 10000,
+          "sounding_fraction": 0.0474,
+          "activation_quantiles_all": {
+            "p1": 0.0,
+            "p5": 0.0,
+            "p10": 0.0,
+            "p25": 0.0,
+            "p50": 5e-05,
+            "p75": 0.00054,
+            "p90": 0.00297,
+            "p95": 0.01552,
+            "p99": 0.76799
+          },
+          "mean_activation_sounding": 0.28715,
+          "mean_activation_silent": 0.00255,
+          "median_activation_sounding": 0.06165,
+          "median_activation_silent": 4e-05,
+          "auc": 0.97457,
+          "sounding_above_threshold": {
+            "0.1": 0.44087,
+            "0.05": 0.52828,
+            "0.02": 0.65382,
+            "0.01": 0.75206
+          }
+        },
+        "ENSTDkCl-ty_maerz": {
+          "n_frames": 14000,
+          "sounding_fraction": 0.04388,
+          "activation_quantiles_all": {
+            "p1": 0.0,
+            "p5": 0.0,
+            "p10": 0.0,
+            "p25": 0.0,
+            "p50": 2e-05,
+            "p75": 0.00046,
+            "p90": 0.00417,
+            "p95": 0.03009,
+            "p99": 0.94229
+          },
+          "mean_activation_sounding": 0.55066,
+          "mean_activation_silent": 0.00258,
+          "median_activation_sounding": 0.64565,
+          "median_activation_silent": 2e-05,
+          "auc": 0.9839,
+          "sounding_above_threshold": {
+            "0.1": 0.77445,
+            "0.05": 0.81835,
+            "0.02": 0.86169,
+            "0.01": 0.89071
+          }
+        },
+        "ENSTDkAm-ty_maerz": {
+          "n_frames": 14000,
+          "sounding_fraction": 0.04387,
+          "activation_quantiles_all": {
+            "p1": 0.0,
+            "p5": 0.0,
+            "p10": 0.0,
+            "p25": 0.0,
+            "p50": 2e-05,
+            "p75": 0.00042,
+            "p90": 0.00391,
+            "p95": 0.03504,
+            "p99": 0.9433
+          },
+          "mean_activation_sounding": 0.53635,
+          "mean_activation_silent": 0.00345,
+          "median_activation_sounding": 0.61375,
+          "median_activation_silent": 1e-05,
+          "auc": 0.97622,
+          "sounding_above_threshold": {
+            "0.1": 0.74842,
+            "0.05": 0.78685,
+            "0.02": 0.82525,
+            "0.01": 0.8524
+          }
+        }
+      },
+      "mean": {
+        "n_frames": 12000.0,
+        "sounding_fraction": 0.04564,
+        "mean_activation_sounding": 0.41532,
+        "mean_activation_silent": 0.00252,
+        "median_activation_sounding": 0.34684,
+        "median_activation_silent": 3e-05,
+        "auc": 0.97854
+      }
+    }
+  },
+  "interpretation": {
+    "auc_delta_ptify_minus_bytedance": -0.00996,
+    "median_sounding_activation_delta": -0.62753,
+    "level_loss_over_ranking_loss": 63.0,
+    "verdict": "CALIBRATION. PTify's frame head still SEPARATES sounding from silent frames almost as well as ByteDance's (AUC -0.0100), while its activation LEVEL collapsed (-0.6275 on the median sounding frame) -- a 63x larger effect. The ranking is intact and the scale is not, so a fixed frame_threshold cuts in the wrong place on a curve that is still the right shape.\n\n    What follows for the next training run: weighting the frame LOSS up would train harder on a quantity that already improved (validation frame BCE fell 25.9% in 16b, the best of the four heads). The lever is the decode threshold or an output normalisation, not more gradient on this term.\n\n    Check the per-track rows before generalising: the shift is strongly repertoire-dependent, and a per-engine constant cannot follow that."
+  },
+  "environment": {
+    "inference_threads": 8,
+    "device": "unknown",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.5",
+    "torch": "2.2.2+cpu",
+    "numpy": "1.26.4",
+    "git_commit": "6b2cc73"
+  }
+}
