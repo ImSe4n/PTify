@@ -638,6 +638,126 @@
 .roll-duration {
   font-size: var(--fs-body);
 }
+
+/* --- transport ---------------------------------------------------------- */
+
+/* A control surface, so it earns an entrance -- but only one, and only here.
+   Everything else on this screen is functional motion. */
+.transport {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: var(--rule-width) solid var(--rule);
+  background: var(--panel);
+  animation: transport-in var(--dur-slow) var(--ease-out-expo) both;
+}
+@keyframes transport-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.transport-play {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    transform var(--dur-tap) var(--ease);
+}
+.transport-play:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.transport-play:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.transport-play:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.transport-clock {
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+  min-width: 8ch;
+}
+.transport-clock-total {
+  color: var(--faint);
+}
+
+.transport-track {
+  position: relative;
+  flex: 1;
+  height: 18px;
+  cursor: pointer;
+  touch-action: none;
+}
+/* The bar itself is a hairline; the 18px above is the hit target. */
+.transport-track::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--rule);
+}
+.transport-fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  /* No transition: this is written every frame from the audio clock, and a
+     transition would make it chase a position it never reaches. */
+  will-change: transform;
+}
+.transport-track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.transport-note {
+  font-size: var(--fs-micro);
+  color: var(--faint);
+  flex: none;
+}
+.transport-hint-keys {
+  color: var(--muted);
+}
+.transport-warn {
+  color: var(--sepia);
+}
+
+@media (max-width: 720px) {
+  .transport-note {
+    display: none;
+  }
+}
 .roll-zoom-label,
 .roll-zoom-value {
   font-size: var(--fs-micro);
@@ -692,6 +812,71 @@
   background: var(--accent);
   pointer-events: none;
   will-change: transform;
+}
+
+/* --- falling notes ------------------------------------------------------ */
+
+.falling-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  /* The note field is taller than the pane and moves through it; without this
+     it would paint over the toolbar and the legend. */
+  overflow: hidden;
+}
+.falling-field {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  cursor: crosshair;
+}
+.falling-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  /* Moved by transform every frame, never repainted during playback. */
+  will-change: transform;
+}
+.falling-keys {
+  display: block;
+  flex: none;
+  /* Sits above the falling field so notes disappear behind the keys. */
+  position: relative;
+  z-index: 2;
+}
+
+/* --- view toggle -------------------------------------------------------- */
+
+.view-toggle {
+  display: flex;
+  border: var(--rule-width) solid var(--rule-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.view-toggle button {
+  padding: var(--sp-1) var(--sp-3);
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.04em;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.view-toggle button:hover {
+  color: var(--ink);
+}
+.view-toggle button.is-active {
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .roll-legend {

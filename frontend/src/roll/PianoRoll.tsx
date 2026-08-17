@@ -19,7 +19,7 @@
  * data does not have.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Note, Summary } from "../api/types";
 
 /** Vertical pixels per semitone. */
@@ -64,15 +64,45 @@ function markEstimated(notes: Note[], pedals: Summary["pedals"]): boolean[] {
   });
 }
 
+/**
+ * A stream of playhead positions.
+ *
+ * The playhead is driven by subscription rather than by a prop, because the
+ * prop path would mean a React render per frame. See audio/usePlayback.ts.
+ */
+export interface PositionSource {
+  subscribe(cb: (seconds: number) => void): () => void;
+  read(): number;
+}
+
 export interface PianoRollProps {
   summary: Summary;
   zoom: number;
-  /** Current playhead position in seconds. */
+  /** Current playhead position in seconds. Static; use positionSource to animate. */
   position?: number;
+  /** Live positions during playback. Takes precedence over `position`. */
+  positionSource?: PositionSource;
+  /** Whether to keep the playhead in view. */
+  follow?: boolean;
   onSeek?: (seconds: number) => void;
 }
 
-export function PianoRoll({ summary, zoom, position = 0, onSeek }: PianoRollProps) {
+/** Scroll when the playhead passes this fraction of the visible width... */
+const FOLLOW_TRIGGER = 0.75;
+/** ...and put it here afterwards. Not centred: a permanently centred playhead
+    means the canvas never stops moving, which is exhausting to read against. */
+const FOLLOW_LAND = 0.35;
+/** How long to leave the user alone after they scroll by hand. */
+const FOLLOW_YIELD_MS = 2500;
+
+export function PianoRoll({
+  summary,
+  zoom,
+  position = 0,
+  positionSource,
+  follow = false,
+  onSeek,
+}: PianoRollProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rollRef = useRef<HTMLCanvasElement>(null);
@@ -252,12 +282,70 @@ export function PianoRoll({ summary, zoom, position = 0, onSeek }: PianoRollProp
     k.stroke();
   }, [summary, estimated, lo, hi, pps, width, height, themeTick]);
 
+  // `pps` changes when the user zooms. The subscription below outlives that,
+  // so reading it from a ref is what keeps a zoom mid-playback from leaving the
+  // playhead behind at the old scale -- the classic stale-closure bug.
+  const ppsRef = useRef(pps);
+  ppsRef.current = pps;
+
   // The playhead is a transformed div, never a canvas redraw -- moving it must
   // not cost a repaint of several thousand rectangles.
-  useEffect(() => {
+  const paintPlayhead = useCallback((seconds: number) => {
     const el = playheadRef.current;
-    if (el) el.style.transform = `translateX(${position * pps}px)`;
-  }, [position, pps]);
+    if (el) el.style.transform = `translateX(${seconds * ppsRef.current}px)`;
+  }, []);
+
+  // Repaint on a scale change. Without this a zoom while PAUSED leaves the
+  // playhead at the old pixel position -- the live path only repaints on the
+  // next frame of playback, and while paused there is no next frame.
+  useEffect(() => {
+    paintPlayhead(positionSource ? positionSource.read() : position);
+  }, [position, pps, positionSource, paintPlayhead]);
+
+  // Live positions. This is the 60fps path and it never re-renders React.
+  useEffect(() => {
+    if (!positionSource) return;
+    return positionSource.subscribe(paintPlayhead);
+  }, [positionSource, paintPlayhead]);
+
+  // Scroll-follow.
+  useEffect(() => {
+    if (!positionSource || !follow) return;
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+
+    let yieldUntil = 0;
+    // Listen for INPUT, never for `scroll`: our own scrollLeft writes fire
+    // scroll events, so reading those as "the user moved" would suppress
+    // following forever after the first automatic scroll.
+    const yieldToUser = () => {
+      yieldUntil = performance.now() + FOLLOW_YIELD_MS;
+    };
+    for (const ev of ["wheel", "touchstart", "pointerdown"] as const) {
+      scroller.addEventListener(ev, yieldToUser, { passive: true });
+    }
+
+    const unsubscribe = positionSource.subscribe((seconds) => {
+      if (performance.now() < yieldUntil) return;
+
+      const x = seconds * ppsRef.current;
+      const view = scroller.clientWidth;
+      const left = scroller.scrollLeft;
+
+      if (x < left || x > left + view * FOLLOW_TRIGGER) {
+        // scrollLeft ONLY. `.roll-scroll` scrolls both axes and the vertical
+        // position is the user's pitch view -- taking it would be hostile.
+        scroller.scrollLeft = Math.max(0, x - view * FOLLOW_LAND);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      for (const ev of ["wheel", "touchstart", "pointerdown"] as const) {
+        scroller.removeEventListener(ev, yieldToUser);
+      }
+    };
+  }, [positionSource, follow]);
 
   const handleClick = (ev: React.MouseEvent<HTMLCanvasElement>) => {
     if (!onSeek) return;

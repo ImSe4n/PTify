@@ -63,10 +63,31 @@
   --radius-pill: 999px;
 
   --rule-width: 1px;
+
+  /* --- motion ------------------------------------------------------------
+     The ladder is deliberately uneven for the same reason the type scale is:
+     four evenly-spaced durations are the motion equivalent of a flat type
+     scale. 120/220/420 already steps by ~1.9x, so 640 continues that geometry
+     and 90 undercuts it -- jumping hard at the top, tight at the bottom.
+
+     (The sphericalwaves reference runs 300/400/500/600, which IS mechanically
+     even. This is a place to be better than the reference, not faithful to it.)
+
+     --ease-out-expo is for ENTRANCES only. It spends its budget at the tail,
+     which reads as arriving; on a hover -- which has to confirm inside ~150ms
+     -- the same curve just feels sluggish. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-in-cubic: cubic-bezier(0.55, 0.055, 0.675, 0.19);
+  --dur-tap: 90ms;
   --dur-fast: 120ms;
   --dur: 220ms;
   --dur-slow: 420ms;
+  --dur-entrance: 640ms;
+  /* One word of a staggered heading to the next. 42ms across eight words is
+     ~340ms of spread: long enough to read as a sweep, short enough that the
+     last word is not embarrassingly late. */
+  --stagger: 42ms;
 
   --measure: 68ch;
   --page-max: 1180px;
@@ -173,6 +194,11 @@
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+    /* Zeroing the DURATION alone is not enough for anything staggered: the
+       delays survive, so a word-by-word reveal degrades into words POPPING in
+       sequence -- more distracting than the animation it was meant to spare. */
+    transition-delay: 0ms !important;
   }
 }
