@@ -1934,6 +1934,33 @@ ever silently returned nothing, every detector would score 0.0 and read as a
 detector failure — `test_a_realised_trill_is_detected_at_every_tempo` guards
 exactly that.
 
+### "Fully in-house models" — costed, and the answer is not compute
+
+`docs/from-scratch.md` is the written assessment. The short version, because it
+inverts the obvious expectation:
+
+- **Compute is affordable.** ByteDance trained 200k iterations at batch 12 in
+  4 days on one V100 ([paper](https://arxiv.org/abs/2010.01815)). At this
+  project's measured 0.280 steps/s on a T4 that is **~298 GPU-hours ≈ 10 weeks
+  of free Kaggle quota** — a project, not a research programme. **Phase 16b
+  spent 2.2% of that**, so the current model is not undertrained by a little.
+- **Licensing is the blocker, and training from scratch does not fix it.**
+  MAESTRO is CC BY-NC-SA, so a from-scratch model trained on it is *more*
+  in-house and **no more commercially usable**. Every aligned audio+MIDI piano
+  corpus of consequence is non-commercial.
+- **ASAP is a trap.** Widely described as CC BY 4.0; its repository says
+  CC BY-NC-SA 4.0 **and its audio is downloaded from MAESTRO**. Using it
+  re-imports the licence it appears to avoid.
+- **Whether share-alike reaches trained weights is unsettled** — MAESTRO's
+  licence says nothing about models, and ByteDance released MAESTRO-trained
+  weights under Apache 2.0 with no share-alike claim. That is a legal question
+  and it may be answerable without a single GPU-hour.
+- **The one route worth probing** is MIDI-only permissive data (GiantMIDI-Piano)
+  rendered through `evaluation/synth.py`, which this project already owns. But
+  §6 records that synthetic audio moves the engines in *opposite* directions
+  from real audio, so treat it as pretraining and **measure it with a ~10h probe
+  before spending 300**.
+
 ### PHASE 22 SUPERSEDES THE SECTION BELOW. Read this first.
 
 The section that follows says the next training run should **weight the frame

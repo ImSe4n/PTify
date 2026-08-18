@@ -368,6 +368,14 @@ The weights are **CC BY-NC-SA 4.0** (research and non-commercial): they are
 fine-tuned from ByteDance's Apache-2.0 checkpoint on MAESTRO, which carries a
 share-alike term. The code in this repository stays MIT.
 
+That is the **conservative** reading and is deliberately the published one.
+Whether share-alike actually reaches trained *weights* is unsettled — MAESTRO's
+licence says nothing about models, and ByteDance released MAESTRO-trained
+weights under Apache 2.0 with no share-alike claim. See
+[`docs/from-scratch.md`](docs/from-scratch.md), which also costs out what a
+genuinely from-scratch model would take (**~298 GPU-hours — affordable; the
+blocker is licence-clean data, not compute**).
+
 Both scored 8/8 on a real C major scale recording, with onsets agreeing to
 within ~10ms. The difference showed in velocity: ByteDance reported 47-54
 (actual playing dynamics), Basic Pitch a flat ~120.
