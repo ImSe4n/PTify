@@ -1,0 +1,198 @@
+{
+  "generated_by": "python -m tools.precision_review",
+  "reads_only_committed_reports": true,
+  "runs_inference": false,
+  "overall": [
+    {
+      "engine": "ByteDance",
+      "corpus": "MAPS paired",
+      "source": "benchmarks/real/maps-paired-bytedance-clean.json",
+      "n_tracks": 14,
+      "onset_p": 0.7435,
+      "onset_r": 0.8373,
+      "onset_f1": 0.7866,
+      "n_ref": 30356,
+      "n_est": 33598,
+      "invented": 7093,
+      "missed": 3851,
+      "note_surplus": 1.1068
+    },
+    {
+      "engine": "PTify 16b",
+      "corpus": "MAPS paired",
+      "source": "benchmarks/real/maps-paired-ptify17-clean.json",
+      "n_tracks": 14,
+      "onset_p": 0.8355,
+      "onset_r": 0.8438,
+      "onset_f1": 0.8395,
+      "n_ref": 30356,
+      "n_est": 30917,
+      "invented": 4449,
+      "missed": 3888,
+      "note_surplus": 1.0185
+    },
+    {
+      "engine": "ByteDance",
+      "corpus": "MAESTRO test12",
+      "source": "benchmarks/real/bytedance-clean.json",
+      "n_tracks": 12,
+      "onset_p": 0.981,
+      "onset_r": 0.9579,
+      "onset_f1": 0.9693,
+      "n_ref": 52478,
+      "n_est": 51096,
+      "invented": 994,
+      "missed": 2376,
+      "note_surplus": 0.9737
+    },
+    {
+      "engine": "PTify 16b",
+      "corpus": "MAESTRO test12",
+      "source": "benchmarks/real/maestro-ptify-clean.json",
+      "n_tracks": 12,
+      "onset_p": 0.978,
+      "onset_r": 0.9492,
+      "onset_f1": 0.9633,
+      "n_ref": 52478,
+      "n_est": 50762,
+      "invented": 1176,
+      "missed": 2892,
+      "note_surplus": 0.9673
+    },
+    {
+      "engine": "Basic Pitch",
+      "corpus": "MAPS disklavier",
+      "source": "benchmarks/real/maps-basicpitch-clean.json",
+      "n_tracks": 60,
+      "onset_p": 0.7484,
+      "onset_r": 0.7111,
+      "onset_f1": 0.7266,
+      "n_ref": 154352,
+      "n_est": 140625,
+      "invented": 33075,
+      "missed": 46802,
+      "note_surplus": 0.9111
+    },
+    {
+      "engine": "Basic Pitch",
+      "corpus": "MAESTRO test12",
+      "source": "benchmarks/real/basicpitch-clean.json",
+      "n_tracks": 12,
+      "onset_p": 0.7443,
+      "onset_r": 0.7231,
+      "onset_f1": 0.73,
+      "n_ref": 52478,
+      "n_est": 49807,
+      "invented": 13061,
+      "missed": 15732,
+      "note_surplus": 0.9491
+    }
+  ],
+  "maps_paired_by_mic_distance": [
+    {
+      "engine": "ByteDance",
+      "mic_distance": "close (~50cm)",
+      "source": "benchmarks/real/maps-paired-bytedance-clean.json",
+      "n_tracks": 7,
+      "onset_p": 0.8257,
+      "onset_r": 0.8781,
+      "onset_f1": 0.851,
+      "n_ref": 15178,
+      "n_est": 15936,
+      "invented": 2414,
+      "missed": 1656,
+      "note_surplus": 1.0499
+    },
+    {
+      "engine": "ByteDance",
+      "mic_distance": "ambient (3-4m)",
+      "source": "benchmarks/real/maps-paired-bytedance-clean.json",
+      "n_tracks": 7,
+      "onset_p": 0.6613,
+      "onset_r": 0.7965,
+      "onset_f1": 0.7222,
+      "n_ref": 15178,
+      "n_est": 17662,
+      "invented": 4679,
+      "missed": 2195,
+      "note_surplus": 1.1637
+    },
+    {
+      "engine": "PTify 16b",
+      "mic_distance": "close (~50cm)",
+      "source": "benchmarks/real/maps-paired-ptify17-clean.json",
+      "n_tracks": 7,
+      "onset_p": 0.8778,
+      "onset_r": 0.878,
+      "onset_f1": 0.8778,
+      "n_ref": 15178,
+      "n_est": 15209,
+      "invented": 1752,
+      "missed": 1721,
+      "note_surplus": 1.002
+    },
+    {
+      "engine": "PTify 16b",
+      "mic_distance": "ambient (3-4m)",
+      "source": "benchmarks/real/maps-paired-ptify17-clean.json",
+      "n_tracks": 7,
+      "onset_p": 0.7932,
+      "onset_r": 0.8096,
+      "onset_f1": 0.8012,
+      "n_ref": 15178,
+      "n_est": 15708,
+      "invented": 2697,
+      "missed": 2167,
+      "note_surplus": 1.0349
+    }
+  ],
+  "missing_sources": [],
+  "interpretation": {
+    "the_16b_gain_is_a_precision_gain": {
+      "onset_f1_delta": 0.0529,
+      "precision_delta": 0.092,
+      "recall_delta": 0.0065,
+      "invented_notes": {
+        "bytedance": 7093,
+        "ptify": 4449
+      },
+      "missed_notes": {
+        "bytedance": 3851,
+        "ptify": 3888
+      },
+      "reading": "The published +5.3 onset F1 is almost entirely a reduction in INVENTED notes. Recall barely moved, and missed notes did not improve at all."
+    },
+    "the_effect_is_acoustic_not_intrinsic": {
+      "maps": {
+        "onset_p": 0.7435,
+        "onset_r": 0.8373,
+        "note_surplus": 1.1068
+      },
+      "maestro": {
+        "onset_p": 0.981,
+        "onset_r": 0.9579,
+        "note_surplus": 0.9737
+      },
+      "reading": "On MAESTRO -- ByteDance's own training distribution -- the direction reverses: precision exceeds recall and the model emits FEWER notes than exist. So over-generation is what unfamiliar rooms and pianos do to this model, not something it does everywhere."
+    },
+    "room_acoustics_cost_precision_not_recall": {
+      "precision_drop": 0.1644,
+      "recall_drop": 0.0816,
+      "notes_emitted": {
+        "close": 15936,
+        "ambient": 17662
+      },
+      "reference_notes": 15178,
+      "reading": "Identical performances and identical reference notes at two mic distances. Reverb makes the model INVENT notes rather than miss them, so the room penalty is a precision problem."
+    }
+  },
+  "environment": {
+    "inference_threads": 8,
+    "device": "unknown",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.5",
+    "torch": "2.2.2+cpu",
+    "numpy": "1.26.4",
+    "git_commit": "6139c27"
+  }
+}

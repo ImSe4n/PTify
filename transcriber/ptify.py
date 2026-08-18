@@ -193,11 +193,25 @@ class PtifyEngine(TranscriptionEngine):
             config.PTIFY_FRAME_THRESHOLD if frame_threshold is None
             else float(frame_threshold)
         )
-        self._onset_threshold = onset_threshold
+        # Resolved HERE, not left as None for the inner engine to default.
+        # `None` used to be passed straight through, which was harmless only
+        # while both engines shared one onset value. Phase 22 measured them
+        # apart (0.6 here, 0.7 for bytedance), so passing None would now hand
+        # ptify ByteDance's threshold -- costing 4 of 6 MAPS tracks, up to
+        # -0.0117. Exactly the failure mode the frame_threshold comment above
+        # describes, arriving on the other axis the moment it was measured.
+        self._onset_threshold = (
+            config.PTIFY_ONSET_THRESHOLD if onset_threshold is None
+            else float(onset_threshold)
+        )
 
     @property
     def frame_threshold(self) -> float:
         return self._frame_threshold
+
+    @property
+    def onset_threshold(self) -> float:
+        return self._onset_threshold
 
     @property
     def name(self) -> str:

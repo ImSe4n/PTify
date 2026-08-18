@@ -124,11 +124,26 @@ def rows_from_json(path: str | Path) -> list[BenchmarkRow]:
     summary tables as a fresh run: the resumed rows are indistinguishable from
     freshly computed ones.
 
-    Precision and recall are not stored separately for offset/velocity, so
-    they are reconstructed from their F1 — the report tables only ever read
-    the F1 fields, and storing derived duplicates invites them to disagree.
+    ONSET precision and recall round-trip exactly — they are stored as
+    `onset_p` / `onset_r` and are the numbers this project reads.
+
+    OFFSET and VELOCITY precision/recall are NOT stored, and are restored as
+    **NaN rather than as their F1**. The previous version copied the F1 into
+    both, which produces a plausible number that is silently wrong: an offset
+    F1 of 0.607 would come back claiming precision 0.607 and recall 0.607, and
+    the true pair could be anything that averages there. Nothing read those
+    fields, so it cost nothing — but "nothing reads it yet" is exactly the
+    condition under which a wrong number waits. NaN propagates visibly and
+    compares false against every threshold, so the first code to depend on it
+    fails loudly instead of quoting a fabrication. See HANDOFF section 4 on
+    numbers that cannot be interpreted being worse than absent ones.
     """
+    import math
+
     from .metrics import ScoreResult
+
+    #: Not stored in the report, so not knowable from it.
+    UNSTORED = math.nan
 
     data = load_json(path)
     rows = []
@@ -143,11 +158,11 @@ def rows_from_json(path: str | Path) -> list[BenchmarkRow]:
             onset_precision=record.get("onset_p", 0.0),
             onset_recall=record.get("onset_r", 0.0),
             onset_f1=record.get("onset_f1", 0.0),
-            offset_precision=record.get("offset_f1", 0.0),
-            offset_recall=record.get("offset_f1", 0.0),
+            offset_precision=UNSTORED,
+            offset_recall=UNSTORED,
             offset_f1=record.get("offset_f1", 0.0),
-            velocity_precision=vel or 0.0,
-            velocity_recall=vel or 0.0,
+            velocity_precision=UNSTORED,
+            velocity_recall=UNSTORED,
             velocity_f1=vel or 0.0,
             n_reference=record.get("n_ref", 0),
             n_estimated=record.get("n_est", 0),

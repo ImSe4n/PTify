@@ -11,10 +11,43 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 9 — inference runs on a GPU. 55.8s -> 5.2s (10.7x) on a 25s clip, $0.00133/clip.** |
-| **Branch** | `phase-7-playback-and-motion`, off `phase-6-frontend` |
-| **Tests** | 1065 Python, ~2 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
-| **Next** | **The model track** — the frame-head regression (needs the GPU §9 just unlocked) and trill F1 0.337 (symbolic, no GPU). Finish 9f first: the frontend engine picker is unverified in a browser. |
+| **Last completed** | **Phase 22 — `ONSET_THRESHOLD` 0.3 -> 0.7 (+2.4 mean F1, free). The garbage-note problem was already measured and never printed.** |
+| **Branch** | `phase-22-precision`, off `phase-9-gpu-host` |
+| **Tests** | 1125 Python, ~1 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
+| **Next** | Sweep `onset_threshold` for **ptify** (still on ByteDance's value), re-score the MAPS baselines at the new threshold, then the training run — aimed at **calibration**, not at weighting the frame loss. See §9. |
+
+**READ THIS BEFORE PLANNING THE NEXT TRAINING RUN.** Phase 22 overturned two
+conclusions this file previously asserted:
+
+1. **"The frame head is the second run's target, weight its loss up."** That
+   rested on the TRAINING loss (frame −16.3%, worst of four). The VALIDATION
+   loss in the same log says frame fell **25.9%, the best of four**, and the
+   per-step training noise is σ = 0.0111 — larger than the movement it was
+   inferred from. Measured directly, PTify's frame head has **essentially
+   ByteDance's AUC with its activation level 0.63 lower**: the level moved
+   **63x more than the ranking**. It is miscalibrated, not undertrained.
+   `benchmarks/frame-activation-analysis.json`.
+2. **`--engine remote` scored ByteDance no matter which engine was asked for.**
+   Fixed; see §9.
+
+**Phase 22 in one paragraph.** The whole finding was already in the repository
+and had never been printed: precision and recall are computed on every run and
+stored in every committed report as `onset_p`/`onset_r`, `BenchmarkRow.extra`
+counts *"notes the engine invented"*, and `format_table` displayed **F1 alone**.
+Read out, ByteDance's MAPS failure is **hallucination, not deafness** — P 0.744
+against R 0.837, **7,093 invented notes**, 10.7% more notes than the piece
+contains — and Phase 16b's published +5.3 was a **37% cut in invented notes**
+(P +9.2, R +0.7), which no table could show. That made the untested parameter
+obvious: `frame_threshold` provably cannot change the note count (identical n at
+every row of Phase 19's sweep), while **`ONSET_THRESHOLD` had never been swept
+at all** and is the only knob that can. Measured over 6 tracks it wants **0.7,
+not 0.3** — mean F1 0.8407 → **0.8646**, free, no retraining, 5 of 6 tracks
+improving and ~2x more on ambient than close-mic. Three things had to be fixed
+to trust it: the grid was extended to 0.95 to prove 0.7 is an interior optimum
+rather than a grid edge; the selection rule was changed to regret against **each
+track's own peak** (the old "maximise the worst track" picked 0.8, past peak on
+four of six, because it really tracks intrinsic difficulty); and a display test
+that passed against deliberately broken code was rewritten.
 
 **Phase 7-8 in one paragraph.** The frontend got a hash router (a transcription
 now has a URL), playback through a sampled piano on the WebAudio clock, a
@@ -437,6 +470,106 @@ and `COMPARE_ENGINES` (see the §4 trap).
 
 Each of these cost real debugging time. They are non-obvious and will recur.
 
+**`!cmd {VAR}` IS THE CORRECT IPYTHON FORM. `!{f"..."}` IS NOT, AND "FIXING" IT
+BREAKS A WORKING CELL.** A previous revision of this entry claimed the opposite
+and was wrong in both directions; it is kept, corrected, because the mistake is
+instructive.
+
+What actually happens, verified with IPython's own machinery rather than
+reasoned about:
+
+```python
+TransformerManager().transform_cell('!pip install git+{REPO}@{COMMIT}')
+  -> get_ipython().system('pip install git+{REPO}@{COMMIT}')
+ip.var_expand('pip install git+{REPO}@{COMMIT}')
+  -> pip install git+https://github.com/ImSe4n/PTify.git@phase-22-precision
+```
+
+`system()` expands `{VAR}` **itself**, from the user namespace. `!{f"..."}` is
+not special syntax — the braces are passed through verbatim, so the shell
+receives the literal `{fpip install ...}` and reports `command not found`.
+
+**The diagnostic error that caused this.** A Kaggle clone failed, and
+`!cmd {VAR}` was blamed without testing it. The command was fine: the branch was
+public, and the identical clone succeeded off-Kaggle. The real cause was almost
+certainly **Kaggle's internet toggle, off by default on a new notebook** — which
+makes the clone, `pip`, and the 172MB checkpoint download all fail at once.
+`-q` suppressed git's message, so the actual reason was never on screen.
+
+Three durable lessons:
+
+- **`-q` on a command whose failure you will have to diagnose is a false
+  economy**, and `|| true` next to it turns a loud failure into a confusing one
+  two cells later. Both are now gone from the clone.
+- **A guessed cause in an assertion message is worse than no message.** The
+  assertion said "check COMMIT" when COMMIT was correct, which sent the
+  investigation the wrong way. It now prints git's real error and maps each
+  message to its cause, internet toggle included.
+- **IPython behaviour is testable offline** — `pip install ipython`, then
+  `TransformerManager` and `ip.var_expand`. Doing that first would have shown
+  the original form was right in about a minute.
+
+`calibration_run.ipynb` also asserts the cloned `training/train.py` really
+contains `--init-checkpoint` and `--loss-weights`, because cloning the *wrong
+commit* is the other way this cell succeeds while leaving the run unable to
+start.
+
+**AN F1 CANNOT SAY WHICH ERROR YOU ARE MAKING, and this project hid its own
+headline for nine phases.** Precision and recall were computed from Phase 12
+onward, stored in every report (`onset_p`/`onset_r`), and never displayed —
+`format_table` printed F1 alone. So "ByteDance scores 0.787 on MAPS" was read
+for nine phases as a general accuracy drop, when the split says something
+specific and actionable: **P 0.744 / R 0.837, with 7,093 invented notes and
+10.7% more notes emitted than the piece contains.** The model hallucinates on
+unfamiliar acoustics; it does not go deaf. Phase 16b's +5.3 was a 37% cut in
+invented notes, not a general uplift.
+
+The generalisation: **a summary statistic that averages two opposite failure
+modes will hide whichever one you are actually suffering from.** Print the
+components. The data cost nothing extra — it was already on disk.
+
+**A DISPLAY TEST CAN PASS AGAINST CODE WITH THE DISPLAY DELETED.** The first
+version of `test_the_per_case_table_shows_precision_and_recall` asserted
+`"0.744" in output` over a **one-row** table. The MEAN line carries the same
+figures as the only case line, so removing the per-case columns entirely still
+passed — verified by doing it. Fixed by using two rows with distinct values and
+matching on the named line. Same shape as "a test on the producer is not a test
+on the consumer": **if a test's subject appears more than once in the output,
+a substring search does not test what you think.**
+
+**A THRESHOLD SWEEP THAT STOPS WHILE THE CURVE IS STILL RISING HAS NOT FOUND AN
+OPTIMUM.** The first `onset_threshold` sweep ran 0.2–0.7 and F1 rose at every
+step, ending highest at the grid's edge — which reads as "0.7 is best" and
+actually means "the grid stopped". Extended to 0.95, F1 peaks at 0.7 and
+**collapses** above 0.8 (0.49 at 0.9) as recall falls away. The extension is
+what turned an edge value into a measured interior optimum. Always sweep past
+the apparent best until the metric turns.
+
+**"MAXIMISE THE WORST TRACK'S SCORE" IS NOT WORST-CASE REGRET, and it picks the
+wrong value.** Tracks differ in intrinsic difficulty (0.80 to 0.94 here), so a
+hard track sits below an easy one at *every* setting and that rule mostly
+tracks whichever cell suits the hardest track — it chose `onset_threshold` 0.8,
+which is **past peak on four of six tracks** and 0.018 below the best mean.
+Regret has to be measured against **each track's own best cell**: "how much
+worse than what this track could have had". That picks 0.7, agreeing with the
+mean. `tools/calibrate_thresholds.py` reports all three rules and says so when
+they disagree, because the disagreement is the finding.
+
+**A VERDICT DECIDED BY 4e-5 IS A COIN TOSS WEARING A CONCLUSION'S CLOTHES.**
+`frame_activation_analysis` classified miscalibration-vs-degradation on
+`auc_delta > -0.01`, and the real data landed at **−0.00996** — inside the
+cutoff by four parts in a hundred thousand, on a measurement that decides a
+~10h GPU run. Rewritten to compare the two effects' *relative* size (the
+activation level moved **63x** more than the ranking did), which is what
+actually distinguishes the hypotheses and does not balance on a boundary.
+
+**A CONSTANT'S VALUE IS ASSERTED IN FILES THAT ARE NOT ABOUT IT.** Six tests in
+`tests/test_remote_engine.py` hardcoded `onset_threshold: 0.3` in a wire-format
+fixture, so measuring the constant broke six tests about bearer headers and
+progress callbacks. `_verify_echo` is right to refuse a mismatched echo — the
+fixture was making an assertion about `config.py` from a file about HTTP. Read
+tuning constants from `config` in fixtures, never inline them.
+
 **The MIDI artifact and the roll payload are in DIFFERENT TIME BASES, and both
 are correct.** When a job requests any notation format, `api/pipeline.py:264-273`
 exports the **quantised** notes so the MIDI matches the engraved page.
@@ -697,6 +830,21 @@ Three things follow, all of which cost time to work out:
   model's duration accuracy. They were left as-is — re-running is ~4.4h to
   restate a known-superseded number — but **do not compare a new `+offset`
   against them.** Onset numbers are unaffected and remain comparable.
+
+**PHASE 22 ADDS A SECOND, WIDER CAVEAT, AND IT DOES HIT ONSET NUMBERS.** Every
+committed baseline was scored at `ONSET_THRESHOLD = 0.3`; the measured value is
+now **0.7**. Unlike the frame threshold — which provably cannot change the note
+count — this is the parameter that decides *whether a note exists*, so the
+sentence directly above ("onset numbers are unaffected") is true of the frame
+recalibration and **false of this one**. On the 6 swept tracks ByteDance's mean
+onset F1 goes **0.8407 → 0.8646** and its note count 26,582 → 22,650.
+
+Nothing was re-scored in Phase 22 (~1.8h per engine per corpus on CPU), so
+**`benchmarks/real/*.json` now understate both engines.** They stay honest
+records of how they were produced and they still key-join — but a new run must
+be diffed against a baseline re-scored at the same threshold, never against
+these. Re-scoring is the first item in §1's "Next", and `--engine remote` makes
+it ~10x cheaper once the host is redeployed.
 
 **A threshold tuned on ONE track picks the wrong value.** The four calibration
 tracks disagree, and `scn15_11` reverses direction entirely — it peaks at 0.07
@@ -1208,6 +1356,51 @@ measurements that produced them. Three are load-bearing:
   `python -m tools.calibrate_frame_threshold --audio-dir <dir> --engine ptify`;
   `benchmarks/frame-threshold-calibration.json` is the artifact. **Re-run it
   after any retraining** — a new frame head invalidates the number.
+- **`ONSET_THRESHOLD = 0.7`** (Phase 22) — **was 0.3, the library default, and
+  had never been measured at all.** It decides *whether a note exists*, so it is
+  the only decode parameter that moves precision; `frame_threshold` decides
+  where a note *ends* and provably cannot change the note count. Swept over 6
+  MAPS tracks (3 close / 3 ambient, 24,322 reference notes):
+
+  | onset_thr | mean F1 | regret | mean P | mean R | notes |
+  |---|---|---|---|---|---|
+  | 0.3 (library) | 0.8407 | 0.0517 | 0.8039 | 0.8825 | 26,582 |
+  | 0.5 | 0.8581 | 0.0240 | 0.8441 | 0.8734 | 24,725 |
+  | **0.7 (chosen)** | **0.8646** | **0.0106** | **0.8800** | 0.8510 | 22,650 |
+  | 0.8 | 0.8468 | 0.0512 | 0.9033 | 0.8001 | 20,084 |
+  | 0.9 | 0.4930 | 0.5404 | 0.9455 | 0.3501 | 7,323 |
+
+  **+2.4 mean F1 for free**, no retraining. 5 of 6 tracks improve; the sixth
+  (`ENSTDkCl-liz_rhap09`, the densest at 8,556 notes) loses 0.0007. The gain is
+  ~2x larger on ambient than close-mic, which is what identifies reverb-induced
+  false positives as the thing removed. `regret` is measured against each
+  track's own peak — see the §4 trap on why "maximise the worst track" picks
+  0.8 instead and is wrong. Artifact:
+  `benchmarks/threshold-calibration-bytedance.json`; regenerate with
+  `python -m tools.calibrate_thresholds --audio-dir recordings/maps_paired
+  --engine bytedance --limit 6`.
+
+- **`PTIFY_ONSET_THRESHOLD = 0.6`** (Phase 22) — **the two engines were measured
+  apart, so the constant is split like `frame_threshold` already is.** Same
+  6-track sweep at ptify's own frame value of 0.01:
+
+  | onset_thr | ptify mean F1 | mean P | mean R |
+  |---|---|---|---|
+  | 0.3 | 0.8732 | 0.8685 | 0.8781 |
+  | 0.5 | 0.8826 | 0.8987 | 0.8672 |
+  | **0.6 (chosen)** | **0.8836** | 0.9106 | 0.8584 |
+  | 0.7 (ByteDance's) | 0.8798 | 0.9227 | 0.8415 |
+
+  Applying ByteDance's 0.7 to ptify **costs 4 of 6 tracks**, up to −0.0117.
+  PTify peaks lower and gains less (+1.0 F1 against ByteDance's +2.4) because
+  16b already removed most of the false positives — invented notes 7,093 →
+  4,449 — so there is less garbage left for a threshold to cut and the trade
+  turns against recall sooner. **The threshold and the fine-tune are removing
+  the same errors, which is why they do not simply add.**
+  Artifact: `benchmarks/threshold-calibration-ptify.json`.
+
+  `ONSET_THRESHOLD` stays at the library's 0.3 as a neutral fallback for engines
+  with no measured value; it is deliberately *not* a third measured number.
 - **`MIN_REPEAT_SEC` / `ECHO_WINDOW_SEC` / `MERGE_WINDOW_SEC`** — these three
   interact. Attack echoes arrive ~93ms after a strike, which is *longer* than
   the 90ms that genuine fast repeats need, so onset distance alone cannot
@@ -1553,6 +1746,38 @@ throughout — a wrong claim in prose is invisible to a browser check.
 **Do not delete the CPU path.** It is the only thing that runs offline, it is
 still the default, and it is the reference the cross-check measures against.
 
+**FIXED IN PHASE 22: the host served ByteDance's weights whatever engine was
+asked for.** `hosting/modal/app.py` constructed
+`ByteDanceEngine(checkpoint_path=CHECKPOINT_PATH)` unconditionally and applied
+`PTIFY_HOST_ENGINE` only to the response **label**, with only ByteDance's
+checkpoint in the image. A host deployed as `ptify` therefore served the
+pretrained baseline and stamped `ptify` on it — **0.787 published under the name
+of the model that scores 0.840**, nothing raised, nothing logged. Since
+`python -m evaluation --engine remote` is the supported way to score on the GPU,
+every remote benchmark row would have inherited it silently. Sixth instance of
+this file's most persistent hazard.
+
+Now: `HOSTED_ENGINES` maps each name to a file **and to the digest that file
+must have**; both checkpoints are baked into the image; the digest is verified
+at container start and a mismatch **refuses to serve**. The digest is
+load-bearing rather than belt-and-braces — the inference library validates by
+size alone, and Phase 18 caught the release carrying the 260MB *training*
+checkpoint where the 172MB deployable was expected.
+
+`tests/test_remote_host_weights.py` pins it, and every test there was verified
+to **fail** against the pre-fix version. **The image has not been redeployed
+yet** — the code and tests are correct locally, but `modal deploy` plus a
+`tools.crosscheck_remote` run against `--engine ptify` is still outstanding.
+
+**`benchmarks/remote-crosscheck.json` is superseded and must be re-run.** It
+records **297 notes** on `var/clip25.wav`, measured at the old
+`onset_threshold=0.3`; at the measured 0.7 the same clip yields **285**. The
+cross-check's pass criteria include *identical note count* between local and
+remote, so re-running it against a host still serving the old default would fail
+for a configuration reason rather than a real disagreement. Redeploy first, then
+re-run — the thresholds are sent explicitly on every request, so a redeployed
+host will use whatever the client asks for.
+
 ### The original Phase 9 brief (superseded above, kept for its reasoning)
 
 **The code already asks for a GPU.** `transcriber/bytedance.py:149` is
@@ -1753,7 +1978,136 @@ ever silently returned nothing, every detector would score 0.0 and read as a
 detector failure — `test_a_realised_trill_is_detected_at_every_tempo` guards
 exactly that.
 
-### The FRAME head is the second run's target (corrected in Phase 19)
+### "Fully in-house models" — costed, and the answer is not compute
+
+`docs/from-scratch.md` is the written assessment. The short version, because it
+inverts the obvious expectation:
+
+- **Compute is affordable.** ByteDance trained 200k iterations at batch 12 in
+  4 days on one V100 ([paper](https://arxiv.org/abs/2010.01815)). At this
+  project's measured 0.280 steps/s on a T4 that is **~298 GPU-hours ≈ 10 weeks
+  of free Kaggle quota** — a project, not a research programme. **Phase 16b
+  spent 2.2% of that**, so the current model is not undertrained by a little.
+- **Licensing is the blocker, and training from scratch does not fix it.**
+  MAESTRO is CC BY-NC-SA, so a from-scratch model trained on it is *more*
+  in-house and **no more commercially usable**. Every aligned audio+MIDI piano
+  corpus of consequence is non-commercial.
+- **ASAP is a trap.** Widely described as CC BY 4.0; its repository says
+  CC BY-NC-SA 4.0 **and its audio is downloaded from MAESTRO**. Using it
+  re-imports the licence it appears to avoid.
+- **Whether share-alike reaches trained weights is unsettled** — MAESTRO's
+  licence says nothing about models, and ByteDance released MAESTRO-trained
+  weights under Apache 2.0 with no share-alike claim. That is a legal question
+  and it may be answerable without a single GPU-hour.
+- **The one route worth probing** is MIDI-only permissive data (GiantMIDI-Piano)
+  rendered through `evaluation/synth.py`, which this project already owns. But
+  §6 records that synthetic audio moves the engines in *opposite* directions
+  from real audio, so treat it as pretraining and **measure it with a ~10h probe
+  before spending 300**.
+
+### PHASE 22 SUPERSEDES THE SECTION BELOW. Read this first.
+
+The section that follows says the next training run should **weight the frame
+loss up**. Phase 22 measured the frame head directly and that is the wrong
+lever. Both sections are kept because the reasoning below is still worth
+reading — it is correct that durations regressed and correct that the offset
+head is not responsible.
+
+**What the evidence actually says.** Two views of the same 16b log disagree:
+
+| head | training Δ (the basis below) | validation Δ (clean) |
+|---|---|---|
+| onset | −30.9% | **+1.1%** (worse) |
+| offset | −24.8% | −7.0% |
+| **frame** | **−16.3%** (worst) | **−25.9%** (best) |
+| velocity | −1.7% | +0.2% |
+
+The per-step training noise on `frame` over the last 20 logged rows is
+**σ = 0.0111**, larger than the entire −16.3% movement inferred from it. §4's
+own rule says that ranking is not readable; the validation one is, and by it
+frame was the **best** learner and still improving at step 6,500.
+
+**Measured on the head itself**, over 4 MAPS tracks, comparing discrimination
+(AUC — rank-based, blind to any monotonic shift) against calibration (where the
+values sit, which is what `frame_threshold` cuts):
+
+| | AUC | median activation, sounding frames |
+|---|---|---|
+| ByteDance | 0.9885 | **0.974** |
+| PTify 16b | 0.9785 | **0.347** |
+
+**The level moved 63x more than the ranking did.** The head still separates
+sounding from silent frames; its output scale collapsed. Weighting the frame
+loss up would train harder on a quantity that already improved.
+
+**The de-risking run to do FIRST** (~10h, 0.3 weeks of quota). Confirms the new
+instrumentation reads correctly before committing to a long plan — and changes
+**one** thing against 16b's known-good configuration, per §4's five failures:
+
+```bash
+python -m training.train --augment --augment-seed 0 \
+    --index benchmarks/maestro_segments.json --audio-root <mount> \
+    --out /kaggle/working/checkpoints \
+    --init-checkpoint /kaggle/input/<ptify-16b>/ptify-16b-step6555.pth \
+    --loss-weights velocity=0.1 \
+    --device cuda --no-amp --batch-size 4 --accum-steps 2 --workers 2 \
+    --steps 10000 --log-every 50 --validate-every 500 \
+    --save-every-seconds 1800 --resume auto
+```
+
+What to check when it finishes, in this order:
+1. **`val_frame` should keep falling** and `val_onset` should stop *rising*
+   (it went +1.1% in 16b). If down-weighting velocity helps, this is where it
+   shows first.
+2. **Recalibrate before scoring** — `python -m tools.calibrate_thresholds
+   --audio-dir recordings/maps_paired --engine ptify --limit 6`. A retrained
+   head invalidates both 0.01 and 0.6, and scoring through stale thresholds
+   would misattribute a decode artifact to the weights. That is exactly the
+   mistake Phase 19 undid.
+3. **Then score MAPS** and diff on `onset_p` as well as `onset_f1` — the metric
+   Phase 22 added, and the one that says whether garbage notes actually fell.
+
+**Batch size:** 4x2 rather than 2x4 keeps the effective batch at 8 while halving
+the accumulation steps; 16b peaked at 4.99GB of 14.56GB so there is room. Raise
+it further only after one run confirms it does not OOM — §4 records that near-OOM
+under AMP presents as NaN rather than an allocation error, and `--no-amp` is what
+keeps that honest.
+
+Three things follow for the next run:
+
+- **Target calibration, not loss weight.** Options worth measuring before
+  spending quota: an output normalisation, a calibration term in the loss, or
+  simply accepting a per-checkpoint `frame_threshold` (which Phase 19 already
+  does) and measuring what remains.
+- **The slide is repertoire-dependent** — median sounding activation is 0.066 on
+  Grieg, 0.63 on ty_maerz, 0.83 on scn15_11. A single per-engine constant
+  cannot follow that, which bounds how much `frame_threshold` alone can
+  recover. This is the strongest argument for fixing it in the weights.
+- **`benchmarks/frame-activation-analysis.json`** is the artifact; regenerate
+  with `python -m tools.frame_activation_analysis --audio-dir
+  recordings/maps_paired --limit 4`.
+
+**Two seams were added in Phase 22 so the long run can actually be run.**
+
+- **`--loss-weights` now exists.** Velocity is 92.5% of the summed loss and
+  moved +0.1% across the whole 16b run, so it is nearly an additive constant
+  that sets the gradient scale while contributing almost no signal. Default is
+  all ones and is **bit-identical** to the old unweighted sum
+  (`test_unit_weights_reproduce_the_unweighted_total_exactly`), so every
+  published checkpoint stays reproducible. Per-head logging stays **unweighted**
+  on purpose, so logs remain comparable across differently-weighted runs.
+- **`--init-checkpoint` now exists, and a multi-week plan needs it.**
+  `load_pretrained()` always loads ByteDance's weights, so before this **every
+  run restarted from the baseline** and discarded the previous one — fine for a
+  single session, useless for accumulating. It is **not** `--resume`, which
+  continues an interrupted run from its `step_N.pt` (and 16b's 260MB resumable
+  file was never kept; only the 172MB deployable survives). Verified against the
+  real artifact: 313 of 316 parameter tensors change.
+
+And 16b ran 6,555 steps — 2.2% of ByteDance's own training budget — at 4.99GB of
+a T4's 14.56GB, so both "train longer" and "raise the batch size" remain unspent.
+
+### The FRAME head is the second run's target (corrected in Phase 19, SUPERSEDED in Phase 22)
 
 **This section previously named the offset head. That was wrong**, and it is
 worth keeping the correction visible because the reasoning was superficially

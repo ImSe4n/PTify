@@ -289,15 +289,63 @@ and make both slower rather than raising throughput.
 | Piano-specific | yes | no (multi-instrument) | yes |
 | Sustain pedal | **yes** | no | **yes** |
 | Velocity | **real dynamics** | near-constant | **real dynamics** |
-| Speed (CPU) | ~1.1x real time | ~0.02x real time | ~1.1x real time |
-| MAPS onset F1 | 0.787 | 0.727 | **0.840** |
+| Speed (CPU) | ~1.87x real time ‡ | ~0.02x real time | ~1.87x real time ‡ |
+| MAPS onset **precision** | 0.744 | 0.748 † | **0.836** |
+| MAPS onset **recall** | 0.837 | 0.711 † | **0.844** |
+| MAPS onset F1 | 0.787 | 0.727 † | **0.840** |
+| Notes invented on MAPS | 7,093 | 33,075 † | **4,449** |
 | Weights bundled | downloaded | bundled | **no — see below** |
+
+† **Basic Pitch's MAPS column is a different corpus** — all 60 Disklavier
+tracks, where ByteDance and PTify are scored on the 14 *paired* ones. The
+columns are therefore not strictly comparable, and the invented-note counts
+especially so, since they are totals over different amounts of music. Stated
+rather than quietly aligned, because a table that looks like one experiment and
+is two is exactly the artifact that gets screenshotted and misread.
+
+‡ **Measured on the real corpus** (44.1/48kHz stereo, resampled to 16kHz, 12
+tracks). This used to read "~1.1x", which was the figure from 22kHz mono
+synthetic audio — the most flattering of three numbers. A 25-second clip
+measures 2.23x end to end because the ~11s model load dominates a short file.
+**On a GPU it is 0.21x** — see `--engine remote` below.
+
+**The MAPS figures above predate a decode fix and now understate both engines.**
+Phase 22 measured `onset_threshold`, which decides *whether a note exists* and
+had never been swept — it sat at the inference library's default of 0.3 through
+every number this project has published. On 6 MAPS tracks the measured values
+are **0.7 for ByteDance and 0.6 for PTify**, worth **+2.4 and +1.0 mean onset
+F1** respectively, for free and with no retraining:
+
+| ByteDance, 6 MAPS tracks | mean F1 | precision | recall | notes emitted |
+|---|---|---|---|---|
+| `onset_threshold` 0.3 (library) | 0.8407 | 0.8039 | 0.8825 | 26,582 |
+| **0.7 (measured)** | **0.8646** | **0.8800** | 0.8510 | 22,650 |
+
+against 24,322 real notes. The engines were measured apart, so the constant is
+per-engine like `frame_threshold` already was. `benchmarks/real/*.json` were all
+scored at 0.3 and have not been re-run.
 
 **PTify is ByteDance's architecture with our own weights.** Same speed, same
 capabilities; fine-tuned here with room/detune augmentation for 6,555 steps.
 It wins by **5.3 onset F1 on MAPS**, the cross-dataset target, and loses 0.6 on
 MAESTRO — which is ByteDance's own training distribution and therefore the
 number that flatters it.
+
+**That win is a precision win, and the split matters more than the total.**
+Precision rises **+9.2 points** while recall moves **+0.7** — PTify is not
+finding more notes, it is inventing **37% fewer** of them (7,093 → 4,449 across
+14 tracks). On unfamiliar pianos ByteDance reports **10.7% more notes than were
+actually played**; PTify reports 1.8% more.
+
+That is the honest shape of "wrong notes in your transcription", and it is only
+visible because precision and recall are now printed beside the F1 — both were
+computed and stored from the first run of this project and neither was ever
+displayed. Regenerate the analysis from the committed baselines, with no
+inference and nothing downloaded:
+
+```bash
+python -m tools.precision_review --json benchmarks/precision-recall-review.json
+```
 
 ```bash
 python -m transcriber --fetch-ptify     # download the weights (172MB, once)
@@ -319,6 +367,14 @@ baseline's score under PTify's name.
 The weights are **CC BY-NC-SA 4.0** (research and non-commercial): they are
 fine-tuned from ByteDance's Apache-2.0 checkpoint on MAESTRO, which carries a
 share-alike term. The code in this repository stays MIT.
+
+That is the **conservative** reading and is deliberately the published one.
+Whether share-alike actually reaches trained *weights* is unsettled — MAESTRO's
+licence says nothing about models, and ByteDance released MAESTRO-trained
+weights under Apache 2.0 with no share-alike claim. See
+[`docs/from-scratch.md`](docs/from-scratch.md), which also costs out what a
+genuinely from-scratch model would take (**~298 GPU-hours — affordable; the
+blocker is licence-clean data, not compute**).
 
 Both scored 8/8 on a real C major scale recording, with onsets agreeing to
 within ~10ms. The difference showed in velocity: ByteDance reported 47-54
@@ -374,6 +430,9 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `evaluation/maps.py` | MAPS Disklavier corpus: cross-dataset + mic-distance A/B |
 | `evaluation/benchmark.py` | Runner + report formats |
 | `evaluation/report.py` | JSON baselines with environment provenance |
+| `tools/calibrate_thresholds.py` | Sweeps `onset_threshold` × `frame_threshold`; one forward pass per track |
+| `tools/frame_activation_analysis.py` | Is a frame head miscalibrated or degraded? (AUC vs activation level) |
+| `tools/precision_review.py` | Precision/recall/invented-note counts from the committed baselines |
 | `api/app.py` | `create_app()` factory, error mapping, TTL janitor |
 | `api/queue.py` | `JobQueue` ABC + `get_queue()` factory |
 | `api/inproc.py` | Default backend: thread pool + per-worker engine cache |
@@ -490,6 +549,39 @@ against **+2.7** for close-mic, so the room-acoustics penalty falls from 12.9
 points to 7.7. That asymmetry is the evidence this is genuine room robustness
 rather than a general uplift.
 
+### The room penalty is a *precision* problem — the model invents notes
+
+An F1 is the average of precision and recall, so it cannot say which one moved.
+Split apart, the MAPS numbers say something the F1 hides completely:
+
+| MAPS paired | precision | recall | F1 | emitted / real |
+|---|---|---|---|---|
+| ByteDance | **0.744** | 0.837 | 0.787 | 33,598 / 30,356 (**+10.7%**) |
+| PTify 16b | **0.836** | 0.844 | 0.840 | 30,917 / 30,356 (+1.8%) |
+
+**ByteDance is not going deaf on an unfamiliar piano — it is hallucinating.**
+It reports 10.7% more notes than were played, and PTify's whole +5.3 is a
+**37% reduction in invented notes** (7,093 → 4,449) with recall essentially
+unchanged (+0.7).
+
+The mic-distance pairs isolate the cause. These are the *same 7 performances*
+with the *same 15,178 reference notes*, so everything but the room is constant:
+
+| ByteDance, n=7 paired | precision | recall | notes emitted |
+|---|---|---|---|
+| close (~50cm) | 0.826 | 0.878 | 15,936 |
+| ambient (3–4m) | **0.661** | 0.797 | **17,662** |
+| **penalty** | **−16.4** | −8.2 | **+1,726 invented** |
+
+Reverb costs **twice as much precision as recall**. A wet room does not hide
+notes from the model; it makes the model hear notes that are not there.
+
+**The direction reverses on MAESTRO, and that is the point.** There ByteDance's
+precision (0.981) sits *above* its recall (0.958) and it emits **fewer** notes
+than exist (0.974x). So over-generation is what unfamiliar acoustics do to this
+model — not something it does everywhere. That is the gap the training track
+exists to close, now stated as the error it actually is.
+
 It comes from ~6,500 fine-tuning steps with continuous reverb/detune
 augmentation on one free-tier GPU session — 15% of a single epoch. See
 `training/` and `benchmarks/training/`.
@@ -507,17 +599,25 @@ pretrained weights. PTify's fine-tuned frame head sits lower, so the stock
 threshold released every note about three times too early. Each engine now
 carries its own calibrated value (`transcriber/config.py`), which recovers mean
 +offset F1 across four MAPS tracks from **0.406 to 0.503** with onsets and note
-counts completely unchanged. Re-derive it with:
+counts completely unchanged. Re-derive both decode thresholds with:
 
 ```bash
-python -m tools.calibrate_frame_threshold --audio-dir recordings/maps_paired \
-    --engine ptify --limit 4
+python -m tools.calibrate_thresholds --audio-dir recordings/maps_paired \
+    --engine ptify --limit 6
 ```
 
-A real gap remains — ByteDance still reaches ~0.65 — so the frame head did
-genuinely regress during fine-tuning. Note that `benchmarks/real/*ptify*.json`
-predate this fix and were scored at the old threshold, so their `+offset`
-figures understate the engine.
+A real gap remains — ByteDance still reaches ~0.65 — but **it is not that the
+frame head got worse at its job.** Measured directly against ground-truth frame
+occupancy, PTify's frame head separates sounding from silent frames essentially
+as well as ByteDance's (AUC 0.9785 vs 0.9885) while its *output level* collapsed
+(median activation on sounding frames **0.347 vs 0.974**). The level moved
+**63x more than the ranking did**: the head is miscalibrated, not degraded, and
+the shift is strongly repertoire-dependent — which bounds how much any single
+threshold can recover. `benchmarks/frame-activation-analysis.json`; regenerate
+with `python -m tools.frame_activation_analysis`.
+
+Note that `benchmarks/real/*ptify*.json` predate this fix and were scored at the
+old threshold, so their `+offset` figures understate the engine.
 
 A useful check on the harness itself: ByteDance's published MAESTRO note F1 is
 0.9677, and this corpus measures **0.9693** — agreement to within 0.002,
@@ -588,7 +688,8 @@ proven. See `HANDOFF.md` §9.
 - [x] **Phase 17** — shipped it as `--engine ptify`, working in the CLI, notation and HTTP API
 - [x] **Phase 18** — the offset anomaly explained: `offset_f1` is not comparable across corpora
 - [x] **Phase 19** — note truncation was a **decoding** bug, not the weights: +offset 0.406 → 0.503
-- [ ] **Phase 21** — retrain the **frame head**, the one regression Phase 19 could not decode away
+- [x] **Phase 22** — precision made visible; `onset_threshold` measured for the first time: **+2.4 onset F1, free**
+- [ ] **Phase 23** — retrain for frame-head **calibration** (Phase 22 showed the head's *ranking* is intact and its *level* collapsed, so it was never an undertraining problem)
 
 The training goal is **beating ByteDance on your own recordings**, not on the
 MAESTRO benchmark. Models overfit badly to their training audio — published work

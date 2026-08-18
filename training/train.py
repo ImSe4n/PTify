@@ -35,10 +35,11 @@ from .checkpoint import (
     load_training_state,
     prune,
     save_training_state,
+    torch_load,
 )
 from .dataset import SegmentDataset, collate
 from .index import read_index, segments_from_index
-from .losses import compute_losses
+from .losses import compute_losses, parse_weights
 from .model import load_pretrained, save_deployable, trainable_parameters
 
 #: ~1/10 of ByteDance's from-scratch 5e-4. Fine-tuning wants to refine the
@@ -204,6 +205,10 @@ def evaluate(note_model, loader, device: str, max_batches: int = 20) -> dict:
             if i >= max_batches:
                 break
             batch = {k: v.to(device) for k, v in batch.items()}
+            # Validation is scored UNWEIGHTED, on purpose. `val_*` is the
+            # regression guard and is compared against runs with different
+            # weightings (and against the 14.5 baseline), so it has to mean the
+            # same thing in every log. Only the training objective is weighted.
             losses = compute_losses(note_model(batch["waveform"]), batch)
             for key, value in losses.items():
                 totals[key] = totals.get(key, 0.0) + float(value)
@@ -220,11 +225,45 @@ def train(args) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     logger = JsonlLogger(out_dir / "train_log.jsonl")
 
+    loss_weights = parse_weights(getattr(args, "loss_weights", None))
+
     print(f"Loading pretrained weights (device={device}) ...")
     note_model, pedal_state = load_pretrained(device)
     note_model.train()
     print(f"  {trainable_parameters(note_model):,} trainable parameters")
     print("  pedal model loaded and FROZEN (re-attached unchanged on save)")
+
+    # Continue from OUR OWN weights rather than ByteDance's, when asked.
+    #
+    # `load_pretrained` always loads ByteDance's checkpoint, so before this
+    # every run restarted from the baseline and threw away whatever the last
+    # one learned -- fine for a single 10h session, useless for a multi-week
+    # plan, where the whole point is to accumulate. `--resume` does NOT cover
+    # this: it continues an *interrupted* run from its `step_N.pt`, and the
+    # 260MB resumable file for 16b was never kept.
+    #
+    # Loaded AFTER load_pretrained so the pedal weights and the dropout patch
+    # both come from the known-good path, and `strict=True` so a checkpoint
+    # from a different architecture fails here rather than leaving layers
+    # randomly initialised.
+    if getattr(args, "init_checkpoint", None):
+        init_path = Path(args.init_checkpoint)
+        print(f"Initialising from {init_path} (NOT the pretrained baseline) ...")
+        state = torch_load(str(init_path), device)
+        note_state = (state.get("model", {}).get("note_model")
+                      if "model" in state else state.get("note_model"))
+        if note_state is None:
+            raise ValueError(
+                f"{init_path} has no note_model weights; expected a deployable "
+                f"checkpoint ({{'model': {{'note_model': ...}}}}) or a training "
+                f"checkpoint with a 'note_model' key. Keys: {sorted(state)}"
+            )
+        note_model.load_state_dict(note_state, strict=True)
+        print("  loaded; training continues from these weights")
+
+    if loss_weights != {k: 1.0 for k in loss_weights}:
+        print(f"Loss weights: {loss_weights}")
+        print("  (per-head logging stays UNWEIGHTED so logs remain comparable)")
 
     optimizer = torch.optim.Adam(note_model.parameters(), lr=args.lr)
     # AMP only helps on CUDA; on CPU it is a no-op wrapper that costs nothing
@@ -350,7 +389,8 @@ def train(args) -> int:
 
             with torch.autocast(device_type="cuda" if use_amp else "cpu",
                                 enabled=use_amp):
-                losses = compute_losses(note_model(batch["waveform"]), batch)
+                losses = compute_losses(note_model(batch["waveform"]), batch,
+                                        loss_weights)
 
             if not torch.isfinite(losses["total"]):
                 # A NaN loss poisons every weight through the backward pass,
@@ -478,6 +518,21 @@ def build_parser() -> argparse.ArgumentParser:
                     help="gradient accumulation; effective batch is "
                          "batch-size x accum-steps. Use this to keep a large "
                          "effective batch on a small GPU")
+    ap.add_argument("--init-checkpoint", default=None, metavar="PATH",
+                    help="start from THESE weights instead of ByteDance's "
+                         "pretrained baseline. Use it to continue from a "
+                         "previous PTify checkpoint -- without it every run "
+                         "restarts from the baseline and discards what the "
+                         "last one learned. NOT the same as --resume, which "
+                         "continues an interrupted run from its step_N.pt")
+    ap.add_argument("--loss-weights", default=None, metavar="SPEC",
+                    help="per-head coefficients, e.g. 'velocity=0.1'. "
+                         "Unnamed heads stay at 1.0, and the default is all "
+                         "ones -- bit-identical to the unweighted sum every "
+                         "published checkpoint was trained with. Velocity was "
+                         "92.5%% of 16b's total loss and moved +0.1%%, so it "
+                         "sets the gradient scale while contributing almost "
+                         "no signal")
     ap.add_argument("--lr", type=float, default=DEFAULT_LR)
     ap.add_argument("--warmup", type=int, default=DEFAULT_WARMUP_STEPS)
     ap.add_argument("--clip", type=float, default=1.0)

@@ -249,9 +249,17 @@ def format_rows(rows: list[BenchmarkRow]) -> str:
 
     width = max([len(r.case) for r in rows] + [4])
     lines = [
-        f"  {'case':<{width}}  {'ref':>4} {'est':>4} {'onset':>7} "
+        # PRECISION AND RECALL ARE SHOWN, NOT JUST F1, and that is the point of
+        # this column set rather than a cosmetic change. Both were computed and
+        # stored from the very first run and neither was ever printed, so the
+        # single most important fact about this project's accuracy went unread
+        # for nine phases: on MAPS, ByteDance's failure is precision (0.744 at
+        # 10.7% MORE notes than exist), not recall (0.837). An F1 averages the
+        # two and hides which one moved. See HANDOFF section 6.
+        f"  {'case':<{width}}  {'ref':>4} {'est':>4} "
+        f"{'P':>6} {'R':>6} {'onset':>7} "
         f"{'+offset':>8} {'+vel':>7}  {'miss/extra':>10}",
-        "  " + "-" * (width + 48),
+        "  " + "-" * (width + 62),
     ]
     any_invalid = any(not r.result.velocity_valid for r in rows)
 
@@ -262,19 +270,33 @@ def format_rows(rows: list[BenchmarkRow]) -> str:
         vel = f"{s.velocity_f1:>7.3f}" if s.velocity_valid else f"{'n/a':>7}"
         lines.append(
             f"  {r.case:<{width}}  {s.n_reference:>4} {s.n_estimated:>4} "
+            f"{s.onset_precision:>6.3f} {s.onset_recall:>6.3f} "
             f"{s.onset_f1:>7.3f} {s.offset_f1:>8.3f} {vel}  "
             f"{f'-{r.missed} +{r.extra}':>10}"
         )
 
-    lines.append("  " + "-" * (width + 48))
+    lines.append("  " + "-" * (width + 62))
     mean_vel = (f"{'n/a':>7}" if any_invalid
                 else f"{_mean(rows, 'velocity_f1'):>7.3f}")
+    total_ref = sum(r.result.n_reference for r in rows)
+    total_est = sum(r.result.n_estimated for r in rows)
     lines.append(
-        f"  {'MEAN':<{width}}  {'':>4} {'':>4} "
+        f"  {'MEAN':<{width}}  {total_ref:>4} {total_est:>4} "
+        f"{_mean(rows, 'onset_precision'):>6.3f} "
+        f"{_mean(rows, 'onset_recall'):>6.3f} "
         f"{mean_onset(rows):>7.3f} "
         f"{_mean(rows, 'offset_f1'):>8.3f} "
-        f"{mean_vel}"
+        f"{mean_vel}  "
+        f"{f'-{sum(r.missed for r in rows)} +{sum(r.extra for r in rows)}':>10}"
     )
+    # The plainest statement of the garbage-note problem, and it needs no new
+    # measurement -- both totals were already on every row.
+    if total_ref:
+        surplus = 100.0 * (total_est - total_ref) / total_ref
+        lines.append(
+            f"  {'':<{width}}  emitted {total_est} notes for {total_ref} real "
+            f"({surplus:+.1f}%)"
+        )
     if any_invalid:
         lines.append("")
         lines.append("  n/a: this reference carries no dynamics, so a velocity "

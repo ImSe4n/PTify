@@ -350,7 +350,18 @@ class RemoteEngine(TranscriptionEngine):
                     else config.BYTEDANCE_FRAME_THRESHOLD
                 )
             if self._onset_threshold is None:
-                self._onset_threshold = config.ONSET_THRESHOLD
+                # Per-engine since Phase 22, for the same reason as the frame
+                # value directly above: the two models were measured to want
+                # different onset thresholds (0.7 / 0.6), and this one moves
+                # the note count and the headline F1 rather than only the
+                # durations. A shared constant here would make a remote run
+                # score differently from the identical local one -- which is
+                # exactly what the cross-check exists to rule out.
+                self._onset_threshold = (
+                    config.PTIFY_ONSET_THRESHOLD
+                    if self._remote_engine == "ptify"
+                    else config.BYTEDANCE_ONSET_THRESHOLD
+                )
 
         self._loaded = True
 

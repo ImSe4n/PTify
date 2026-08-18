@@ -1,5 +1,15 @@
 """Calibrate the note-end threshold for a ByteDance-architecture checkpoint.
 
+SUPERSEDED BY `tools/calibrate_thresholds.py` FOR NEW WORK. That tool sweeps
+`onset_threshold` AND `frame_threshold` together and reports precision/recall
+per cell. This one is kept because it is the command recorded in README and
+HANDOFF against the committed `benchmarks/frame-threshold-calibration.json`, and
+a documented command that no longer runs is its own kind of stale documentation.
+
+It sweeps ONE axis, and that axis provably cannot change how many notes come
+out (see below) -- so if the question is garbage notes rather than note
+durations, use the other tool.
+
 A note ENDS when the frame head's activation drops below `frame_threshold`.
 `piano_transcription_inference` hardcodes 0.1, which is calibrated for its own
 pretrained weights -- a fine-tuned checkpoint whose frame head sits lower will
