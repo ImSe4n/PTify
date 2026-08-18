@@ -26,9 +26,23 @@ that `targets.render_targets` returns for this purpose.
 
 WEIGHTING
 ---------
-Unweighted to start. The four are logged separately so an imbalance is
+Unweighted to start, and the four are logged separately so an imbalance is
 visible before anyone starts tuning coefficients — a weight added to fix a
 number nobody looked at is how a training run becomes unexplainable.
+
+**Phase 22 looked at the numbers, so the weights are now available.** Over
+Phase 16b's 6,555 steps the velocity term was **92.5% of the total loss and
+moved +0.1%** — it is very nearly a constant, and an additive constant with a
+large magnitude does not change the argmin but does set the scale that
+gradient clipping and the learning rate are tuned against. Meanwhile the three
+terms that actually decide note F1 moved -14.2% together while `total` moved
+-1.4%, which is why watching `total` made a working run look stalled for hours.
+
+`DEFAULT_WEIGHTS` is all ones, so **the default behaviour is bit-identical to
+the unweighted sum** — `test_unit_weights_reproduce_the_unweighted_total` pins
+that. Departing from it is an explicit `--loss-weights` on the command line,
+which lands in the checkpoint via `vars(args)`, so no run can be weighted in a
+way its own checkpoint cannot report.
 """
 
 from __future__ import annotations
@@ -94,20 +108,73 @@ def masked_bce(output, target, mask):
             / (mask.float().sum() + _EPS))
 
 
-def compute_losses(output: dict, batch: dict) -> dict:
-    """Per-head losses plus their total.
+#: The four heads, in the order they are reported everywhere.
+HEADS = ("onset", "offset", "frame", "velocity")
+
+#: All ones — the unweighted sum every published result was trained with.
+#: Changing this default would silently reinterpret every existing checkpoint's
+#: `config` block, so it stays 1.0 and callers pass weights explicitly.
+DEFAULT_WEIGHTS = {h: 1.0 for h in HEADS}
+
+
+def parse_weights(spec: str | None) -> dict:
+    """`"onset=1,velocity=0.1"` -> a full weight dict. PURE.
+
+    Unnamed heads keep 1.0, so a spec only has to mention what it changes.
+    Raises on an unknown head or a negative weight rather than ignoring it: a
+    typo that silently trained an unweighted run would be indistinguishable
+    from the run you meant, and you would find out ten hours later.
+    """
+    weights = dict(DEFAULT_WEIGHTS)
+    if not spec:
+        return weights
+
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            raise ValueError(
+                f"loss weight {part!r} is not head=value; "
+                f"known heads: {', '.join(HEADS)}"
+            )
+        head, _, value = part.partition("=")
+        head = head.strip()
+        if head not in weights:
+            raise ValueError(
+                f"unknown loss head {head!r}; known: {', '.join(HEADS)}"
+            )
+        weight = float(value)
+        if weight < 0.0:
+            raise ValueError(f"loss weight for {head!r} is negative: {weight}")
+        weights[head] = weight
+    return weights
+
+
+def compute_losses(output: dict, batch: dict, weights: dict | None = None) -> dict:
+    """Per-head losses plus their weighted total.
 
     Args:
       output: the model's forward dict — `reg_onset_output`, `reg_offset_output`,
         `frame_output`, `velocity_output`.
       batch: collated targets — `reg_onset`, `reg_offset`, `frame`, `velocity`,
         `mask`.
+      weights: per-head coefficients. `None` means all ones, which reproduces
+        the unweighted sum EXACTLY — every published checkpoint was trained
+        that way and must stay reproducible.
 
     Returns a dict of scalar tensors: `onset`, `offset`, `frame`, `velocity`,
     `total`. Every component is returned, not just the total, because a
     training log that records one number cannot tell you which head stopped
     improving.
+
+    **The per-head values are UNWEIGHTED; only `total` carries the weights.**
+    That is deliberate: the log must stay comparable across runs with different
+    weightings, and a weighted `frame` would silently change meaning between
+    two runs whose logs sit side by side in `benchmarks/training/`.
     """
+    weights = DEFAULT_WEIGHTS if weights is None else weights
+
     losses = {
         "onset": bce(output["reg_onset_output"], batch["reg_onset"]),
         "offset": bce(output["reg_offset_output"], batch["reg_offset"]),
@@ -116,7 +183,8 @@ def compute_losses(output: dict, batch: dict) -> dict:
             output["velocity_output"], batch["velocity"], batch["mask"]
         ),
     }
-    losses["total"] = (
-        losses["onset"] + losses["offset"] + losses["frame"] + losses["velocity"]
-    )
+    total = losses["onset"] * weights["onset"]
+    for head in HEADS[1:]:
+        total = total + losses[head] * weights[head]
+    losses["total"] = total
     return losses

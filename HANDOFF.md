@@ -1996,6 +1996,39 @@ values sit, which is what `frame_threshold` cuts):
 sounding from silent frames; its output scale collapsed. Weighting the frame
 loss up would train harder on a quantity that already improved.
 
+**The de-risking run to do FIRST** (~10h, 0.3 weeks of quota). Confirms the new
+instrumentation reads correctly before committing to a long plan — and changes
+**one** thing against 16b's known-good configuration, per §4's five failures:
+
+```bash
+python -m training.train --augment --augment-seed 0 \
+    --index benchmarks/maestro_segments.json --audio-root <mount> \
+    --out /kaggle/working/checkpoints \
+    --init-checkpoint /kaggle/input/<ptify-16b>/ptify-16b-step6555.pth \
+    --loss-weights velocity=0.1 \
+    --device cuda --no-amp --batch-size 4 --accum-steps 2 --workers 2 \
+    --steps 10000 --log-every 50 --validate-every 500 \
+    --save-every-seconds 1800 --resume auto
+```
+
+What to check when it finishes, in this order:
+1. **`val_frame` should keep falling** and `val_onset` should stop *rising*
+   (it went +1.1% in 16b). If down-weighting velocity helps, this is where it
+   shows first.
+2. **Recalibrate before scoring** — `python -m tools.calibrate_thresholds
+   --audio-dir recordings/maps_paired --engine ptify --limit 6`. A retrained
+   head invalidates both 0.01 and 0.6, and scoring through stale thresholds
+   would misattribute a decode artifact to the weights. That is exactly the
+   mistake Phase 19 undid.
+3. **Then score MAPS** and diff on `onset_p` as well as `onset_f1` — the metric
+   Phase 22 added, and the one that says whether garbage notes actually fell.
+
+**Batch size:** 4x2 rather than 2x4 keeps the effective batch at 8 while halving
+the accumulation steps; 16b peaked at 4.99GB of 14.56GB so there is room. Raise
+it further only after one run confirms it does not OOM — §4 records that near-OOM
+under AMP presents as NaN rather than an allocation error, and `--no-amp` is what
+keeps that honest.
+
 Three things follow for the next run:
 
 - **Target calibration, not loss weight.** Options worth measuring before
@@ -2010,13 +2043,25 @@ Three things follow for the next run:
   with `python -m tools.frame_activation_analysis --audio-dir
   recordings/maps_paired --limit 4`.
 
-**Still true and still worth doing regardless:** velocity is 92.5% of the summed
-loss and moved +0.1% across the entire run, so it contributes nothing but sets
-the gradient scale. `training/losses.py` has **no weighting mechanism at all**
-(`total` is a bare sum, `losses.py:119-121`); adding one and down-weighting
-velocity is a real improvement independent of the frame question. And 16b ran
-6,555 steps — under 10% of one epoch — at 4.99GB of a T4's 14.56GB, so both
-"train longer" and "raise the batch size" remain unspent.
+**Two seams were added in Phase 22 so the long run can actually be run.**
+
+- **`--loss-weights` now exists.** Velocity is 92.5% of the summed loss and
+  moved +0.1% across the whole 16b run, so it is nearly an additive constant
+  that sets the gradient scale while contributing almost no signal. Default is
+  all ones and is **bit-identical** to the old unweighted sum
+  (`test_unit_weights_reproduce_the_unweighted_total_exactly`), so every
+  published checkpoint stays reproducible. Per-head logging stays **unweighted**
+  on purpose, so logs remain comparable across differently-weighted runs.
+- **`--init-checkpoint` now exists, and a multi-week plan needs it.**
+  `load_pretrained()` always loads ByteDance's weights, so before this **every
+  run restarted from the baseline** and discarded the previous one — fine for a
+  single session, useless for accumulating. It is **not** `--resume`, which
+  continues an interrupted run from its `step_N.pt` (and 16b's 260MB resumable
+  file was never kept; only the 172MB deployable survives). Verified against the
+  real artifact: 313 of 316 parameter tensors change.
+
+And 16b ran 6,555 steps — 2.2% of ByteDance's own training budget — at 4.99GB of
+a T4's 14.56GB, so both "train longer" and "raise the batch size" remain unspent.
 
 ### The FRAME head is the second run's target (corrected in Phase 19, SUPERSEDED in Phase 22)
 
