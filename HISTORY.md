@@ -2758,6 +2758,131 @@ it).
 
 ---
 
+## 2026-08-17 — Phase 22: precision, and two conclusions the evidence overturned
+
+**The finding the phase turned on was already in the repository.** Every number
+this project publishes is an F1. Precision and recall have been computed on
+every run since Phase 12, stored in every committed report as `onset_p` /
+`onset_r`, and `BenchmarkRow.extra` — *"notes the engine invented"* — has been
+persisted in every row. **None of the three was ever printed.** `format_table`
+showed F1 alone, so nine phases of accuracy figures never said which *kind* of
+error was being made.
+
+Read out, MAPS says ByteDance is not going deaf on an unfamiliar piano — it is
+**hallucinating**:
+
+| MAPS paired, 30,356 ref notes | P | R | F1 | emitted | invented |
+|---|---|---|---|---|---|
+| ByteDance | **0.744** | 0.837 | 0.787 | 33,598 (+10.7%) | **7,093** |
+| PTify 16b | **0.836** | 0.844 | 0.840 | 30,917 (+1.8%) | **4,449** |
+
+So Phase 16b's published "+5.3 onset F1" was almost entirely a **37% reduction
+in invented notes** (P +9.2, R +0.7) — the headline never said so because only
+the average of the two was ever displayed. The mic-distance pairs isolate the
+cause: on the *same* 7 performances with the *same* 15,178 reference notes,
+reverb costs ByteDance **16.4 points of precision against 8.2 of recall**, and
+it emits 1,726 *more* notes at 3–4m than at 50cm. The direction reverses on
+MAESTRO (P 0.981 > R 0.958, surplus 0.974), which is the evidence that
+over-generation is what unfamiliar acoustics *do* to the model rather than
+something it does everywhere.
+
+**`ONSET_THRESHOLD` had never been swept, and was worth 2.4 F1 points free.**
+Its own comment in `config.py` said so: *"there is no measurement here to
+justify departing from 0.3."* Phase 19 swept `frame_threshold` because durations
+were visibly wrong, and that parameter provably **cannot** change the note count
+(n and onset F1 are identical at every row of its sweep). `onset_threshold` is
+the only decode knob that does — and the note count was exactly what was wrong.
+
+Swept over 6 MAPS tracks (3 close, 3 ambient; 24,322 reference notes), the
+optimum is **0.7, not the library's 0.3**: mean F1 0.8407 → **0.8646**, P +7.6,
+R −3.2, notes emitted 26,582 → 22,650 against 24,322 real. The gain is ~2x
+larger on ambient than close-mic — the same asymmetry room-robustness training
+produces, which is what identifies reverb-induced false positives as the thing
+being removed. **5 of 6 tracks improve**; `ENSTDkCl-liz_rhap09` loses 0.0007,
+the densest piece at 8,556 notes, and that is recorded rather than rounded away.
+
+The first sweep stopped at 0.7 with F1 still rising, so it was **extended to
+0.95 to find the turning point** — F1 collapses above 0.8 as recall falls off
+(0.49 at 0.9). An optimum at a grid edge is not an optimum; it is a grid that
+stopped.
+
+**The selection rule had to be fixed before it could be trusted.** "Maximise the
+worst track's F1" picked 0.8 — past peak on four of six tracks — because tracks
+differ in intrinsic difficulty (0.80–0.94), so that rule mostly tracks whichever
+cell suits the *hardest* track. Replaced with regret measured against **each
+track's own best cell**, which is the question a shared constant actually poses.
+It picks 0.7, agreeing with the mean, at the lowest max-regret (0.0106).
+
+**HANDOFF's plan for the next GPU run rested on the noisier of two signals.**
+§9 said to weight the frame loss up because frame was the weakest learner at
+−16.3%. That is the **training** loss. The **validation** loss in the same log
+says frame fell **25.9%**, the *best* of the four heads, while onset got *worse*
+(+1.1%) — and the per-step training noise on frame is σ = 0.0111, larger than
+the 16.3% movement inferred from it. By this project's own rule (§4, "establish
+the noise floor before reading a trend") the training ranking is unreadable.
+
+Measured directly on the head rather than argued: `frame_output` against
+ground-truth frame occupancy over 4 tracks, comparing **discrimination** (AUC,
+rank-based, blind to any monotonic shift) against **calibration** (where the
+values sit, which is what `frame_threshold` cuts):
+
+| | AUC | median activation, sounding frames |
+|---|---|---|
+| ByteDance | 0.9885 | **0.974** |
+| PTify 16b | 0.9785 | **0.347** |
+
+**The level moved 63x more than the ranking did.** The head did not degrade, it
+slid down the axis — so weighting its loss up would train harder on a quantity
+that already improved. And the slide is strongly repertoire-dependent (Grieg
+0.066, ty_maerz 0.63, scn15_11 0.83), which a single per-engine constant cannot
+follow. That is a *different* next run from the one HANDOFF specified, and it
+was settled for about an hour of CPU rather than ~10h of quota — the second time
+this project has nearly spent a session on the wrong hypothesis.
+
+**The GPU host served the wrong weights, silently.** `hosting/modal/app.py`
+loaded ByteDance's checkpoint unconditionally and applied `PTIFY_HOST_ENGINE`
+only to the response *label*. A host deployed as `ptify` therefore served the
+pretrained baseline and stamped `ptify` on it — 0.787 reported under the name of
+the model that scores 0.840. Since `python -m evaluation --engine remote` is the
+supported way to score on the GPU, every remote benchmark row would have
+inherited it. This is the **sixth** appearance of this codebase's most
+persistent hazard. Both checkpoints are now baked into the image, selected by
+name, and **verified by sha256 at container start** — size alone cannot separate
+the 172MB deployable checkpoint from the 260MB training one that was attached to
+the release for a while (Phase 18).
+
+**Issues found**
+- **A display test passed against deliberately broken code.** The first version
+  asserted `"0.744" in table_output` with one row — but the MEAN line carries
+  the same figures, so deleting the per-case columns still passed. Rewritten to
+  match on the named line with two rows of distinct values, then re-verified by
+  sabotage. Same lesson as §4's "a test on the producer is not a test on the
+  consumer".
+- **`rows_from_json` fabricated offset precision from the offset F1**, so a
+  round-tripped report claimed P = R = F1 = 0.607. Nothing read it, which is
+  precisely the condition under which a wrong number waits. Now `NaN`.
+- **A verdict decided by 4e-5.** The frame-head classifier keyed on
+  `auc_delta > -0.01` and the real data landed at −0.00996. Replaced with the
+  ratio between level loss and ranking loss, which is what actually separates
+  the hypotheses.
+- **Six remote-engine tests hardcoded `onset_threshold: 0.3`** and failed the
+  moment the constant was measured — an assertion about `config.py` made in a
+  file about the wire protocol. Now read from `config`.
+
+**Verification:** 1,125 tests (was 1,065). Every new guard on a weights-identity
+or display regression was verified to **fail** against the unfixed code.
+
+**Next**
+- Sweep `onset_threshold` for **ptify**, which is still on ByteDance's measured
+  value; its frame head is calibrated very differently, so its onset head may be
+  too.
+- Re-score the MAPS baselines at the new threshold — every committed number
+  predates it.
+- The next training run, now aimed at **calibration** rather than at weighting
+  the frame loss.
+
+---
+
 ## Standing goals
 
 - **Training target:** beat ByteDance **on room-matched recordings**, not on

@@ -144,25 +144,49 @@ def _decode(model, out, onset_threshold, frame_threshold):
 def select_best(cells: dict, rule: str = "regret") -> tuple:
     """Pick a (onset, frame) pair from per-track F1s.
 
-    `cells` maps (onset, frame) -> list of per-track onset F1s.
+    `cells` maps (onset, frame) -> list of per-track onset F1s, in a CONSISTENT
+    track order across cells (the caller appends per track).
 
-    **regret** (default) maximises the WORST track's F1, breaking ties on the
-    mean. **mean** maximises the average. They are reported side by side in the
-    artifact because when they disagree, the disagreement is the finding: it
-    says a value is buying its average from one track at another's expense,
-    which is precisely what Phase 19 caught on the frame axis.
+    Three rules:
+
+    **regret** (default) minimises the largest shortfall against each track's
+    OWN best cell. This is the one to trust. It asks "how much worse than the
+    best available is this value, for the track it suits least" -- which is the
+    question a shared constant actually poses.
+
+    **worst** maximises the worst track's absolute F1. It sounds like the same
+    thing and is not, because tracks differ enormously in intrinsic difficulty
+    (0.80 to 0.94 here). A hard track drags every cell down equally, so this
+    rule mostly measures which cell suits the HARDEST track, and it happily
+    picks a value that is past peak on four of six. Measured on the real sweep
+    it chose 0.8, where mean F1 has already fallen 0.018 from its maximum.
+
+    **mean** maximises the average, and is blind to a value that wins by
+    helping one track while ruining another.
+
+    When they disagree, the disagreement is the finding -- Phase 19 rejected a
+    best-mean frame_threshold for exactly this reason.
     """
     if not cells:
         raise ValueError("no cells to select from")
 
-    def stats(key):
+    def mean_of(key):
         vals = cells[key]
-        return min(vals), sum(vals) / len(vals)
+        return sum(vals) / len(vals)
 
     if rule == "mean":
-        return max(cells, key=lambda k: (stats(k)[1], stats(k)[0]))
+        return max(cells, key=lambda k: (mean_of(k), min(cells[k])))
+    if rule == "worst":
+        return max(cells, key=lambda k: (min(cells[k]), mean_of(k)))
     if rule == "regret":
-        return max(cells, key=lambda k: (stats(k)[0], stats(k)[1]))
+        n = len(next(iter(cells.values())))
+        # Each track's best across all cells, then the largest shortfall.
+        peaks = [max(vals[i] for vals in cells.values()) for i in range(n)]
+
+        def max_regret(key):
+            return max(p - v for p, v in zip(peaks, cells[key]))
+
+        return min(cells, key=lambda k: (max_regret(k), -mean_of(k)))
     raise ValueError(f"unknown selection rule {rule!r}")
 
 
@@ -178,7 +202,8 @@ def main(argv=None) -> int:
                     default=",".join(str(g) for g in DEFAULT_ONSET_GRID))
     ap.add_argument("--frame-grid",
                     default=",".join(str(g) for g in DEFAULT_FRAME_GRID))
-    ap.add_argument("--select", default="regret", choices=("regret", "mean"))
+    ap.add_argument("--select", default="regret",
+                    choices=("regret", "worst", "mean"))
     args = ap.parse_args(argv)
 
     onset_grid = [float(x) for x in args.onset_grid.split(",")]
@@ -265,18 +290,22 @@ def main(argv=None) -> int:
                   f"{entry['mean_r']:>8.4f}")
 
     best_regret = select_best(cells, "regret")
+    best_worst = select_best(cells, "worst")
     best_mean = select_best(cells, "mean")
     chosen = select_best(cells, args.select)
 
-    print(f"\n  worst-case regret picks onset={best_regret[0]} "
+    print(f"\n  peak-relative regret picks onset={best_regret[0]} "
           f"frame={best_regret[1]}")
-    print(f"  mean picks              onset={best_mean[0]} "
+    print(f"  worst-absolute picks       onset={best_worst[0]} "
+          f"frame={best_worst[1]}")
+    print(f"  mean picks                 onset={best_mean[0]} "
           f"frame={best_mean[1]}")
-    if best_regret != best_mean:
-        # Not a tie-break detail. It says some cell is buying its average from
-        # one track at another's expense -- the exact trap Phase 19 documented.
-        print("  THEY DISAGREE: the mean-optimal cell costs some track more "
-              "than it gains elsewhere. Prefer regret; see the per-track rows.")
+    if len({best_regret, best_worst, best_mean}) > 1:
+        # Not a tie-break detail. It says some cell is buying its score from
+        # one track at another's expense -- the trap Phase 19 documented.
+        print("  THE RULES DISAGREE: at least one cell wins its criterion by "
+              "helping one track at another's expense. Prefer regret, and read "
+              "the per-track rows before accepting any of them.")
     print(f"\n  chosen (--select {args.select}): onset_threshold={chosen[0]}, "
           f"frame_threshold={chosen[1]}")
 
@@ -297,9 +326,11 @@ def main(argv=None) -> int:
                            "frame_threshold": chosen[1]},
                 "by_regret": {"onset_threshold": best_regret[0],
                               "frame_threshold": best_regret[1]},
+                "by_worst": {"onset_threshold": best_worst[0],
+                             "frame_threshold": best_worst[1]},
                 "by_mean": {"onset_threshold": best_mean[0],
                             "frame_threshold": best_mean[1]},
-                "rules_agree": best_regret == best_mean,
+                "rules_agree": len({best_regret, best_worst, best_mean}) == 1,
             },
             "environment": collect_environment(),
         }

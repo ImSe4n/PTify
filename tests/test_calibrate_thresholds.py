@@ -16,26 +16,69 @@ from tools import calibrate_thresholds as ct
 # --- selection rule -------------------------------------------------------
 
 
-def test_regret_and_mean_can_disagree_and_regret_protects_the_worst_track():
-    """The reason both rules exist.
+def test_a_cell_that_wins_the_mean_by_ruining_one_track_is_rejected():
+    """The reason several rules exist.
 
-    Cell A wins the mean (0.70 vs 0.69) while leaving one track at 0.50; cell B
-    is nearly flat. Phase 19 hit exactly this shape on the frame axis and chose
-    B's equivalent, because a mean bought at one track's expense is not a
-    better decoder -- it is a decoder that fails on repertoire the mean happens
-    to outvote.
+    Cell 0.3 wins the mean (0.70 vs 0.69) by scoring 0.90 on track 1 while
+    leaving track 2 at 0.50 -- and track 2 could have had 0.68. Both other
+    rules reject it. Phase 19 hit exactly this shape on the frame axis and
+    rejected the best-mean value for the same reason: a mean bought at one
+    track's expense is not a better decoder, it is one that fails on
+    repertoire the mean happens to outvote.
     """
     cells = {(0.3, 0.01): [0.90, 0.50], (0.5, 0.01): [0.70, 0.68]}
 
     assert ct.select_best(cells, "mean") == (0.3, 0.01)
-    assert ct.select_best(cells, "regret") == (0.5, 0.01)
+    assert ct.select_best(cells, "worst") == (0.5, 0.01)
+
+
+def test_regret_is_relative_to_what_each_track_could_have_achieved():
+    """Regret asks "how much worse than this track's best", not "how low".
+
+    Here track 2 tops out at 0.68 everywhere, so its low absolute score is the
+    music, not the threshold -- and a rule that chases it would be tuning to
+    difficulty rather than to the parameter. Cell 0.3 gives track 2 nearly its
+    ceiling while giving track 1 its actual peak, so its worst shortfall
+    (0.18) beats cell 0.5's (0.20).
+    """
+    cells = {(0.3, 0.01): [0.90, 0.50], (0.5, 0.01): [0.70, 0.68]}
+    assert ct.select_best(cells, "regret") == (0.3, 0.01)
+
+
+def test_regret_measures_shortfall_against_each_track_s_own_peak():
+    """Why `regret` is not `worst`, on the shape the real sweep produced.
+
+    Track 2 is intrinsically harder than track 1 -- it scores lower everywhere.
+    `worst` therefore just tracks whichever cell suits track 2, and picks the
+    high cell even though track 1 has fallen 0.06 below its own best. `regret`
+    compares each track against what IT could have had, so it picks the cell
+    that is close to peak for both.
+
+    Measured, this is exactly the disagreement the 6-track sweep produced:
+    `worst` chose 0.8 -- past peak on four of six tracks and 0.018 below the
+    best mean -- while `regret` chose 0.7, which is the best cell on mean, on
+    max-regret, and on how many tracks it leaves past their peak.
+    """
+    cells = {
+        (0.7, 0.05): [0.94, 0.80],   # track1 at peak, track2 near peak
+        (0.8, 0.05): [0.88, 0.82],   # track1 down 0.06, track2 up 0.02
+    }
+    assert ct.select_best(cells, "worst") == (0.8, 0.05)
+    assert ct.select_best(cells, "regret") == (0.7, 0.05)
 
 
 def test_regret_breaks_ties_on_the_mean():
-    """Equal worst case, so the better average should win -- otherwise the
+    """Equal max shortfall, so the better average should win -- otherwise the
     choice depends on dict ordering, which is not a decision."""
-    cells = {(0.3, 0.01): [0.60, 0.80], (0.5, 0.01): [0.60, 0.90]}
+    # Peaks are 0.70 and 0.90. Cell 0.3 shortfalls (0.10, 0.00) -> max 0.10,
+    # mean 0.750. Cell 0.5 shortfalls (0.00, 0.10) -> max 0.10, mean 0.775.
+    cells = {(0.3, 0.01): [0.60, 0.90], (0.5, 0.01): [0.70, 0.85]}
     assert ct.select_best(cells, "regret") == (0.5, 0.01)
+
+
+def test_worst_breaks_ties_on_the_mean():
+    cells = {(0.3, 0.01): [0.60, 0.80], (0.5, 0.01): [0.60, 0.90]}
+    assert ct.select_best(cells, "worst") == (0.5, 0.01)
 
 
 def test_mean_breaks_ties_on_the_worst_case():
@@ -43,10 +86,10 @@ def test_mean_breaks_ties_on_the_worst_case():
     assert ct.select_best(cells, "mean") == (0.5, 0.01)
 
 
-def test_both_rules_agree_when_one_cell_dominates():
+def test_all_rules_agree_when_one_cell_dominates():
     cells = {(0.3, 0.01): [0.50, 0.60], (0.5, 0.01): [0.80, 0.90]}
-    assert ct.select_best(cells, "mean") == (0.5, 0.01)
-    assert ct.select_best(cells, "regret") == (0.5, 0.01)
+    for rule in ("mean", "worst", "regret"):
+        assert ct.select_best(cells, rule) == (0.5, 0.01)
 
 
 def test_an_unknown_rule_raises_rather_than_silently_picking_one():

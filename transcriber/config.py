@@ -194,7 +194,58 @@ DYNAMIC_LEVELS = (
 BYTEDANCE_FRAME_THRESHOLD = 0.05
 PTIFY_FRAME_THRESHOLD = 0.01
 
-# Left at the library default. The sweep above changed frame_threshold alone
-# and note counts never moved, so onset detection was not the variable under
-# test and there is no measurement here to justify departing from 0.3.
-ONSET_THRESHOLD = 0.3
+# --- Note-onset decoding: WHETHER a note exists (as opposed to where it ends) --
+#
+# MEASURED IN PHASE 22. This used to read "left at the library default ... there
+# is no measurement here to justify departing from 0.3", and that was true: the
+# Phase 19 sweep moved frame_threshold alone, which provably cannot change the
+# note count (n and onset F1 are identical at every row of that sweep). So the
+# one parameter that decides HOW MANY notes come out had never been tested,
+# through every published number this project has.
+#
+# It turned out to be worth 2.4 F1 points, free, with no retraining.
+#
+# Swept over 6 MAPS tracks -- 3 close-mic, 3 ambient, 24,322 reference notes --
+# with frame_threshold held at 0.05. Artifact:
+# `benchmarks/threshold-calibration-bytedance.json`. Regenerate with
+#   python -m tools.calibrate_thresholds --audio-dir recordings/maps_paired \
+#       --engine bytedance --limit 6
+#
+#   onset_thr  mean F1   regret    mean P    mean R   notes emitted
+#      0.2      0.8256   0.0761    0.7740    0.8868      27,991
+#      0.3      0.8407   0.0517    0.8039    0.8825      26,582   <- was here
+#      0.4      0.8508   0.0346    0.8255    0.8789      25,607
+#      0.5      0.8581   0.0240    0.8441    0.8734      24,725
+#      0.6      0.8633   0.0158    0.8619    0.8655      23,827
+#      0.7      0.8646   0.0106    0.8800    0.8510      22,650   <- CHOSEN
+#      0.75     0.8615   0.0207    0.8908    0.8358      21,720
+#      0.8      0.8468   0.0512    0.9033    0.8001      20,084
+#      0.85     0.7831   0.1594    0.9214    0.6898      16,243
+#      0.9      0.4930   0.5404    0.9455    0.3501       7,323
+#
+# `regret` is the largest shortfall against each track's OWN best cell, which is
+# the question a shared constant actually poses. 0.7 minimises it AND wins the
+# mean -- the two rules agree, and it is a genuine interior optimum rather than a
+# grid edge: the sweep was extended to 0.95 specifically to find the turning
+# point, and F1 collapses above 0.8 as recall falls away.
+#
+# WHY THIS WORKS AT ALL: the failure it fixes is over-generation, not deafness.
+# ByteDance emitted 26,582 notes against 24,322 real ones at 0.3 (+9.3%); at 0.7
+# it emits 22,650. Precision rises 7.6 points for 3.2 points of recall, and the
+# effect is ~2x larger on the ambient (3-4m mic) tracks than the close ones --
+# the same asymmetry the room-robustness training targets, which is the evidence
+# that reverb-induced false positives are what is being removed.
+#
+# NOT 6 of 6 TRACKS. `ENSTDkCl-liz_rhap09` loses 0.0007 (0.8878 -> 0.8871) --
+# the densest piece at 8,556 notes, where a high threshold starts discarding
+# real notes inside thick textures. Recorded rather than rounded away, because
+# the direction of that one track is a real limit on this constant.
+#
+# NOT YET SWEPT FOR PTIFY. This value is measured on `bytedance` only. PTify's
+# frame head is calibrated very differently (see the frame-threshold block above
+# and `benchmarks/frame-activation-analysis.json`, where its median activation
+# on sounding frames is 0.63 lower), so its onset head may well want a different
+# value. Both engines read this constant today; splitting it needs its own
+# sweep, and inventing a second number without one would be exactly the guess
+# this file exists to prevent.
+ONSET_THRESHOLD = 0.7

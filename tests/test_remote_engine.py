@@ -15,7 +15,7 @@ from dataclasses import fields
 
 import pytest
 
-from transcriber import remote
+from transcriber import config, remote
 from transcriber.engine import ENGINE_NAMES, get_engine
 from transcriber.events import MIN_NOTE_SEC, NoteEvent
 from transcriber.remote import (
@@ -28,15 +28,24 @@ ENDPOINT = "https://example.invalid/transcribe"
 
 
 def _payload(**over):
-    """A well-formed response, overridable per test."""
+    """A well-formed response, overridable per test.
+
+    The thresholds are read from `transcriber.config` rather than written as
+    literals. `_verify_echo` refuses a response whose echoed thresholds differ
+    from what was asked for -- correctly -- so a literal here is really an
+    assertion that the config still holds that value, made in a file about
+    something else entirely. When Phase 22 measured `ONSET_THRESHOLD` and moved
+    it 0.3 -> 0.7, six tests in this file failed for a reason none of them was
+    testing.
+    """
     body = {
         "schema": remote.WIRE_SCHEMA,
         "engine": "bytedance",
         "device": "cuda",
         "duration": 25.0,
         "checkpoint_sha256": "a" * 64,
-        "frame_threshold": 0.05,
-        "onset_threshold": 0.3,
+        "frame_threshold": config.BYTEDANCE_FRAME_THRESHOLD,
+        "onset_threshold": config.ONSET_THRESHOLD,
         "gpu_seconds": 3.1,
         "notes": [
             {"pitch": 60, "onset": 0.5, "offset": 0.95, "velocity": 80},
