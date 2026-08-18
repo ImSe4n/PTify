@@ -1336,9 +1336,27 @@ measurements that produced them. Three are load-bearing:
   `python -m tools.calibrate_thresholds --audio-dir recordings/maps_paired
   --engine bytedance --limit 6`.
 
-  **Measured on `bytedance` only, and both engines read it.** PTify's frame head
-  is calibrated very differently (median activation 0.63 lower), so its onset
-  head may want a different value. Splitting the constant needs its own sweep.
+- **`PTIFY_ONSET_THRESHOLD = 0.6`** (Phase 22) — **the two engines were measured
+  apart, so the constant is split like `frame_threshold` already is.** Same
+  6-track sweep at ptify's own frame value of 0.01:
+
+  | onset_thr | ptify mean F1 | mean P | mean R |
+  |---|---|---|---|
+  | 0.3 | 0.8732 | 0.8685 | 0.8781 |
+  | 0.5 | 0.8826 | 0.8987 | 0.8672 |
+  | **0.6 (chosen)** | **0.8836** | 0.9106 | 0.8584 |
+  | 0.7 (ByteDance's) | 0.8798 | 0.9227 | 0.8415 |
+
+  Applying ByteDance's 0.7 to ptify **costs 4 of 6 tracks**, up to −0.0117.
+  PTify peaks lower and gains less (+1.0 F1 against ByteDance's +2.4) because
+  16b already removed most of the false positives — invented notes 7,093 →
+  4,449 — so there is less garbage left for a threshold to cut and the trade
+  turns against recall sooner. **The threshold and the fine-tune are removing
+  the same errors, which is why they do not simply add.**
+  Artifact: `benchmarks/threshold-calibration-ptify.json`.
+
+  `ONSET_THRESHOLD` stays at the library's 0.3 as a neutral fallback for engines
+  with no measured value; it is deliberately *not* a third measured number.
 - **`MIN_REPEAT_SEC` / `ECHO_WINDOW_SEC` / `MERGE_WINDOW_SEC`** — these three
   interact. Attack echoes arrive ~93ms after a strike, which is *longer* than
   the 90ms that genuine fast repeats need, so onset distance alone cannot
@@ -1706,6 +1724,15 @@ checkpoint where the 172MB deployable was expected.
 to **fail** against the pre-fix version. **The image has not been redeployed
 yet** — the code and tests are correct locally, but `modal deploy` plus a
 `tools.crosscheck_remote` run against `--engine ptify` is still outstanding.
+
+**`benchmarks/remote-crosscheck.json` is superseded and must be re-run.** It
+records **297 notes** on `var/clip25.wav`, measured at the old
+`onset_threshold=0.3`; at the measured 0.7 the same clip yields **285**. The
+cross-check's pass criteria include *identical note count* between local and
+remote, so re-running it against a host still serving the old default would fail
+for a configuration reason rather than a real disagreement. Redeploy first, then
+re-run — the thresholds are sent explicitly on every request, so a redeployed
+host will use whatever the client asks for.
 
 ### The original Phase 9 brief (superseded above, kept for its reasoning)
 

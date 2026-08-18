@@ -258,6 +258,9 @@ def _source(args, n_items: int) -> dict:
     thr = _frame_threshold(getattr(args, "engine", None))
     if thr is not None:
         out["frame_threshold"] = thr
+    onset = _onset_threshold(getattr(args, "engine", None))
+    if onset is not None:
+        out["onset_threshold"] = onset
     return out
 
 
@@ -268,6 +271,25 @@ def _frame_threshold(engine_name: str):
     return {
         "bytedance": config.BYTEDANCE_FRAME_THRESHOLD,
         "ptify": config.PTIFY_FRAME_THRESHOLD,
+    }.get(engine_name)
+
+
+def _onset_threshold(engine_name: str):
+    """The note-exists threshold an engine will decode with.
+
+    Recorded for a stronger reason than `frame_threshold`. That one moves only
+    where notes end, so a report scored at a different value is still
+    comparable on `onset_f1`. This one decides HOW MANY NOTES EXIST -- Phase 22
+    measured it 0.3 -> 0.7 for bytedance, worth +2.4 mean onset F1 -- so two
+    reports at different values are not comparable on the headline number at
+    all. Every baseline committed before Phase 22 predates this field and was
+    scored at 0.3.
+    """
+    from transcriber import config
+
+    return {
+        "bytedance": config.BYTEDANCE_ONSET_THRESHOLD,
+        "ptify": config.PTIFY_ONSET_THRESHOLD,
     }.get(engine_name)
 
 

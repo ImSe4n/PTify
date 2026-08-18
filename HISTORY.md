@@ -2851,6 +2851,17 @@ name, and **verified by sha256 at container start** — size alone cannot separa
 the 172MB deployable checkpoint from the 260MB training one that was attached to
 the release for a while (Phase 18).
 
+**The two engines wanted different values, and that was measured rather than
+assumed.** The same sweep on ptify (at its own frame threshold of 0.01) peaks at
+**0.6**, and applying ByteDance's 0.7 to it costs **4 of 6 tracks**, up to
+−0.0117. So the constant is split per engine exactly as `frame_threshold`
+already was. PTify peaks lower and gains less (+1.0 F1 against ByteDance's +2.4)
+because 16b had already removed most of the false positives — **the threshold
+and the fine-tune are removing the same errors, which is why they do not simply
+add.** Splitting it also exposed a latent bug: `PtifyEngine` passed
+`onset_threshold=None` straight through to the ByteDance engine it composes,
+which was harmless only while the two shared one value.
+
 **Issues found**
 - **A display test passed against deliberately broken code.** The first version
   asserted `"0.744" in table_output` with one row — but the MEAN line carries

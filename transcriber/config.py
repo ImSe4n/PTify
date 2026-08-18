@@ -241,11 +241,34 @@ PTIFY_FRAME_THRESHOLD = 0.01
 # real notes inside thick textures. Recorded rather than rounded away, because
 # the direction of that one track is a real limit on this constant.
 #
-# NOT YET SWEPT FOR PTIFY. This value is measured on `bytedance` only. PTify's
-# frame head is calibrated very differently (see the frame-threshold block above
-# and `benchmarks/frame-activation-analysis.json`, where its median activation
-# on sounding frames is 0.63 lower), so its onset head may well want a different
-# value. Both engines read this constant today; splitting it needs its own
-# sweep, and inventing a second number without one would be exactly the guess
-# this file exists to prevent.
-ONSET_THRESHOLD = 0.7
+# THE TWO ENGINES WANT DIFFERENT VALUES, exactly as they do for frame_threshold,
+# and this was measured rather than assumed. The same 6-track sweep on ptify
+# (at its own frame_threshold of 0.01) peaks at 0.6, not 0.7:
+#
+#   onset_thr   ptify mean F1   ptify mean P   ptify mean R
+#      0.3          0.8732         0.8685         0.8781
+#      0.5          0.8826         0.8987         0.8672
+#      0.6          0.8836 <-      0.9106         0.8584
+#      0.7          0.8798         0.9227         0.8415
+#      0.8          0.8504         0.9338         0.7840
+#
+# Applying ByteDance's 0.7 to ptify costs **4 of 6 tracks** (up to -0.0117 on
+# `ENSTDkCl-liz_rhap09`), so a single shared constant would mis-set one engine
+# or the other. Artifact: `benchmarks/threshold-calibration-ptify.json`.
+#
+# WHY PTIFY PEAKS LOWER, and why that is the expected direction: 16b already
+# removed most of ByteDance's false positives (invented notes 7,093 -> 4,449 on
+# the 14 MAPS tracks), so there is less garbage left for a threshold to cut and
+# the trade turns against recall sooner. PTify's gain from tuning is
+# correspondingly smaller: +1.0 F1 against ByteDance's +2.4. The two are
+# consistent -- the threshold and the fine-tune are removing the same errors,
+# which is also why they do not simply add.
+BYTEDANCE_ONSET_THRESHOLD = 0.7
+PTIFY_ONSET_THRESHOLD = 0.6
+
+# Kept as the neutral default for any engine that does not carry its own value
+# (`basicpitch` has its own thresholds entirely, and `remote` is told what to
+# use by the client). Left at the library default deliberately: it is not a
+# measurement, it is the absence of one, and the two measured values above are
+# the numbers that should be read.
+ONSET_THRESHOLD = 0.3

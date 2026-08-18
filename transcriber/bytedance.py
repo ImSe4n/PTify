@@ -69,6 +69,12 @@ class ByteDanceEngine(TranscriptionEngine):
     #: Overridden by PtifyEngine's engine — see config.PTIFY_FRAME_THRESHOLD.
     default_frame_threshold = config.BYTEDANCE_FRAME_THRESHOLD
 
+    #: Likewise. Decides WHETHER a note exists, where frame_threshold decides
+    #: where it ends — so this one moves precision and the note count, and
+    #: frame_threshold provably cannot. Measured in Phase 22: 0.7 here, 0.6 for
+    #: ptify, against the library's unmeasured 0.3. See config.py for the sweep.
+    default_onset_threshold = config.BYTEDANCE_ONSET_THRESHOLD
+
     def __init__(self, threads: int = config.INFERENCE_THREADS,
                  checkpoint_path: str | Path | None = None,
                  frame_threshold: float | None = None,
@@ -84,7 +90,7 @@ class ByteDanceEngine(TranscriptionEngine):
             else float(frame_threshold)
         )
         self._onset_threshold = (
-            config.ONSET_THRESHOLD if onset_threshold is None
+            self.default_onset_threshold if onset_threshold is None
             else float(onset_threshold)
         )
         if not 0.0 < self._frame_threshold <= 1.0:
@@ -105,6 +111,19 @@ class ByteDanceEngine(TranscriptionEngine):
         F1 by 0.19 on one track without changing a single onset.
         """
         return self._frame_threshold
+
+    @property
+    def onset_threshold(self) -> float:
+        """How confident the model must be that a note STARTED.
+
+        The counterpart to `frame_threshold`, and the one that decides how many
+        notes exist at all. Measured in Phase 22 (0.3 -> 0.7 here): +2.4 mean
+        onset F1, precision +7.6 for recall -3.2, on 6 MAPS tracks. Exposed as a
+        property for the same reason as the frame value -- a score is not
+        reproducible without knowing it, and this one moves the headline number
+        rather than only the durations.
+        """
+        return self._onset_threshold
 
     @property
     def name(self) -> str:

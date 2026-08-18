@@ -309,6 +309,22 @@ synthetic audio — the most flattering of three numbers. A 25-second clip
 measures 2.23x end to end because the ~11s model load dominates a short file.
 **On a GPU it is 0.21x** — see `--engine remote` below.
 
+**The MAPS figures above predate a decode fix and now understate both engines.**
+Phase 22 measured `onset_threshold`, which decides *whether a note exists* and
+had never been swept — it sat at the inference library's default of 0.3 through
+every number this project has published. On 6 MAPS tracks the measured values
+are **0.7 for ByteDance and 0.6 for PTify**, worth **+2.4 and +1.0 mean onset
+F1** respectively, for free and with no retraining:
+
+| ByteDance, 6 MAPS tracks | mean F1 | precision | recall | notes emitted |
+|---|---|---|---|---|
+| `onset_threshold` 0.3 (library) | 0.8407 | 0.8039 | 0.8825 | 26,582 |
+| **0.7 (measured)** | **0.8646** | **0.8800** | 0.8510 | 22,650 |
+
+against 24,322 real notes. The engines were measured apart, so the constant is
+per-engine like `frame_threshold` already was. `benchmarks/real/*.json` were all
+scored at 0.3 and have not been re-run.
+
 **PTify is ByteDance's architecture with our own weights.** Same speed, same
 capabilities; fine-tuned here with room/detune augmentation for 6,555 steps.
 It wins by **5.3 onset F1 on MAPS**, the cross-dataset target, and loses 0.6 on
@@ -406,6 +422,9 @@ conversion raises under numpy 2.x. That conversion runs on every transcription.
 | `evaluation/maps.py` | MAPS Disklavier corpus: cross-dataset + mic-distance A/B |
 | `evaluation/benchmark.py` | Runner + report formats |
 | `evaluation/report.py` | JSON baselines with environment provenance |
+| `tools/calibrate_thresholds.py` | Sweeps `onset_threshold` × `frame_threshold`; one forward pass per track |
+| `tools/frame_activation_analysis.py` | Is a frame head miscalibrated or degraded? (AUC vs activation level) |
+| `tools/precision_review.py` | Precision/recall/invented-note counts from the committed baselines |
 | `api/app.py` | `create_app()` factory, error mapping, TTL janitor |
 | `api/queue.py` | `JobQueue` ABC + `get_queue()` factory |
 | `api/inproc.py` | Default backend: thread pool + per-worker engine cache |
@@ -572,17 +591,25 @@ pretrained weights. PTify's fine-tuned frame head sits lower, so the stock
 threshold released every note about three times too early. Each engine now
 carries its own calibrated value (`transcriber/config.py`), which recovers mean
 +offset F1 across four MAPS tracks from **0.406 to 0.503** with onsets and note
-counts completely unchanged. Re-derive it with:
+counts completely unchanged. Re-derive both decode thresholds with:
 
 ```bash
-python -m tools.calibrate_frame_threshold --audio-dir recordings/maps_paired \
-    --engine ptify --limit 4
+python -m tools.calibrate_thresholds --audio-dir recordings/maps_paired \
+    --engine ptify --limit 6
 ```
 
-A real gap remains — ByteDance still reaches ~0.65 — so the frame head did
-genuinely regress during fine-tuning. Note that `benchmarks/real/*ptify*.json`
-predate this fix and were scored at the old threshold, so their `+offset`
-figures understate the engine.
+A real gap remains — ByteDance still reaches ~0.65 — but **it is not that the
+frame head got worse at its job.** Measured directly against ground-truth frame
+occupancy, PTify's frame head separates sounding from silent frames essentially
+as well as ByteDance's (AUC 0.9785 vs 0.9885) while its *output level* collapsed
+(median activation on sounding frames **0.347 vs 0.974**). The level moved
+**63x more than the ranking did**: the head is miscalibrated, not degraded, and
+the shift is strongly repertoire-dependent — which bounds how much any single
+threshold can recover. `benchmarks/frame-activation-analysis.json`; regenerate
+with `python -m tools.frame_activation_analysis`.
+
+Note that `benchmarks/real/*ptify*.json` predate this fix and were scored at the
+old threshold, so their `+offset` figures understate the engine.
 
 A useful check on the harness itself: ByteDance's published MAESTRO note F1 is
 0.9677, and this corpus measures **0.9693** — agreement to within 0.002,
@@ -653,7 +680,8 @@ proven. See `HANDOFF.md` §9.
 - [x] **Phase 17** — shipped it as `--engine ptify`, working in the CLI, notation and HTTP API
 - [x] **Phase 18** — the offset anomaly explained: `offset_f1` is not comparable across corpora
 - [x] **Phase 19** — note truncation was a **decoding** bug, not the weights: +offset 0.406 → 0.503
-- [ ] **Phase 21** — retrain the **frame head**, the one regression Phase 19 could not decode away
+- [x] **Phase 22** — precision made visible; `onset_threshold` measured for the first time: **+2.4 onset F1, free**
+- [ ] **Phase 23** — retrain for frame-head **calibration** (Phase 22 showed the head's *ranking* is intact and its *level* collapsed, so it was never an undertraining problem)
 
 The training goal is **beating ByteDance on your own recordings**, not on the
 MAESTRO benchmark. Models overfit badly to their training audio — published work

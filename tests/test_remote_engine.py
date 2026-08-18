@@ -45,7 +45,7 @@ def _payload(**over):
         "duration": 25.0,
         "checkpoint_sha256": "a" * 64,
         "frame_threshold": config.BYTEDANCE_FRAME_THRESHOLD,
-        "onset_threshold": config.ONSET_THRESHOLD,
+        "onset_threshold": config.BYTEDANCE_ONSET_THRESHOLD,
         "gpu_seconds": 3.1,
         "notes": [
             {"pitch": 60, "onset": 0.5, "offset": 0.95, "velocity": 80},
@@ -191,13 +191,20 @@ def test_ptify_defaults_to_its_own_frame_threshold():
 
     transport = _FakeTransport(
         _payload(engine="ptify",
-                 frame_threshold=config.PTIFY_FRAME_THRESHOLD)
+                 frame_threshold=config.PTIFY_FRAME_THRESHOLD,
+                 onset_threshold=config.PTIFY_ONSET_THRESHOLD)
     )
     eng = _engine(transport, remote_engine="ptify")
     eng.transcribe_file(__file__)
 
     sent = transport.calls[0]["body"]
     assert sent["frame_threshold"] == config.PTIFY_FRAME_THRESHOLD
+    # BOTH thresholds are per-engine since Phase 22. The onset value used to be
+    # shared, so `None` could be passed through and the inner engine's default
+    # was harmless; now sending ByteDance's 0.7 to a ptify host would cost 4 of
+    # 6 MAPS tracks. The two engines were measured apart (0.6 vs 0.7).
+    assert sent["onset_threshold"] == config.PTIFY_ONSET_THRESHOLD
+    assert sent["onset_threshold"] != config.BYTEDANCE_ONSET_THRESHOLD
     assert sent["engine"] == "ptify"
 
 
