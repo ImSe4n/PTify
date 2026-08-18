@@ -470,6 +470,28 @@ and `COMPARE_ENGINES` (see the §4 trap).
 
 Each of these cost real debugging time. They are non-obvious and will recur.
 
+**IPython's `!cmd {VAR}` INTERPOLATION DOES NOT FIRE ON KAGGLE, and the clone
+"succeeded".** Measured 2026-08-18: `!git clone -q --branch {COMMIT} {REPO} ...`
+ran with a **literal** `{REPO}` and failed with `repository '{REPO}' does not
+exist`. Both pre-existing notebooks used this form, so it was never the new
+notebook's bug — it had simply never been exercised on a fresh Kaggle session.
+
+Two things made it worse than a typo:
+
+- **`|| true` hid it.** The cell reported success and the *next* cell failed on
+  a missing file, which points at the wrong place entirely.
+- **The training cell used the same form**, so the identical failure was sitting
+  in the command that runs for ten hours — it would have surfaced after the
+  172MB download and a model load rather than in the first ten seconds.
+
+The fix is to build the string in Python and let the magic run a finished
+command: `!{f"git clone ... {COMMIT} {REPO} /kaggle/working/PTify"}`. Nothing
+then depends on the magic's own interpolation rules. All three notebooks now use
+that form, `|| true` is gone from the clone, and `calibration_run.ipynb` asserts
+the cloned `training/train.py` actually contains `--init-checkpoint` and
+`--loss-weights` — because cloning the *wrong commit* is the other way this cell
+succeeds while leaving the run unable to start.
+
 **AN F1 CANNOT SAY WHICH ERROR YOU ARE MAKING, and this project hid its own
 headline for nine phases.** Precision and recall were computed from Phase 12
 onward, stored in every report (`onset_p`/`onset_r`), and never displayed —
