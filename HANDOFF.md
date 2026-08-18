@@ -470,27 +470,49 @@ and `COMPARE_ENGINES` (see the §4 trap).
 
 Each of these cost real debugging time. They are non-obvious and will recur.
 
-**IPython's `!cmd {VAR}` INTERPOLATION DOES NOT FIRE ON KAGGLE, and the clone
-"succeeded".** Measured 2026-08-18: `!git clone -q --branch {COMMIT} {REPO} ...`
-ran with a **literal** `{REPO}` and failed with `repository '{REPO}' does not
-exist`. Both pre-existing notebooks used this form, so it was never the new
-notebook's bug — it had simply never been exercised on a fresh Kaggle session.
+**`!cmd {VAR}` IS THE CORRECT IPYTHON FORM. `!{f"..."}` IS NOT, AND "FIXING" IT
+BREAKS A WORKING CELL.** A previous revision of this entry claimed the opposite
+and was wrong in both directions; it is kept, corrected, because the mistake is
+instructive.
 
-Two things made it worse than a typo:
+What actually happens, verified with IPython's own machinery rather than
+reasoned about:
 
-- **`|| true` hid it.** The cell reported success and the *next* cell failed on
-  a missing file, which points at the wrong place entirely.
-- **The training cell used the same form**, so the identical failure was sitting
-  in the command that runs for ten hours — it would have surfaced after the
-  172MB download and a model load rather than in the first ten seconds.
+```python
+TransformerManager().transform_cell('!pip install git+{REPO}@{COMMIT}')
+  -> get_ipython().system('pip install git+{REPO}@{COMMIT}')
+ip.var_expand('pip install git+{REPO}@{COMMIT}')
+  -> pip install git+https://github.com/ImSe4n/PTify.git@phase-22-precision
+```
 
-The fix is to build the string in Python and let the magic run a finished
-command: `!{f"git clone ... {COMMIT} {REPO} /kaggle/working/PTify"}`. Nothing
-then depends on the magic's own interpolation rules. All three notebooks now use
-that form, `|| true` is gone from the clone, and `calibration_run.ipynb` asserts
-the cloned `training/train.py` actually contains `--init-checkpoint` and
-`--loss-weights` — because cloning the *wrong commit* is the other way this cell
-succeeds while leaving the run unable to start.
+`system()` expands `{VAR}` **itself**, from the user namespace. `!{f"..."}` is
+not special syntax — the braces are passed through verbatim, so the shell
+receives the literal `{fpip install ...}` and reports `command not found`.
+
+**The diagnostic error that caused this.** A Kaggle clone failed, and
+`!cmd {VAR}` was blamed without testing it. The command was fine: the branch was
+public, and the identical clone succeeded off-Kaggle. The real cause was almost
+certainly **Kaggle's internet toggle, off by default on a new notebook** — which
+makes the clone, `pip`, and the 172MB checkpoint download all fail at once.
+`-q` suppressed git's message, so the actual reason was never on screen.
+
+Three durable lessons:
+
+- **`-q` on a command whose failure you will have to diagnose is a false
+  economy**, and `|| true` next to it turns a loud failure into a confusing one
+  two cells later. Both are now gone from the clone.
+- **A guessed cause in an assertion message is worse than no message.** The
+  assertion said "check COMMIT" when COMMIT was correct, which sent the
+  investigation the wrong way. It now prints git's real error and maps each
+  message to its cause, internet toggle included.
+- **IPython behaviour is testable offline** — `pip install ipython`, then
+  `TransformerManager` and `ip.var_expand`. Doing that first would have shown
+  the original form was right in about a minute.
+
+`calibration_run.ipynb` also asserts the cloned `training/train.py` really
+contains `--init-checkpoint` and `--loss-weights`, because cloning the *wrong
+commit* is the other way this cell succeeds while leaving the run unable to
+start.
 
 **AN F1 CANNOT SAY WHICH ERROR YOU ARE MAKING, and this project hid its own
 headline for nine phases.** Precision and recall were computed from Phase 12
