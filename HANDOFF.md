@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 22 — `ONSET_THRESHOLD` 0.3 -> 0.7 (+2.4 mean F1, free). The garbage-note problem was already measured and never printed.** |
+| **Last completed** | **Phase 23 — the calibration training run is a NEGATIVE result. At matched threshold it costs −0.0050 onset F1; the apparent gain was the threshold change. `ptify-16b-step6555.pth` remains the best model.** |
 | **Branch** | `phase-22-precision`, off `phase-9-gpu-host` |
 | **Tests** | 1125 Python, ~1 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
-| **Next** | Sweep `onset_threshold` for **ptify** (still on ByteDance's value), re-score the MAPS baselines at the new threshold, then the training run — aimed at **calibration**, not at weighting the frame loss. See §9. |
+| **Next** | Finish the **ptify** `onset_threshold` sweep (`benchmarks/ptify-threshold-calibration.json`), adopt the value, re-score the MAPS baselines at it. Only then another training run — and it must change the **augmentation recipe**, not the schedule. See §1a. |
 
 **READ THIS BEFORE PLANNING THE NEXT TRAINING RUN.** Phase 22 overturned two
 conclusions this file previously asserted:
@@ -1978,6 +1978,59 @@ ever silently returned nothing, every detector would score 0.0 and read as a
 detector failure — `test_a_realised_trill_is_detected_at_every_tempo` guards
 exactly that.
 
+### 1a. PHASE 23 — the second calibration run is a NEGATIVE result. Read before training again.
+
+**Never compare two reports scored at different `onset_threshold` values.** That
+is the whole lesson, and it nearly went into this file as a win.
+
+A 10,000-step continuation of `ptify-16b-step6555.pth` (calibration recipe:
+`--init-checkpoint`, `--loss-weights velocity=0.1`, batch 4 x accum 2, augment
+on) was scored against the committed 16b report and read **+0.0057 onset F1**.
+That number is an artifact. The committed 16b report was generated in August at
+the then-current `ONSET_THRESHOLD = 0.3`; the new run used the Phase 22-era
+`PTIFY_ONSET_THRESHOLD = 0.6`. Re-scoring 16b at 0.6 decomposes it:
+
+| effect | onset F1 |
+|---|---|
+| threshold 0.3 -> 0.6, on 16b | **+0.0107** |
+| training 6,555 -> 10,000 steps | **−0.0050** |
+| net, as first reported | +0.0057 |
+
+**The training made the model slightly worse.** Precision fell 0.8753 -> 0.8657
+with recall flat, so the new weights invent *more* notes — the opposite of what
+Phase 16b's win was made of. Offset F1 is the one real gain (+0.0129 at matched
+threshold, not the +0.0799 the uncontrolled diff showed), bought at the cost of
+the primary metric.
+
+**Numbers, all at `onset_threshold` 0.6 unless stated:**
+
+| model | MAPS onset | MAPS offset | MAESTRO onset |
+|---|---|---|---|
+| ByteDance (@0.3) | 0.7866 | 0.4314 | 0.9693 |
+| **16b @0.6 — BEST** | **0.8502** | 0.4984 | — |
+| 16b @0.3 (committed Aug report) | 0.8395 | 0.4314 | 0.9633 |
+| step10000 @0.6 | 0.8452 | 0.5113 | 0.9595 |
+
+`benchmarks/real/maps-paired-ptify16b-at060.json` is the **controlled baseline**;
+compare future runs against it, not against the older 0.3-era reports.
+
+**The MAESTRO cross-check passed.** 0.9595 against ByteDance's 0.9693 is −0.0097
+— the expected price, bounded by the 20% clean passthrough, and nowhere near the
+collapse that would indicate LR damage. The weights are healthy. They just are
+not better.
+
+**What this says about the next run.** Val loss moved 0.0029 across 10,000 steps
+and every head sat inside its own noise band; `aug_frame` tracked `val_frame` at
+a near-constant +0.0022 the whole way, so the augmentation never stressed the
+model. Continuing an already-converged checkpoint on the same recipe costs a
+little accuracy. **Change the recipe, not the schedule** — `--augment-max-cents`
+(50 -> 100) or the 20% clean share, one variable, and score the arms at the same
+threshold.
+
+**MAESTRO offset F1 is threshold-hypersensitive** — 0.5196 @0.3 vs 0.2999 @0.6,
+a 22-point swing on the same architecture. An offset comparison across different
+thresholds means nothing at all.
+
 ### "Fully in-house models" — costed, and the answer is not compute
 
 `docs/from-scratch.md` is the written assessment. The short version, because it
@@ -2494,7 +2547,10 @@ Custom rows deliberately keep the `bytedance` engine label so they key-join
 against the baseline; the weights are identified by the filename and by
 `checkpoint` / `checkpoint_sha256` in the report's `source` block.
 
-**The target is beating 0.787 on MAPS, not 0.969 on MAESTRO.**
+**SUPERSEDED IN PHASE 23.** 0.787 is ByteDance at the old threshold and was
+passed long ago. The live target is **0.8502 — `ptify-16b-step6555.pth` at
+`onset_threshold` 0.6** — and any challenger must be scored at the same
+threshold to count. See §1a.
 
 What Phase 14 leaves ready:
 
