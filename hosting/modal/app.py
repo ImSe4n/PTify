@@ -175,6 +175,21 @@ image = (
         f"wget -q -O '{CHECKPOINT_PATH}' '{BYTEDANCE_CHECKPOINT_URL}'",
         f"wget -q -O '{PTIFY_CHECKPOINT_PATH}' '{PTIFY_CHECKPOINT_URL}'",
     )
+    # WHICH MODEL THIS DEPLOYMENT SERVES, baked in at deploy time.
+    #
+    # `Transcriber.load` reads PTIFY_HOST_ENGINE from the CONTAINER's
+    # environment. Without this line nothing ever sets it there -- the image
+    # declared no env and the function takes no `env=` -- so `os.environ.get`
+    # fell through to DEFAULT_ENGINE and the host served ByteDance no matter
+    # what the deploying shell had exported. A `set PTIFY_HOST_ENGINE=ptify`
+    # before `modal deploy` would appear to work and change nothing, which is
+    # the same silent-wrong-weights failure the digest check exists to catch,
+    # arriving one layer earlier.
+    #
+    # Read at DEPLOY time, on the machine running `modal deploy`. Switching
+    # models is therefore a redeploy, which is what README.md promises.
+    .env({"PTIFY_HOST_ENGINE": os.environ.get("PTIFY_HOST_ENGINE",
+                                              DEFAULT_ENGINE)})
     # The project's own code. `wire.py` is the contract; `transcriber/` gives
     # the host the SAME NoteEvent/PedalEvent classes the client parses into, so
     # the two cannot drift in their clamping or range rules.

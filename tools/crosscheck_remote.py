@@ -154,6 +154,15 @@ def main(argv=None) -> int:
     ap.add_argument("--json", dest="json_path",
                     default="benchmarks/remote-crosscheck.json")
     ap.add_argument("--local-engine", default="bytedance")
+    ap.add_argument(
+        "--remote-engine", default=None,
+        help="which model the HOST serves; defaults to --local-engine. "
+             "This is not cosmetic: the client picks the per-engine onset "
+             "and frame thresholds from this name and sends them with the "
+             "request, so a wrong value decodes the right weights with the "
+             "wrong settings and the counts differ for a configuration "
+             "reason",
+    )
     args = ap.parse_args(argv)
 
     clip = args.clip
@@ -165,11 +174,21 @@ def main(argv=None) -> int:
 
     audio_seconds = sf.info(clip).duration
 
+    # Default the REMOTE engine to the local one. `RemoteEngine` defaults to
+    # "bytedance", so a `--local-engine ptify` run used to send BYTEDANCE's
+    # thresholds (onset 0.7) to a host serving PTIFY's weights and compare the
+    # result against local ptify at 0.6. The counts then differ by a handful of
+    # notes -- a real disagreement produced entirely by configuration, which is
+    # the failure mode this tool exists to detect and so must not itself cause.
+    remote_engine = args.remote_engine or args.local_engine
+
     print(f"clip: {clip} ({audio_seconds:.1f}s)")
+    print(f"  local engine {args.local_engine} | remote engine {remote_engine}")
 
     print("\n--- remote (GPU) ---")
     try:
-        remote_tr, r_load, r_infer, r_device = _run("remote", clip)
+        remote_tr, r_load, r_infer, r_device = _run(
+            "remote", clip, remote_engine=remote_engine)
     except Exception as exc:  # noqa: BLE001
         print(f"remote failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
@@ -196,7 +215,12 @@ def main(argv=None) -> int:
             "clip": clip,
             "audio_seconds": round(audio_seconds, 3),
             "local_engine": args.local_engine,
+            # What the CLIENT asked for, and what the HOST said it served.
+            # Recording only the host's label hid a real mismatch: the report
+            # read `remote_engine: ptify` on a run whose thresholds were
+            # ByteDance's, because the client's own setting was never stored.
             "remote_engine": remote_tr.engine,
+            "remote_engine_requested": remote_engine,
         },
         "criteria": {
             "note_counts_identical": True,

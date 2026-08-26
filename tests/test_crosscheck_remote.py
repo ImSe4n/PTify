@@ -109,3 +109,71 @@ def test_ordering_does_not_affect_agreement():
     forward = _notes(BASE)
     backward = list(reversed(_notes(BASE)))
     assert compare(_tr(forward), _tr(backward))["passed"] is True
+
+
+def test_the_remote_engine_defaults_to_the_local_one(monkeypatch):
+    """`--local-engine ptify` must not query a bytedance-configured client.
+
+    WHAT THIS WOULD HAVE CAUGHT. `RemoteEngine.__init__` defaults
+    `remote_engine="bytedance"`, and the tool built it with no arguments. Since
+    Phase 22 the client picks the onset threshold FROM THAT NAME (ptify 0.6,
+    bytedance 0.7) and sends it with the request, so `--local-engine ptify`
+    against a ptify host decoded the right weights at the WRONG threshold:
+    measured 284 local vs 280 remote, `pitch multiset DIFFERENT`, onset F1
+    0.9929 against a 0.999 bar. A configuration mismatch reported as a model
+    disagreement -- by the one tool whose job is telling those apart.
+    """
+    import tools.crosscheck_remote as cr
+
+    seen = {}
+
+    def fake_run(engine_name, clip, **kw):
+        seen[engine_name] = kw
+        raise RuntimeError("stop after the call is constructed")
+
+    monkeypatch.setattr(cr, "_run", fake_run)
+    monkeypatch.setattr(cr.Path, "is_file", lambda self: True)
+
+    import soundfile
+
+    monkeypatch.setattr(
+        soundfile, "info", lambda p: type("I", (), {"duration": 25.0})()
+    )
+
+    cr.main(["clip.wav", "--local-engine", "ptify"])
+
+    assert seen["remote"]["remote_engine"] == "ptify", (
+        "the remote client was configured for "
+        f"{seen['remote'].get('remote_engine')!r} while local ran ptify, so "
+        "the two sides decode at different onset thresholds"
+    )
+
+
+def test_the_remote_engine_can_be_set_independently(monkeypatch):
+    """An explicit `--remote-engine` still wins.
+
+    Comparing local ptify against a bytedance host is a legitimate question --
+    it is how the two models are diffed on identical audio. The default must
+    not make it unaskable.
+    """
+    import tools.crosscheck_remote as cr
+
+    seen = {}
+
+    def fake_run(engine_name, clip, **kw):
+        seen[engine_name] = kw
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(cr, "_run", fake_run)
+    monkeypatch.setattr(cr.Path, "is_file", lambda self: True)
+
+    import soundfile
+
+    monkeypatch.setattr(
+        soundfile, "info", lambda p: type("I", (), {"duration": 25.0})()
+    )
+
+    cr.main(["clip.wav", "--local-engine", "ptify",
+             "--remote-engine", "bytedance"])
+
+    assert seen["remote"]["remote_engine"] == "bytedance"

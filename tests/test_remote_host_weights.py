@@ -234,3 +234,62 @@ def test_both_checkpoints_are_baked_into_the_image(app):
         f"{len(fetches)} fetch commands for {len(app.HOSTED_ENGINES)} hosted "
         f"engines -- a checkpoint is either unfetched or fetched twice"
     )
+
+
+# --- the deploying shell's choice must REACH the container ---------------
+
+
+def test_the_image_bakes_in_which_engine_the_host_serves(app):
+    """`PTIFY_HOST_ENGINE` must be set ON THE IMAGE, not just in the shell.
+
+    WHAT THIS WOULD HAVE CAUGHT. `Transcriber.load` reads the name with
+    `os.environ.get("PTIFY_HOST_ENGINE", DEFAULT_ENGINE)` -- from the
+    CONTAINER's environment. The image declared no `.env(...)` and the
+    function takes no `env=`, so nothing ever put the value there: a
+    `set PTIFY_HOST_ENGINE=ptify` before `modal deploy` changed the deploying
+    shell and NOTHING ELSE, and the host went on serving ByteDance while the
+    operator believed it was serving ptify.
+
+    That is the same class as the bug this file was written for -- the wrong
+    weights served under the right name -- one layer earlier, and past the
+    digest check, because the digest verifies the file the (wrong) engine name
+    resolved to. Both would agree; both would be wrong.
+
+    Asserted against the SOURCE, for the reason
+    `test_both_checkpoints_are_baked_into_the_image` gives: Modal's Image
+    exposes no stable accessor for its layers.
+    """
+    source = APP_PATH.read_text(encoding="utf-8")
+
+    body = source.split('"""', 2)[-1]  # past the module docstring
+    assert ".env(" in body, (
+        "hosting/modal/app.py builds its image with no .env(...), so "
+        "PTIFY_HOST_ENGINE never reaches the container and the host always "
+        "serves DEFAULT_ENGINE"
+    )
+
+    env_call = body[body.index(".env("):]
+    assert "PTIFY_HOST_ENGINE" in env_call[:400], (
+        "the image sets some environment, but not PTIFY_HOST_ENGINE"
+    )
+
+
+def test_the_baked_engine_name_defaults_to_the_declared_default(app, monkeypatch):
+    """An unset shell variable must deploy DEFAULT_ENGINE, not empty string.
+
+    `.env({"PTIFY_HOST_ENGINE": os.environ.get("PTIFY_HOST_ENGINE")})` -- with
+    no fallback -- bakes in `None`/`""` when the deployer has not exported it.
+    The container then reads an empty name, which is not in HOSTED_ENGINES, and
+    every call fails at container start. The default belongs in the `.get`.
+    """
+    source = APP_PATH.read_text(encoding="utf-8")
+    body = source.split('"""', 2)[-1]
+    # Reported as a failed assertion rather than a ValueError from .index():
+    # a bare traceback here reads like a broken test, not a broken image.
+    assert ".env(" in body, "no .env(...) on the image; see the test above"
+    window = body[body.index(".env("):][:400]
+
+    assert "DEFAULT_ENGINE" in window, (
+        "the baked PTIFY_HOST_ENGINE has no DEFAULT_ENGINE fallback, so a "
+        "deploy from a shell that never set it bakes in an unhosted name"
+    )
