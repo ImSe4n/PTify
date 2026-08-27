@@ -223,6 +223,101 @@ def _in_pedal(t: float, pedals: list[PedalEvent]) -> bool:
     return any(p.onset <= t <= p.offset for p in pedals)
 
 
+def _pedal_release(t: float, pedals: list[PedalEvent]) -> float | None:
+    """When the pedal covering `t` comes up, or None if none covers it."""
+    for p in pedals:
+        if p.onset <= t <= p.offset:
+            return p.offset
+    return None
+
+
+def notated_offsets(
+    notes: list[NoteEvent],
+    pedals: list[PedalEvent] | None = None,
+) -> list[float]:
+    """When each note should be PRINTED as ending, in seconds.
+
+    WHY A NOTE'S OFFSET IS NOT ITS NOTATED LENGTH
+    ---------------------------------------------
+    The model reports when a string stops ringing. Under sustain that is long
+    after the finger lifted, and on a pedalled recording it is most of the bar.
+    MEASURED on a real take (520 notes, 64 pedal spans covering 79% of it): the
+    median note ran **2.39 beats** and **22% were longer than a whole 4/4 bar**,
+    the longest 12 beats -- three bars held by one notehead.
+
+    Engraving that directly is what made the page unreadable. `_fill_part`
+    gives a chord `max(length_beats)`, so one held note stretches its whole
+    chord; the overlaps that creates feed music21's `makeVoices(fillGaps=True)`,
+    which manufactures one voice per overlap layer (measured: **8 per staff**);
+    `makeTies` then splits every over-long note across barlines. 520 notes
+    became **2,018 MusicXML notes with 1,146 ties**.
+
+    THE THREE BOUNDS
+    ----------------
+    A note is printed as ending at the earliest of:
+
+    1. **its own offset** -- never lengthen. A short note stays short.
+    2. **the pedal release** covering its onset. Everything after that is decay,
+       not duration: the damper is down and the string is dying, which is
+       exactly why `duration_uncertain` flags these notes as unmeasurable.
+    3. **the next onset in the same staff** -- what the hand actually does. A
+       pianist's finger leaves the key to play the next note; it cannot hold one
+       note and strike another in the same register.
+
+    The staff partition reuses `score._split_point`, imported lazily to avoid a
+    cycle. It reads only `.pitch`, so it works on raw `NoteEvent`s. Using a
+    second, private register rule here would let the duration model and the
+    engraver disagree about which hand a note belongs to.
+
+    Returns offsets in SECONDS, positionally matched to `notes`. Seconds rather
+    than beats because all three bounds are physical facts about the
+    performance, and converting them through the grid first would round each one
+    before they are compared.
+    """
+    from .score import _split_point
+
+    pedals = pedals or []
+    if not notes:
+        return []
+
+    split = _split_point(notes)
+
+    # Next onset within each staff. Computed per staff, not globally: a left-hand
+    # note must not be cut short because the right hand played, which is the
+    # whole point of doing this per hand.
+    next_onset: dict[int, float] = {}
+    for staff in (
+        [n for n in notes if n.pitch >= split],
+        [n for n in notes if n.pitch < split],
+    ):
+        ordered = sorted(staff, key=lambda n: n.onset)
+        for i, n in enumerate(ordered):
+            following = next(
+                (m.onset for m in ordered[i + 1:] if m.onset > n.onset + 1e-9),
+                None,
+            )
+            if following is not None:
+                next_onset[id(n)] = following
+
+    out = []
+    for n in notes:
+        end = n.offset
+
+        release = _pedal_release(n.onset, pedals)
+        if release is not None:
+            end = min(end, release)
+
+        following = next_onset.get(id(n))
+        if following is not None:
+            end = min(end, following)
+
+        # Never past the onset: the one-subdivision floor in `quantise_notes`
+        # turns this into a printable length.
+        out.append(max(end, n.onset))
+
+    return out
+
+
 def quantise_notes(
     notes: list[NoteEvent],
     grid: BeatGrid,
@@ -235,6 +330,11 @@ def quantise_notes(
     neighbours were placed. A note that quantises to zero length is given one
     subdivision — the shortest value the grid can express — because a
     zero-length note cannot be engraved at all.
+
+    The end used is the NOTATED one from `notated_offsets`, not the acoustic
+    offset: under sustain a string rings most of the bar, and printing that
+    produced 8 voices per staff and 1,146 ties on a real recording. The raw
+    event stays reachable on `QuantisedNote.source`.
 
     Notes before the first tracked beat are shifted back onto it. `beat_position`
     deliberately extrapolates below beat 0 and returns a NEGATIVE position, which
@@ -251,7 +351,14 @@ def quantise_notes(
     sub = grid.subdivision
 
     starts = [_snap(grid.beat_position(n.onset), sub) for n in notes]
-    ends = [_snap(grid.beat_position(n.offset), sub) for n in notes]
+    # The NOTATED end, not the acoustic one -- see `notated_offsets`. The raw
+    # offset survives on `QuantisedNote.source` for anything that needs what was
+    # actually sounded, and the MIDI export goes through `length_beats` so the
+    # file and the page agree.
+    ends = [
+        _snap(grid.beat_position(t), sub)
+        for t in notated_offsets(notes, pedals)
+    ]
 
     # Translate, preserving every interval between notes.
     shift = -min(starts) if starts and min(starts) < 0.0 else 0.0
@@ -285,6 +392,7 @@ def quantised_to_transcription(
     grid: BeatGrid,
     engine: str = "",
     source_path: str = "",
+    pedals: list[PedalEvent] | None = None,
 ) -> "Transcription":
     """Convert quantised notes back to a second-based `Transcription`.
 
@@ -292,6 +400,20 @@ def quantised_to_transcription(
     copy of the raw input: beat positions are converted back to seconds at the
     grid's tempo, so the file carries the same rhythms that were engraved. A
     DAW can then show exactly what the notation is asserting.
+
+    PEDALS ARE PASSED THROUGH UNQUANTISED, and must be passed at all.
+
+    This used to hardcode `pedals=[]`, which silently deleted every pedal event
+    from the exported MIDI -- both export paths (`api/pipeline.py` and
+    `notation/__main__.py`) write the quantised transcription whenever a score
+    was built, so the file a user opens in a DAW had no sustain at all. MEASURED
+    on a real recording: the model found 64 pedal spans covering 79% of the
+    take, and none of them reached the file. `write_midi` and `read_midi`
+    round-trip CC64 correctly and always did; the loss was entirely here.
+
+    They are NOT snapped to the grid. A pedal press is a physical gesture that
+    lands where it lands -- quantising it would assert a rhythmic precision the
+    pedal never had, and nothing downstream reads pedal in beats.
     """
     from transcriber.events import Transcription
 
@@ -305,9 +427,15 @@ def quantised_to_transcription(
         )
         for q in qnotes
     ]
-    duration = max((n.offset for n in notes), default=0.0)
+    # The last SOUND in the file, whichever kind it is: a pedal held past the
+    # final note is part of the performance, and truncating the duration there
+    # would cut it off.
+    duration = max(
+        [n.offset for n in notes] + [p.offset for p in (pedals or [])],
+        default=0.0,
+    )
     return Transcription(
-        notes=notes, pedals=[], duration=duration,
+        notes=notes, pedals=list(pedals or []), duration=duration,
         engine=engine, source_path=source_path,
     )
 

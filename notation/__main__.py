@@ -40,9 +40,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("input", type=Path, help="audio or .mid file")
     ap.add_argument("-o", "--output", type=Path, default=None,
                     help="output basename (default: alongside the input)")
-    ap.add_argument("--engine", default="bytedance",
+    ap.add_argument("--engine", default=None,
                     choices=list(ENGINE_NAMES),
-                    help="transcription engine, for audio input")
+                    help="transcription engine, for audio input "
+                         "(default: ptify, falling back to bytedance if the "
+                         "fine-tuned checkpoint is not installed)")
     ap.add_argument("--tempo", type=float, default=None,
                     help="fixed BPM; skips beat tracking")
     ap.add_argument("--beats-per-bar", type=int, default=4,
@@ -110,13 +112,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Reading  : {args.input}")
         tr = read_midi(args.input)
     elif suffix in AUDIO_SUFFIXES:
-        from transcriber.engine import get_engine
+        from transcriber.engine import get_engine, resolve_default_engine
         from transcriber.ptify import PtifyWeightsMissing
 
         print(f"Input    : {args.input}")
-        print(f"Engine   : {args.engine}")
+        # An UNSET --engine prefers the fine-tuned model and falls back; an
+        # EXPLICIT one is obeyed exactly, so `--engine ptify` still fails loudly
+        # when its checkpoint is missing. Defaulting to bytedance instead meant
+        # every run of this CLI silently used the weaker model -- measured on a
+        # real recording, 500 notes against ptify's 520, with the fine-tuned
+        # model finding 18 more notes below MIDI 48.
+        requested = args.engine or resolve_default_engine()
+        print(f"Engine   : {requested}")
         try:
-            engine = get_engine(args.engine)
+            engine = get_engine(requested)
             tr = engine.transcribe_file(str(args.input))
         except KeyboardInterrupt:
             print("\ncancelled", file=sys.stderr)
@@ -233,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
             qtr = quantised_to_transcription(
                 stats.notes, grid,
                 engine=tr.engine, source_path=str(args.input),
+                pedals=tr.pedals,
             )
             p = base.with_name(base.name + "-quantised").with_suffix(".mid")
             write_midi(qtr, p)

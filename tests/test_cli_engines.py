@@ -293,3 +293,84 @@ def test_transcriber_cli_prints_the_weights_message_not_a_traceback(
     assert "PTIFY_CHECKPOINT" in err
     assert "could not transcribe" not in err
     assert "PtifyWeightsMissing" not in err
+
+
+# --- the default engine (Phase 26d) ---------------------------------------
+#
+# The CLIs used to default to `bytedance`, the BASELINE model, because the
+# fine-tuned weights are not in the repository and a hard default would break
+# the tool for anyone without them. The cost was silent and it was paid for a
+# whole phase: every default run of `python -m notation` used the weaker
+# model, and an entire round of engraving work was measured through it before
+# anyone noticed, because nothing in the output said which model had run.
+#
+# Measured on one real recording: bytedance 500 notes, ptify 520, and 105
+# notes below MIDI 48 against ptify's 123.
+
+def test_an_unset_engine_prefers_the_fine_tuned_model(monkeypatch):
+    import transcriber.engine as E
+
+    monkeypatch.setattr("transcriber.ptify.resolve_checkpoint",
+                        lambda *a, **k: "checkpoints/ptify-16b-step6555.pth")
+
+    assert E.resolve_default_engine() == "ptify"
+
+
+def test_it_falls_back_when_the_checkpoint_is_absent(monkeypatch):
+    """The reason the old default existed. A missing checkpoint must degrade to
+    a working tool, not a traceback."""
+    import transcriber.engine as E
+
+    def missing(*a, **k):
+        raise FileNotFoundError("no checkpoint")
+
+    monkeypatch.setattr("transcriber.ptify.resolve_checkpoint", missing)
+
+    assert E.resolve_default_engine() == "bytedance"
+
+
+def test_resolving_the_default_never_downloads_anything(monkeypatch):
+    """`resolve_checkpoint` only LOOKS. If choosing a default could trigger the
+    172MB fetch, every first run would surprise the user with it -- which is
+    precisely why `--fetch-ptify` is opt-in."""
+    import transcriber.engine as E
+
+    called = []
+    monkeypatch.setattr("transcriber.weights.download",
+                        lambda *a, **k: called.append(1),
+                        raising=False)
+
+    E.resolve_default_engine()
+
+    assert called == []
+
+
+def test_an_explicit_ptify_is_never_silently_downgraded(monkeypatch, capsys,
+                                                       tmp_path):
+    """THE test in this group.
+
+    Falling back is correct for an UNSET flag and WRONG for an explicit one.
+    An operator who typed `--engine ptify` asked for those weights; quietly
+    substituting the baseline is how a baseline gets published as a fine-tuned
+    result, which HANDOFF section 4 exists to catalogue.
+    """
+    from transcriber.__main__ import main
+
+    def missing(*a, **k):
+        from transcriber.ptify import PtifyWeightsMissing
+
+        raise PtifyWeightsMissing("checkpoint not found")
+
+    monkeypatch.setattr("transcriber.ptify.resolve_checkpoint", missing)
+
+    # A real file, so the CLI reaches engine selection instead of exiting on a
+    # missing input -- which is what this was accidentally asserting at first.
+    audio = tmp_path / "song.wav"
+    audio.write_bytes(b"\0" * 64)
+
+    rc = main([str(audio), "--engine", "ptify"])
+
+    # It must FAIL rather than transcribe with other weights.
+    assert rc == 1
+    out = capsys.readouterr()
+    assert "Engine: ptify" in out.out, "it must not have switched engines"

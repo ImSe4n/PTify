@@ -94,6 +94,41 @@ def _split_point(notes: list[QuantisedNote]) -> int:
     return best_split
 
 
+def _assign_staves(
+    notes: list[QuantisedNote], split: int
+) -> tuple[list[QuantisedNote], list[QuantisedNote]]:
+    """Split notes into (treble, bass) by HAND, falling back to the pitch cut.
+
+    WHY NOT `_split_point` ALONE. It is one pitch boundary for the whole piece,
+    and `notation/hands.py` is a post-mortem of that rule: measured against
+    eight published scores whose engraving records the true staff for every
+    note, a fixed cut scores **88.1%** against the sequential model's
+    **93.1%**, and it loses on all eight.
+
+    The failure it cannot express is a two-hand chord voicing that sits mostly
+    in one register. MEASURED on a real recording: the opening four bars put
+    **20 notes on the treble staff and 2 on the bass**, because almost nothing
+    was below the chosen cut of 59 -- so the bass staff printed nearly empty
+    under an overloaded treble one. A staff boundary is a region of the page; a
+    hand is a physical object that moves. One cut cannot be both.
+
+    The fallback matters: `assign_hands` needs the raw `NoteEvent` timings, and
+    `QuantisedNote.source` is typed optional. A caller that built notes without
+    sources still gets a score, engraved by the old rule.
+    """
+    sources = [n.source for n in notes]
+    if not notes or any(s is None for s in sources):
+        return ([n for n in notes if n.pitch >= split],
+                [n for n in notes if n.pitch < split])
+
+    from .hands import assign_hands
+
+    hands = assign_hands(sources)
+    treble = [n for n, h in zip(notes, hands) if h == "right"]
+    bass = [n for n, h in zip(notes, hands) if h == "left"]
+    return treble, bass
+
+
 def _group_into_chords(
     notes: list[QuantisedNote],
 ) -> list[tuple[float, list[QuantisedNote]]]:
@@ -177,8 +212,7 @@ def build_score(
     sc.metadata.composer = composer or "transcribed"
 
     split = _split_point(notes)
-    treble = [n for n in notes if n.pitch >= split]
-    bass = [n for n in notes if n.pitch < split]
+    treble, bass = _assign_staves(notes, split)
 
     rh = stream.Part(id="treble")
     lh = stream.Part(id="bass")

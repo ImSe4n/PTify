@@ -269,6 +269,7 @@ def _write_artifacts(
                 qtr = quantised_to_transcription(
                     stats.notes, grid,
                     engine=tr.engine, source_path=spec.original_name,
+                    pedals=tr.pedals,
                 )
                 write_midi(qtr, out("transcription.mid"))
             else:
