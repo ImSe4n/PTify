@@ -158,7 +158,11 @@ def _score_real_ornaments(truths_and_scores, bpm: float, quiet: bool):
             # Not ground truth, so not scored.
             continue
 
-        detected = [(o.onset, o.pitch) for o in analysis.detect_trills(notes)]
+        # The same tempo the notes were realised at, so the per-beat guard
+        # measures what it is meant to. Passing it also selects the
+        # per-voice path -- see `detect_trills`.
+        detected = [(o.onset, o.pitch)
+                    for o in analysis.detect_trills(notes, bpm=bpm)]
         result = N.score_spans(detected, realisable, kind="trill",
                                label=truth.label)
         results.append(result)

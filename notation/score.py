@@ -270,7 +270,11 @@ def transcription_to_score(
     # handful of grid slots. Measured: 12 notes at 17/sec -> 6 grid positions.
     # `test_a_trill_is_not_detectable_after_quantisation` pins this.
     key_estimate = analysis.detect_key(tr.notes) if analyse else None
-    ornaments = analysis.detect_trills(tr.notes) if analyse else []
+    # `grid.bpm` turns on voice separation and the per-beat guard. The grid
+    # is built above (from `--tempo` or beat tracking), so a tempo is always
+    # available here -- this call site never takes the flat-walk path.
+    ornaments = (analysis.detect_trills(tr.notes, bpm=grid.bpm)
+                 if analyse else [])
     notes_for_grid = analysis.apply_ornaments(tr.notes, ornaments)
 
     qnotes = quantise_notes(notes_for_grid, grid, tr.pedals)

@@ -112,6 +112,41 @@ TRILL_MAX_ONSET_GAP_SEC = 0.16
 # common ornamental writing.
 TRILL_MIN_ALTERNATIONS = 4
 
+# Minimum notes per BEAT for the run as a whole. Applied only when a tempo is
+# known -- `detect_trills(notes, bpm=...)`.
+#
+# A trill is defined by how it SUBDIVIDES THE BEAT, not by wall-clock speed: 8
+# notes per beat is a run of 32nds, and that stays true whether the piece is
+# played at 60 or 140. `TRILL_MAX_ONSET_GAP_SEC` bounds each consecutive PAIR
+# of onsets, so a figure whose every gap sits just inside 0.16s passes it while
+# subdividing the beat far too coarsely to notate as a trill.
+#
+# This matters because reading one voice at a time (Phase 24) removes the
+# interleaving that used to break such figures by accident. Separation without
+# this guard is a REGRESSION, which is why `bpm` gates both together.
+#
+# MEASURED over the 7 corpus scores carrying realisable trills, pooled across
+# 60/100/140 BPM -- notes per beat:
+#
+#     matched  n=96   p10 6.40   median 8.00   p90 8.06
+#     false    n=132  p10 3.00   median 4.00   p90 6.46
+#
+# Swept as a threshold, per-voice detection against the flat-walk baseline of
+# mean F1 0.3602:
+#
+#     floor   60     80    100    120    140     mean     spread
+#      none  0.369  0.378  0.323  0.343  0.291   0.3408   0.0871
+#       4.0  0.369  0.368  0.348  0.350  0.346   0.3563   0.0235
+#       5.0  0.369  0.370  0.384  0.395  0.365   0.3767   0.0303
+#       6.0  0.372  0.373  0.400  0.408  0.361   0.3827   0.0464
+#       7.0  0.374  0.387  0.379  0.338  0.313   0.3582   0.0742
+#
+# 6.0 is taken as the best mean, and it beats the baseline at EVERY tempo. The
+# gain (+0.0225) is inside the baseline's own error bar (0.0487), so treat it as
+# promising rather than settled -- but 5.0-6.4 is a broad plateau rather than a
+# spike, which is what a real effect looks like.
+TRILL_MIN_NOTES_PER_BEAT = 6.0
+
 # A RATE FLOOR WAS TRIED AND REJECTED. Do not add one back without reading
 # this.
 #
