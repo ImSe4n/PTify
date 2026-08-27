@@ -208,6 +208,70 @@ def test_empty_input_produces_empty_output():
     assert quantised_to_transcription([], g).notes == []
 
 
+# --- pedal survives the quantised export --------------------------------
+#
+# `quantised_to_transcription` hardcoded `pedals=[]`, and BOTH export paths
+# (`api/pipeline.py`, `notation/__main__.py`) call it whenever a score was
+# built. So every exported MIDI had zero sustain, no matter what the model
+# found. MEASURED on a real recording: 64 pedal spans covering 79% of the take,
+# none of which reached the file. `write_midi`/`read_midi` were never at fault
+# -- `test_midi.py` pins that round trip and it always passed.
+
+def test_pedals_reach_the_quantised_export():
+    """The bug, in one assertion."""
+    g = grid_from_tempo(120.0, 10.0)
+    notes = [NoteEvent(60, 0.0, 0.4)]
+    pedals = [PedalEvent(0.1, 2.5), PedalEvent(3.0, 4.0)]
+
+    tr = quantised_to_transcription(quantise_notes(notes, g, pedals), g,
+                                    pedals=pedals)
+
+    assert len(tr.pedals) == 2
+    assert tr.pedals[0].onset == pytest.approx(0.1)
+    assert tr.pedals[0].offset == pytest.approx(2.5)
+
+
+def test_pedals_are_not_snapped_to_the_grid():
+    """A pedal press is a physical gesture, not a rhythmic event.
+
+    Snapping it would assert a precision the pedal never had. Nothing
+    downstream reads pedal in beats, so there is nothing to gain either.
+    """
+    g = grid_from_tempo(120.0, 10.0)
+    off_grid = PedalEvent(0.137, 1.891)
+
+    tr = quantised_to_transcription(quantise_notes([NoteEvent(60, 0.0, 0.4)], g),
+                                    g, pedals=[off_grid])
+
+    assert tr.pedals[0].onset == pytest.approx(0.137)
+    assert tr.pedals[0].offset == pytest.approx(1.891)
+
+
+def test_a_pedal_held_past_the_last_note_extends_the_duration():
+    """`duration` is the last SOUND, not the last note-off.
+
+    Truncating at the final note would cut a pedal that is still down -- and
+    `write_midi` closes an unclosed pedal at `duration`, so the exported file
+    would end mid-gesture.
+    """
+    g = grid_from_tempo(120.0, 10.0)
+    notes = [NoteEvent(60, 0.0, 0.4)]
+
+    tr = quantised_to_transcription(quantise_notes(notes, g), g,
+                                    pedals=[PedalEvent(0.1, 6.0)])
+
+    assert tr.duration == pytest.approx(6.0)
+
+
+def test_no_pedals_is_still_valid():
+    """Most callers have none, and the parameter is optional."""
+    g = grid_from_tempo(120.0, 10.0)
+    tr = quantised_to_transcription(
+        quantise_notes([NoteEvent(60, 0.0, 0.4)], g), g)
+
+    assert tr.pedals == []
+
+
 # --- CLI argument validation -------------------------------------------
 #
 # These run `notation.main()` directly with a written MIDI file. They stop

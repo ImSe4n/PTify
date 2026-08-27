@@ -285,6 +285,7 @@ def quantised_to_transcription(
     grid: BeatGrid,
     engine: str = "",
     source_path: str = "",
+    pedals: list[PedalEvent] | None = None,
 ) -> "Transcription":
     """Convert quantised notes back to a second-based `Transcription`.
 
@@ -292,6 +293,20 @@ def quantised_to_transcription(
     copy of the raw input: beat positions are converted back to seconds at the
     grid's tempo, so the file carries the same rhythms that were engraved. A
     DAW can then show exactly what the notation is asserting.
+
+    PEDALS ARE PASSED THROUGH UNQUANTISED, and must be passed at all.
+
+    This used to hardcode `pedals=[]`, which silently deleted every pedal event
+    from the exported MIDI -- both export paths (`api/pipeline.py` and
+    `notation/__main__.py`) write the quantised transcription whenever a score
+    was built, so the file a user opens in a DAW had no sustain at all. MEASURED
+    on a real recording: the model found 64 pedal spans covering 79% of the
+    take, and none of them reached the file. `write_midi` and `read_midi`
+    round-trip CC64 correctly and always did; the loss was entirely here.
+
+    They are NOT snapped to the grid. A pedal press is a physical gesture that
+    lands where it lands -- quantising it would assert a rhythmic precision the
+    pedal never had, and nothing downstream reads pedal in beats.
     """
     from transcriber.events import Transcription
 
@@ -305,9 +320,15 @@ def quantised_to_transcription(
         )
         for q in qnotes
     ]
-    duration = max((n.offset for n in notes), default=0.0)
+    # The last SOUND in the file, whichever kind it is: a pedal held past the
+    # final note is part of the performance, and truncating the duration there
+    # would cut it off.
+    duration = max(
+        [n.offset for n in notes] + [p.offset for p in (pedals or [])],
+        default=0.0,
+    )
     return Transcription(
-        notes=notes, pedals=[], duration=duration,
+        notes=notes, pedals=list(pedals or []), duration=duration,
         engine=engine, source_path=source_path,
     )
 

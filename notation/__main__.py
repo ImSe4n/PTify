@@ -233,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
             qtr = quantised_to_transcription(
                 stats.notes, grid,
                 engine=tr.engine, source_path=str(args.input),
+                pedals=tr.pedals,
             )
             p = base.with_name(base.name + "-quantised").with_suffix(".mid")
             write_midi(qtr, p)
