@@ -2758,6 +2758,77 @@ it).
 
 ---
 
+## 2026-08-27 — Phase 24: voice separation works, and scores worse
+
+**`detect_trills` was not changed. PTify's output is byte-identical to before
+this phase.** What shipped is a measuring instrument, a separator nothing calls,
+and two documented dead ends. That is the honest summary; the rest is why.
+
+**The defect is real and was reproduced in six notes.** `detect_trills` walks
+one flat, time-ordered list and breaks its run at any pitch outside the
+alternating pair. A six-note trill interrupted once in the middle leaves runs of
+three either side, both under `TRILL_MIN_ALTERNATIONS = 4`, so **nothing is
+emitted at all** — the trill is not mis-timed, it is lost. Measured: five notes
+of accompaniment erase a twelve-note trill:
+
+    48 72 74 72 49 74 72 74 50 72 74 51 72 74 72 52 74
+
+**The fix works.** `notation/voices.py` separates voices greedily and recovers
+exactly those trills: bwv432 0.000 → 1.000, opus132 0.278 → 0.375, movement1
+0.296 → 0.444, pooled tp 33 → 35.
+
+**And it still scores worse**, swept over 60–140 BPM:
+
+| | mean F1 | spread |
+|---|---|---|
+| flat walk (kept) | **0.3602** | 0.0487 |
+| per-voice | 0.3366 | 0.0871 |
+
+The cause is the interesting part: **the flat walk was suppressing false
+positives by accident.** The same interleaving that destroys real trills also
+destroys slow alternating figures that are *not* trills. Separation removes both
+accidents at once, and the false ones outnumber the true — fp 41 → 60 at 100
+BPM, 33 → 66 at 140. The spread nearly doubling says the rest: how many slip
+through depends on the tempo you assume, and notated scores carry none.
+
+**Issues found**
+
+- **A rate floor looked like the guard, and was a tempo artefact.** False runs
+  are slower than real trills, and at 100 BPM the populations barely overlap
+  (matched p10 11.1/sec against false median 6.7, p90 10.8). A floor of 10.0
+  keeps 33 of 35 matches and cuts false positives 60 → 10. **Swept, it
+  collapses**: a genuine notated trill at 60 BPM realises to **8.0 notes/sec**,
+  under the floor entirely, so it rejects every trill in slow music; by 140 BPM
+  false runs reach 18.7/sec. Rate scales with tempo. Caught by the sweep built
+  in the same phase, not by judgement — without it, a constant that silently
+  breaks slow repertoire would have been committed. Recorded in
+  `transcriber/config.py` with the table.
+
+- **The old trill baseline could not be reproduced.** 0.337 was a single point
+  at 100 BPM, and the tool's own conclusion said it was worth ±0.05 because a
+  60–140 BPM sweep moved it to 0.446 — a sweep run by hand, with only the prose
+  surviving. An error bar you cannot re-measure cannot tell you whether a change
+  helped. `--bpm-sweep` fixes that, and the measured spread (0.0487) turned out
+  to be **twice the size of the change being tested** (−0.0236).
+
+- **Two separator bugs, both found by running it over the real corpus rather
+  than over unit tests.** Every contract test passed while it did so.
+  (1) A rested voice could never be resumed — the cost of continuing it *tied*
+  with opening a new one, and a strict comparison always lost the tie. opus132
+  became 7,530 voices averaging 2.4 notes each, none long enough to hold a
+  trill; 20k synthetic notes took 39.8s. Fixed: 2,891 voices, 1.17s.
+  (2) A passing note one semitone from an oscillation would steal its voice,
+  because 66 is nearer to 67 than the trill's own two-semitone return. bwv432
+  scattered across four voices and scored 0.000. The cost model was right; the
+  greedy lowest-pitch-first *ordering* meant it was never consulted.
+
+**`notation/voices.py` is kept although nothing imports it outside tests.** It
+is correct, tested, fast, and the only missing piece is a false-positive guard
+that survives a tempo sweep. Deleting it would mean re-deriving the cost model
+and both bugs from scratch.
+
+---
+
 ## 2026-08-17 — Phase 22: precision, and two conclusions the evidence overturned
 
 **The finding the phase turned on was already in the repository.** Every number
