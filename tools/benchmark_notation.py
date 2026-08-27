@@ -42,6 +42,19 @@ DEFAULT_BPM = 100.0
 #: note value's.
 ORNAMENT_TEMPI = (60.0, 90.0, 120.0)
 
+#: Tempi the REAL-repertoire trill pass is swept over when `--bpm-sweep` is
+#: given.
+#:
+#: WHY A SWEEP AND NOT A NUMBER. Notated scores carry no tempo, so one has to
+#: be assumed, and `detect_trills` is rate-based (`TRILL_MAX_ONSET_GAP_SEC`) --
+#: the assumption therefore moves the score. Phase 21 swept 60-140 by hand and
+#: recorded only the prose conclusion "F1 ranges 0.337-0.446 with no monotonic
+#: trend", so the committed 0.337 is one point on a curve whose spread is
+#: LARGER THAN most improvements worth claiming, and the sweep behind it could
+#: not be re-run. This makes it reproducible: a change is judged sweep against
+#: sweep, never point against point.
+DEFAULT_BPM_SWEEP = (60.0, 80.0, 100.0, 120.0, 140.0)
+
 #: Note values the ornaments are notated on, in quarters.
 #:
 #: The short values are the point. MEASURED: a trill notated on a sixteenth or
@@ -156,6 +169,62 @@ def _score_real_ornaments(truths_and_scores, bpm: float, quiet: bool):
                   flush=True)
 
     return results
+
+
+def _sweep_real_ornaments(truths_and_scores, tempi, quiet: bool):
+    """Score the real-repertoire trill pass once per tempo.
+
+    Returns `(rows, summary)`. `rows` is one pooled record per tempo; `summary`
+    carries the mean and the range across them.
+
+    WHY THE MEAN AND THE RANGE, NOT A SINGLE NUMBER. The notated scores carry
+    no tempo, and `detect_trills` is rate-based, so the assumed tempo is a free
+    parameter that moves the result. Reporting one tempo invites exactly the
+    error the model side already made once: reading a difference between two
+    runs that were measured under different settings. The RANGE is the honest
+    error bar, and an improvement smaller than it is not an improvement.
+
+    Cheap, because the scores are already parsed: this re-realises and
+    re-detects, it does not re-read the corpus.
+    """
+    import statistics
+
+    from evaluation import notation as N
+
+    rows = []
+    for bpm in tempi:
+        if not quiet:
+            print(f"  bpm {bpm:g}", flush=True)
+        # `quiet=True` throughout: the per-score lines are already printed by
+        # the single-tempo pass, and repeating them once per tempo buries the
+        # sweep in its own output.
+        results = _score_real_ornaments(truths_and_scores, bpm, quiet=True)
+        pooled = N.aggregate(results, kind="trill")
+        row = pooled.as_row()
+        row["bpm"] = bpm
+        rows.append(row)
+        if not quiet:
+            f1 = row["f1"]
+            print(f"    trill F1 {f1:.3f}" if f1 is not None
+                  else "    trill F1 n/a (unscoreable)", flush=True)
+
+    scored = [r["f1"] for r in rows if r["f1"] is not None]
+
+    summary = {
+        "tempi": list(tempi),
+        "n_scoreable": len(scored),
+        # `None` rather than 0.0 when nothing scored, the convention
+        # `DetectionResult.as_row` follows: a missing measurement is not a zero.
+        "f1_mean": statistics.mean(scored) if scored else None,
+        "f1_min": min(scored) if scored else None,
+        "f1_max": max(scored) if scored else None,
+        "f1_range": (max(scored) - min(scored)) if scored else None,
+        "note": ("Compare a change against f1_mean, and treat f1_range as the "
+                 "error bar: the notated scores carry no tempo, and the "
+                 "detector is rate-based, so the assumed tempo moves the "
+                 "score on its own."),
+    }
+    return rows, summary
 
 
 def _score_staccato(truths_and_scores, bpm: float, quiet: bool):
@@ -283,7 +352,8 @@ def _confidence_calibration(key_results) -> dict:
 
 
 def _conclusion(key_stats: dict, ornaments: dict, corpus_summary: dict,
-                calibration: dict, real_trill=None, staccato=None) -> str:
+                calibration: dict, real_trill=None, staccato=None,
+                sweep_summary: dict | None = None) -> str:
     """Prose stating what the numbers mean.
 
     The house convention (`offset-duration-analysis.json`,
@@ -345,13 +415,36 @@ def _conclusion(key_stats: dict, ornaments: dict, corpus_summary: dict,
             f"honest figure and it is far below the synthetic one: real trills "
             f"sit inside polyphony, where other voices interleave with the "
             f"alternation and break the run. The synthetic case localises a "
-            f"failure; this one sizes it. Treat the exact value as roughly "
-            f"+/-0.05 rather than a precise reading -- the detector is "
-            f"rate-based, so the assumed tempo moves it: swept over "
-            f"60-140 BPM, F1 ranges 0.337-0.446 with no monotonic trend, "
-            f"because the notated scores carry no tempo of their own and one "
-            f"has to be assumed."
+            f"failure; this one sizes it."
         )
+
+        if sweep_summary and sweep_summary.get("f1_mean") is not None:
+            tempi = sweep_summary["tempi"]
+            parts.append(
+                f"That single figure is one point on a curve, so it is swept "
+                f"here rather than asserted: over "
+                f"{min(tempi):g}-{max(tempi):g} BPM "
+                f"({len(tempi)} tempi) trill F1 has mean "
+                f"{sweep_summary['f1_mean']:.3f} and ranges "
+                f"{sweep_summary['f1_min']:.3f}-"
+                f"{sweep_summary['f1_max']:.3f}, a spread of "
+                f"{sweep_summary['f1_range']:.3f}. The notated scores carry no "
+                f"tempo of their own and the detector is rate-based "
+                f"(TRILL_MAX_ONSET_GAP_SEC), so the assumption moves the score "
+                f"without anything about the detector changing. COMPARE A "
+                f"CHANGE AGAINST THE MEAN, and treat the spread as the error "
+                f"bar: an improvement smaller than it has not been "
+                f"demonstrated."
+            )
+        else:
+            parts.append(
+                f"Treat the exact value as roughly +/-0.05 rather than a "
+                f"precise reading -- the detector is rate-based, so the "
+                f"assumed tempo moves it. Phase 21 swept 60-140 BPM by hand "
+                f"and found F1 ranging 0.337-0.446 with no monotonic trend. "
+                f"Re-run with --bpm-sweep to measure that range here instead "
+                f"of citing it."
+            )
 
     false_fires = sum(
         row.get("fp") or 0
@@ -423,6 +516,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="comma-separated path filters, e.g. bach,mozart")
     parser.add_argument("--bpm", type=float, default=DEFAULT_BPM,
                         help="tempo for turning notated values into seconds")
+    parser.add_argument(
+        "--bpm-sweep", nargs="?", const=",".join(
+            f"{b:g}" for b in DEFAULT_BPM_SWEEP), default=None,
+        help="also score real trills at each of these tempi (comma-separated; "
+             "bare flag uses "
+             + ",".join(f"{b:g}" for b in DEFAULT_BPM_SWEEP)
+             + "). The notated scores carry no tempo and the detector is "
+               "rate-based, so a single --bpm is one point on a curve; the "
+               "sweep reports the mean and the range that go with it")
     parser.add_argument("--json", type=Path, default=None,
                         help="write the artifact here")
     parser.add_argument("--quiet", action="store_true")
@@ -434,6 +536,28 @@ def main(argv: list[str] | None = None) -> int:
     if not (args.bpm > 0):
         print("error: --bpm must be positive", file=sys.stderr)
         return 1
+
+    sweep_tempi: tuple[float, ...] = ()
+    if args.bpm_sweep is not None:
+        # Parsed and validated BEFORE the corpus work, for the reason
+        # `check_writable` runs early: a typo must not surface after minutes of
+        # parsing.
+        try:
+            sweep_tempi = tuple(
+                float(part) for part in args.bpm_sweep.split(",")
+                if part.strip()
+            )
+        except ValueError:
+            print(f"error: --bpm-sweep must be comma-separated numbers, got "
+                  f"{args.bpm_sweep!r}", file=sys.stderr)
+            return 1
+        if not sweep_tempi:
+            print("error: --bpm-sweep is empty", file=sys.stderr)
+            return 1
+        if any(b <= 0 for b in sweep_tempi):
+            print("error: every --bpm-sweep tempo must be positive",
+                  file=sys.stderr)
+            return 1
 
     from evaluation import notation as N
     from evaluation import notation_corpus as NC
@@ -478,6 +602,13 @@ def main(argv: list[str] | None = None) -> int:
             print("ornaments (real scores carrying notated trills)")
         real_ornaments = _score_real_ornaments(parsed_scores, args.bpm,
                                                args.quiet)
+        sweep_rows, sweep_summary = ([], None)
+        if sweep_tempi:
+            if not args.quiet:
+                print()
+                print("ornaments (real, swept over tempo)")
+            sweep_rows, sweep_summary = _sweep_real_ornaments(
+                parsed_scores, sweep_tempi, args.quiet)
         if not args.quiet:
             print()
             print("staccato (rendered performance, real notated articulation)")
@@ -518,6 +649,16 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print("  real repertoire:")
         print(N.format_detection_table([real_trill, staccato]))
+        if sweep_summary and sweep_summary["f1_mean"] is not None:
+            print()
+            print(f"  trill F1 over tempo: mean "
+                  f"{sweep_summary['f1_mean']:.3f}  range "
+                  f"{sweep_summary['f1_min']:.3f}-"
+                  f"{sweep_summary['f1_max']:.3f} "
+                  f"(spread {sweep_summary['f1_range']:.3f}) "
+                  f"over {sweep_summary['n_scoreable']} tempi")
+            print("  ^ compare changes against the MEAN; the spread is the "
+                  "error bar")
 
     payload = {
         "schema": SCHEMA,
@@ -552,6 +693,13 @@ def main(argv: list[str] | None = None) -> int:
                 "summary": real_trill.as_row(),
                 "rows": [r.as_row() for r in real_ornaments],
             },
+            # Absent unless --bpm-sweep was given, rather than present-and-null:
+            # a reader must be able to tell "not measured" from "measured as
+            # nothing", which is the same distinction `unscoreable` draws.
+            **({"real_bpm_sweep": {
+                "summary": sweep_summary,
+                "rows": sweep_rows,
+            }} if sweep_summary is not None else {}),
         },
         "staccato": {
             "note": ("performance is SYNTHESISED -- notated staccato rendered "
@@ -578,7 +726,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         "conclusion": _conclusion(key_stats, ornament_aggregates,
                                   corpus_summary, calibration, real_trill,
-                                  staccato),
+                                  staccato, sweep_summary),
     }
 
     if args.json is not None:

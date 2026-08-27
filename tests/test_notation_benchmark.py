@@ -289,6 +289,96 @@ def test_the_table_marks_unscoreable_rows_instead_of_printing_a_number():
     assert "0.000" not in out
 
 
+# --- the tempo sweep ------------------------------------------------------
+#
+# WHY THESE EXIST. The committed real-repertoire trill F1 was a SINGLE point at
+# 100 BPM, while the tool's own conclusion said the value was worth +/-0.05
+# because a 60-140 BPM sweep moved it between 0.337 and 0.446. That sweep was
+# run by hand and only its prose survived, so the error bar could not be
+# reproduced -- and an error bar you cannot re-measure cannot tell you whether
+# a change helped. These pin the sweep that replaces it.
+
+def _sweep(monkeypatch, f1_by_bpm):
+    """Run `_sweep_real_ornaments` against canned per-tempo results.
+
+    The scoring pass is stubbed rather than driven through the corpus: what is
+    under test is the summarising arithmetic, and making it parse Beethoven to
+    check a mean would be slow and would fail for unrelated reasons.
+    """
+    from tools import benchmark_notation as B
+
+    def fake_score(truths_and_scores, bpm, quiet):
+        tp, fp, fn = f1_by_bpm[bpm]
+        return [DetectionResult(label="x", kind="trill", tp=tp, fp=fp, fn=fn)]
+
+    monkeypatch.setattr(B, "_score_real_ornaments", fake_score)
+    return B._sweep_real_ornaments([], tuple(f1_by_bpm), quiet=True)
+
+
+def test_the_sweep_reports_the_mean_and_the_range_not_one_tempo(monkeypatch):
+    """The headline must be the mean, with the spread beside it.
+
+    A single tempo is what made 0.337 look like a measurement when it was one
+    sample from a spread of 0.109.
+    """
+    rows, summary = _sweep(monkeypatch, {
+        60.0: (1, 1, 1),    # P .5  R .5  F1 .5
+        100.0: (3, 1, 1),   # P .75 R .75 F1 .75
+    })
+
+    assert [r["bpm"] for r in rows] == [60.0, 100.0]
+    assert summary["f1_mean"] == pytest.approx(0.625)
+    assert summary["f1_min"] == pytest.approx(0.5)
+    assert summary["f1_max"] == pytest.approx(0.75)
+    assert summary["f1_range"] == pytest.approx(0.25)
+
+
+def test_each_swept_tempo_is_pooled_by_counts_not_averaged(monkeypatch):
+    """Per-tempo rows carry their own tp/fp/fn, so a later reader can re-derive
+    the mean rather than trust it."""
+    rows, _ = _sweep(monkeypatch, {60.0: (2, 1, 3)})
+
+    assert (rows[0]["tp"], rows[0]["fp"], rows[0]["fn"]) == (2, 1, 3)
+    assert rows[0]["f1"] == pytest.approx(2 * 2 / (2 * 2 + 1 + 3))
+
+
+def test_the_sweep_scores_each_tempo_through_the_same_path(monkeypatch):
+    """The swept tempo must reach `_score_real_ornaments` unchanged.
+
+    The sweep exists to be comparable with the single-tempo pass -- verified
+    against the real corpus, where the sweep's 100 BPM row reproduces the
+    standalone run's tp/fp/fn exactly. If the sweep passed a different tempo
+    (or silently reused one), it would measure something else while looking
+    like the same number.
+    """
+    from tools import benchmark_notation as B
+
+    seen = []
+
+    def fake_score(truths_and_scores, bpm, quiet):
+        seen.append(bpm)
+        return [DetectionResult(label="x", kind="trill", tp=1, fp=0, fn=0)]
+
+    monkeypatch.setattr(B, "_score_real_ornaments", fake_score)
+    B._sweep_real_ornaments([], (60.0, 140.0), quiet=True)
+
+    assert seen == [60.0, 140.0]
+
+
+def test_a_sweep_with_nothing_scoreable_reports_none_not_zero(monkeypatch):
+    """Same rule as `unscoreable`: a missing measurement is not a zero.
+
+    If every tempo yields tp=fp=fn=0 the detector has not been shown to be bad,
+    and averaging that to 0.000 would file a perfect negative result in the
+    failure column.
+    """
+    _, summary = _sweep(monkeypatch, {60.0: (0, 0, 0), 100.0: (0, 0, 0)})
+
+    assert summary["n_scoreable"] == 0
+    assert summary["f1_mean"] is None
+    assert summary["f1_range"] is None
+
+
 # --- staccato scoring -----------------------------------------------------
 
 def _articulated(n=6, staccato_every=2):
