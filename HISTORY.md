@@ -2758,6 +2758,63 @@ it).
 
 ---
 
+## 2026-08-27 — Phase 25: three guards, three rejections, and a sweep that flipped
+
+**A guard shipped and was reverted inside the same phase.** That is the whole
+story, and the revert is the honest part.
+
+Phase 24 left voice separation working but scoring worse: it recovers trills the
+flat walk destroys, and admits ordinary passagework the flat walk was breaking
+by accident. The phase needed one thing — a false-positive guard.
+
+**Three were tried.**
+
+| guard | looked right because | failed because |
+|---|---|---|
+| notes/**second** | at 100 BPM, matched p10 11.1 vs false median 6.7 | rate scales with tempo. A real trill at 60 BPM is 8.0/sec |
+| **run length** | false runs cluster at n=4–5 | so do real ones. Monotonically worse: 0.341 → 0.219 |
+| notes/**beat** | tempo-invariant by construction | best value is a TIE, −0.0011, 5/9 tempi |
+
+**The third one shipped, briefly.** Measured over 60/80/100/120/140 it read
+**+0.0182** with false positives collapsing from 27–41 to 3–10 at every tempo,
+and I wrote in `config.py` that "5.0–6.4 is a broad plateau rather than a spike,
+which is what a real effect looks like."
+
+That was wrong, and wrong in a specific way worth recording: **the plateau was
+measured on the same five tempi that produced the gain.** Widening to nine
+(adding 50/70/110/130) flipped the result to **−0.0082** — all four added tempi
+landed negative. Swept properly, no floor value beats the flat walk:
+
+    floor   4.0     5.0     6.0     6.5     7.0     8.0
+    delta  -.0237  -.0079  -.0011  -.0055  -.0170  -.0776
+    wins    4/9     5/9     5/9     4/9     4/9     3/9
+
+**Issues found**
+
+- **A five-tempo sweep produced a confident wrong answer twice.** Once in
+  Phase 24 for the notes/sec floor, once here for notes/beat. The second time it
+  reached a commit. Ornament measurements need nine or more tempi and a paired
+  per-tempo comparison — the two arms see identical material at each tempo, so
+  the per-tempo differences are paired samples and their sd (0.0444) is the
+  right bar, not either arm's spread across tempi.
+
+- **The error bar was larger than every effect being tested.** Paired sd 0.0444
+  against effects of ~0.01–0.02. Two phases of work sat entirely inside the
+  noise, and the sweep built in Phase 24a is the only reason that was visible
+  rather than shipped.
+
+- **The binding constraint is probably the corpus.** Seven scores, 122
+  realisable trills, `opus132` alone contributing a quarter. That cannot resolve
+  0.01 F1. This is the point at which PDMX becomes worth fetching, which is the
+  same conclusion `notation_corpus.py` reaches independently for staccato and
+  dynamics.
+
+**Kept:** `notation/voices.py`, still correct and still unused; the nine-tempo
+method; and three dead ends documented with their numbers in
+`transcriber/config.py` so a fourth guard starts from what is already known.
+
+---
+
 ## 2026-08-27 — Phase 24: voice separation works, and scores worse
 
 **`detect_trills` was not changed. PTify's output is byte-identical to before

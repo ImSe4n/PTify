@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated": "2026-08-27T05:59:26Z",
+  "generated": "2026-08-27T15:45:54Z",
   "source": {
     "kind": "symbolic",
     "key_ground_truth": "music21 core corpus",
@@ -17,7 +17,7 @@
     "python": "3.12.5",
     "torch": "2.2.2+cpu",
     "numpy": "1.26.4",
-    "git_commit": "0b8c9d6"
+    "git_commit": "9103d43"
   },
   "corpus": {
     "n_selected": 80,
@@ -2437,20 +2437,39 @@
     "real_bpm_sweep": {
       "summary": {
         "tempi": [
+          50.0,
           60.0,
+          70.0,
           80.0,
           100.0,
+          110.0,
           120.0,
+          130.0,
           140.0
         ],
-        "n_scoreable": 5,
-        "f1_mean": 0.3602256492301875,
+        "n_scoreable": 9,
+        "f1_mean": 0.37846283537774095,
         "f1_min": 0.336734693877551,
-        "f1_max": 0.3854166666666667,
-        "f1_range": 0.04868197278911568,
+        "f1_max": 0.41489361702127664,
+        "f1_range": 0.07815892314372563,
         "note": "Compare a change against f1_mean, and treat f1_range as the error bar: the notated scores carry no tempo, and the detector is rate-based, so the assumed tempo moves the score on its own."
       },
       "rows": [
+        {
+          "label": "all",
+          "kind": "trill",
+          "precision": 0.5789473684210527,
+          "recall": 0.27049180327868855,
+          "f1": 0.3687150837988827,
+          "valid": true,
+          "invalid_reason": "",
+          "tp": 33,
+          "fp": 24,
+          "fn": 89,
+          "n_ref": 122,
+          "n_det": 57,
+          "bpm": 50.0
+        },
         {
           "label": "all",
           "kind": "trill",
@@ -2465,6 +2484,21 @@
           "n_ref": 122,
           "n_det": 59,
           "bpm": 60.0
+        },
+        {
+          "label": "all",
+          "kind": "trill",
+          "precision": 0.6792452830188679,
+          "recall": 0.29508196721311475,
+          "f1": 0.4114285714285714,
+          "valid": true,
+          "invalid_reason": "",
+          "tp": 36,
+          "fp": 17,
+          "fn": 86,
+          "n_ref": 122,
+          "n_det": 53,
+          "bpm": 70.0
         },
         {
           "label": "all",
@@ -2499,6 +2533,21 @@
         {
           "label": "all",
           "kind": "trill",
+          "precision": 0.5909090909090909,
+          "recall": 0.319672131147541,
+          "f1": 0.41489361702127664,
+          "valid": true,
+          "invalid_reason": "",
+          "tp": 39,
+          "fp": 27,
+          "fn": 83,
+          "n_ref": 122,
+          "n_det": 66,
+          "bpm": 110.0
+        },
+        {
+          "label": "all",
+          "kind": "trill",
           "precision": 0.4868421052631579,
           "recall": 0.30327868852459017,
           "f1": 0.3737373737373737,
@@ -2510,6 +2559,21 @@
           "n_ref": 122,
           "n_det": 76,
           "bpm": 120.0
+        },
+        {
+          "label": "all",
+          "kind": "trill",
+          "precision": 0.5256410256410257,
+          "recall": 0.3360655737704918,
+          "f1": 0.41000000000000003,
+          "valid": true,
+          "invalid_reason": "",
+          "tp": 41,
+          "fp": 37,
+          "fn": 81,
+          "n_ref": 122,
+          "n_det": 78,
+          "bpm": 130.0
         },
         {
           "label": "all",
@@ -2654,5 +2718,5 @@
     "scored": false,
     "reason": "no meter detector exists -- the time signature is a CLI argument, so scoring it would measure the input"
   },
-  "conclusion": "On TONAL repertoire, key signature accuracy is 0.800 over 40 scores, tonic accuracy 0.675 over the 40 scores whose ground truth names a tonic. Signature is the figure that matters for engraving: it decides every accidental on the page, and a reading can get it right while naming the relative major or minor as the tonic. On MODAL repertoire (Palestrina, Monteverdi, trecento) it is 0.575 over 40 scores. That gap is expected rather than a defect: Krumhansl-Schmuckler models tonal key, and these scores predate it. The two are reported separately because Palestrina alone is 71% of the music21 corpus, so a pooled figure would describe repertoire this project does not target. On SYNTHETIC ornaments -- one voice, one symbol -- trill precision is 1.000 and recall 0.667 (tp=12 fn=6). Every miss is the same case: a trill notated on a sixteenth or shorter realises to 2 notes, below TRILL_MIN_ALTERNATIONS = 4. Realisation subdivides the written value, so the run length goes 2, 4, 8, 16 -- never 3 -- which is why lowering that constant to 3 recovers NOTHING while admitting mordents, which realise to exactly 3 adjacent-pitch notes. Measured: MIN=3 leaves recall unchanged and turns 0 false trills into 48. On REAL repertoire the same detector reads precision 0.446 and recall 0.270 (tp=33 fp=41 fn=89). That is the honest figure and it is far below the synthetic one: real trills sit inside polyphony, where other voices interleave with the alternation and break the run. The synthetic case localises a failure; this one sizes it. That single figure is one point on a curve, so it is swept here rather than asserted: over 60-140 BPM (5 tempi) trill F1 has mean 0.360 and ranges 0.337-0.385, a spread of 0.049. The notated scores carry no tempo of their own and the detector is rate-based (TRILL_MAX_ONSET_GAP_SEC), so the assumption moves the score without anything about the detector changing. COMPARE A CHANGE AGAINST THE MEAN, and treat the spread as the error bar: an improvement smaller than it has not been demonstrated. Mordents and turns produced 0 false trill detections: the conservative bias in notation/analysis.py holds, and the detector does not invent symbols it was not given. Ornament ground truth is synthesised, not corpus-derived. The sampled scores do contain {'trill': 146, 'mordent': 24} notated ornaments, but they are concentrated in 7 of 80 scores -- one Beethoven quartet movement alone carries 67 trills. What an F1 needs is INDEPENDENT examples, and a handful of scores cannot supply them however many symbols each one repeats. Scoring against the corpus would measure a few pieces, not the detector. Staccato scores precision 0.974 and recall 0.873 (F1 0.920, tp=1116 fp=30 fn=163) -- the strongest detector here, and it returned 0 of 937 notes before Phase 21 fixed the denominator it compared against. The performance is synthesised, so read it as an upper bound on a clean signal rather than a claim about real playing. The reported confidence is weakly calibrated: median correlation 0.924 when the signature is right against 0.893 when it is wrong. It separates, but not by enough to use as a threshold -- its real value is at the extremes, where it correctly declined ['drum_sample', 'webern_dormi_jesu_op_16_no_2']. Dynamics are not scored. Every corpus and MIDI source available here is constant-velocity or near it, so a dynamics accuracy would report the mapping's opinion of a constant rather than a reading -- the same degeneracy velocity_valid guards in evaluation/metrics.py."
+  "conclusion": "On TONAL repertoire, key signature accuracy is 0.800 over 40 scores, tonic accuracy 0.675 over the 40 scores whose ground truth names a tonic. Signature is the figure that matters for engraving: it decides every accidental on the page, and a reading can get it right while naming the relative major or minor as the tonic. On MODAL repertoire (Palestrina, Monteverdi, trecento) it is 0.575 over 40 scores. That gap is expected rather than a defect: Krumhansl-Schmuckler models tonal key, and these scores predate it. The two are reported separately because Palestrina alone is 71% of the music21 corpus, so a pooled figure would describe repertoire this project does not target. On SYNTHETIC ornaments -- one voice, one symbol -- trill precision is 1.000 and recall 0.667 (tp=12 fn=6). Every miss is the same case: a trill notated on a sixteenth or shorter realises to 2 notes, below TRILL_MIN_ALTERNATIONS = 4. Realisation subdivides the written value, so the run length goes 2, 4, 8, 16 -- never 3 -- which is why lowering that constant to 3 recovers NOTHING while admitting mordents, which realise to exactly 3 adjacent-pitch notes. Measured: MIN=3 leaves recall unchanged and turns 0 false trills into 48. On REAL repertoire the same detector reads precision 0.446 and recall 0.270 (tp=33 fp=41 fn=89). That is the honest figure and it is far below the synthetic one: real trills sit inside polyphony, where other voices interleave with the alternation and break the run. The synthetic case localises a failure; this one sizes it. That single figure is one point on a curve, so it is swept here rather than asserted: over 50-140 BPM (9 tempi) trill F1 has mean 0.378 and ranges 0.337-0.415, a spread of 0.078. The notated scores carry no tempo of their own and the detector is rate-based (TRILL_MAX_ONSET_GAP_SEC), so the assumption moves the score without anything about the detector changing. COMPARE A CHANGE AGAINST THE MEAN, and treat the spread as the error bar: an improvement smaller than it has not been demonstrated. Mordents and turns produced 0 false trill detections: the conservative bias in notation/analysis.py holds, and the detector does not invent symbols it was not given. Ornament ground truth is synthesised, not corpus-derived. The sampled scores do contain {'trill': 146, 'mordent': 24} notated ornaments, but they are concentrated in 7 of 80 scores -- one Beethoven quartet movement alone carries 67 trills. What an F1 needs is INDEPENDENT examples, and a handful of scores cannot supply them however many symbols each one repeats. Scoring against the corpus would measure a few pieces, not the detector. Staccato scores precision 0.974 and recall 0.873 (F1 0.920, tp=1116 fp=30 fn=163) -- the strongest detector here, and it returned 0 of 937 notes before Phase 21 fixed the denominator it compared against. The performance is synthesised, so read it as an upper bound on a clean signal rather than a claim about real playing. The reported confidence is weakly calibrated: median correlation 0.924 when the signature is right against 0.893 when it is wrong. It separates, but not by enough to use as a threshold -- its real value is at the extremes, where it correctly declined ['drum_sample', 'webern_dormi_jesu_op_16_no_2']. Dynamics are not scored. Every corpus and MIDI source available here is constant-velocity or near it, so a dynamics accuracy would report the mapping's opinion of a constant rather than a reading -- the same degeneracy velocity_valid guards in evaluation/metrics.py."
 }

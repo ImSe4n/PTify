@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 24 — voice separation for trills is a NEGATIVE result. It recovers trills the flat walk loses, and still scores WORSE (mean F1 0.360 → 0.337) because it stops interleaving from suppressing false positives. `detect_trills` is unchanged; the separator is kept, unused.** |
-| **Branch** | `phase-24-voice-separation`, off `master` |
+| **Last completed** | **Phase 25 — the false-positive guard does not exist. Three were tried; all three rejected. A per-beat floor briefly shipped on a 5-tempo sweep reading +0.018 and a 9-tempo sweep flipped it to −0.001. `detect_trills` is unchanged.** |
+| **Branch** | `phase-24-voice-separation`, off `master` (Phase 25 continues on it) |
 | **Tests** | 1191 Python, ~2 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
-| **Next** | A false-positive guard that survives a tempo sweep — that is the ONLY thing standing between `notation/voices.py` and a real trill improvement. See §1b. Not another training run: two recipe changes in a row measured below baseline. |
+| **Next** | **Not another trill guard.** Three failed and §1c argues the corpus (7 scores, 122 trills) cannot resolve effects this small. Either enlarge the ornament corpus — this is what PDMX is finally for — or leave notation and run the pipeline end to end on a real recording. |
 
 **READ THIS BEFORE PLANNING THE NEXT TRAINING RUN.** Phase 22 overturned two
 conclusions this file previously asserted:
@@ -2042,6 +2042,48 @@ threshold.
 **MAESTRO offset F1 is threshold-hypersensitive** — 0.5196 @0.3 vs 0.2999 @0.6,
 a 22-point swing on the same architecture. An offset comparison across different
 thresholds means nothing at all.
+
+### 1c. PHASE 25 — three false-positive guards, three rejections, and a method lesson
+
+**`detect_trills` is unchanged again.** A per-beat guard was shipped mid-phase
+and reverted within it; the commit is in the history and the revert is
+deliberate.
+
+**What was tried, against voice-separated detection:**
+
+| guard | why it looked right | why it failed |
+|---|---|---|
+| notes/**second** floor | at 100 BPM matched p10 11.1 vs false median 6.7 | rate scales with tempo; a real trill at 60 BPM is 8.0/sec, under any useful floor |
+| minimum **run length** | false runs cluster at n=4–5 | so do real ones — a trill on a short note realises to exactly 4 notes. Monotonically worse, 0.341 → 0.219 |
+| notes/**beat** floor | tempo-invariant, fixes the first flaw | **best value is a tie**: −0.0011 at 6.0, 5/9 tempi. Nothing beats the flat walk |
+
+**The method lesson, and it cost two wrong answers to learn.** The per-beat
+floor was measured on 60/80/100/120/140 and read **+0.0182** — enough that I
+shipped it. Widening to nine tempi (adding 50/70/110/130) flipped it to
+**−0.0082**, because **all four added tempi landed negative**. Paired across
+tempi the difference is −0.0082 with sd 0.0444: indistinguishable from zero and
+swamped by which tempi are chosen.
+
+Five tempi were enough to produce a confident wrong answer twice — once for the
+notes/sec floor in Phase 24, once here. **Ornament changes need nine or more**,
+and a paired per-tempo comparison rather than two means:
+
+```bash
+python -m tools.benchmark_notation --n 80     --bpm-sweep 50,60,70,80,100,110,120,130,140     --json benchmarks/notation-understanding-sweep-before.json
+```
+
+**Where this actually leaves trills.** Over nine tempi: flat walk **0.3785**,
+per-voice 0.3383, per-voice with the best guard 0.3773. The defect is real — a
+second voice destroys a trill outright, and `notation/voices.py` fixes exactly
+that — but every route from "recovers real trills" to "scores better" has now
+been closed by measurement.
+
+**The likely binding constraint is the corpus, not the algorithm.** Seven scores
+and 122 realisable trills, with `opus132` alone contributing a quarter of them.
+Effects of ~0.01 F1 cannot be resolved on that, which is what a paired sd of
+0.044 on a −0.008 effect is saying. **This is the point at which PDMX becomes
+worth fetching** — the same conclusion `evaluation/notation_corpus.py` reaches
+from the other direction for staccato and dynamics.
 
 ### 1b. PHASE 24 — voice separation works and still scores worse. Read before retrying it.
 

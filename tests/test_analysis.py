@@ -103,32 +103,37 @@ def test_a_repeated_note_is_not_a_trill():
     assert detect_trills(same) == []
 
 
-# --- trills inside polyphony ----------------------------------------------
+# --- trills inside polyphony: a KNOWN, MEASURED DEFECT --------------------
 #
-# WITHOUT a tempo, `detect_trills` walks one flat list and breaks its run at any
-# pitch outside the alternating pair, so a second voice destroys the trill. WITH
-# one it separates voices and applies the per-beat guard, and the trill
-# survives. Each test below asserts BOTH halves, so the pair states exactly what
-# the tempo buys.
+# `detect_trills` walks one flat list and breaks its run at any pitch outside
+# the alternating pair, so a second voice destroys the trill. These tests pin
+# that FAILURE rather than a fix, the way `test_notation_benchmark` pins the
+# short-note miss: a defect nobody wrote down gets rediscovered instead of
+# fixed.
 #
-# Phase 24 measured separation alone as a regression (mean F1 0.360 -> 0.341);
-# Phase 25 added `TRILL_MIN_NOTES_PER_BEAT` and it became 0.383. That is why
-# `bpm` gates both together and neither is reachable on its own.
+# `notation/voices.py` repairs every case below and is deliberately not wired
+# in: separation alone scores worse (mean F1 0.3785 -> 0.3383 over nine tempi),
+# and all three guards tried against that cost were rejected -- see
+# `transcriber/config.py`. Each test therefore shows the defect AND that the
+# separator fixes it, which is the honest statement of where this stands.
+#
+# WHEN A WORKING GUARD EXISTS, these tests start failing. That is the signal to
+# invert them, not to delete them.
 
-def test_a_tempo_recovers_a_trill_a_foreign_note_would_destroy():
-    """A six-note trill broken once in the middle is LOST without a tempo.
+def test_a_note_from_another_voice_destroys_a_trill():
+    """A six-note trill broken once in the middle is LOST, not mis-timed.
 
     Runs of three survive either side, both under TRILL_MIN_ALTERNATIONS, so
-    nothing is emitted at all -- the trill is not mis-timed, it is gone. That is
-    what most of the real-repertoire false negatives are made of, and passing a
-    tempo fixes it.
+    nothing is emitted at all. This is what most of the real-repertoire false
+    negatives are made of.
     """
     notes = sorted(_trill(n=6) + [NoteEvent(60, 1.15, 1.20, 80)],
                    key=lambda n: (n.onset, n.pitch))
 
     assert detect_trills(notes) == []
 
-    orn = detect_trills(notes, bpm=120.0)
+    from notation.voices import separate_voices
+    orn = [o for v in separate_voices(notes) for o in detect_trills(v)]
     assert len(orn) == 1
     assert orn[0].pitch == 72 and orn[0].auxiliary == 74
 
@@ -147,32 +152,34 @@ def test_a_moving_bass_line_destroys_even_a_long_trill():
     notes = sorted(_trill(n=12) + bass, key=lambda n: (n.onset, n.pitch))
 
     assert detect_trills(notes) == []
-    assert len(detect_trills(notes, bpm=120.0)) == 1
+
+    from notation.voices import separate_voices
+    assert sum(len(detect_trills(v)) for v in separate_voices(notes)) == 1
 
 
 def test_two_simultaneous_trills_in_different_registers():
-    """Interleaved in one list, each breaks the other's run. With a tempo,
-    both are found."""
+    """Interleaved in one list, each breaks the other's run. Separated, both
+    are found."""
     low = _trill(pitch=60, aux=62, n=10, start=1.0)
     high = _trill(pitch=79, aux=81, n=10, start=1.0)
     notes = sorted(low + high, key=lambda n: (n.onset, n.pitch))
 
-    found = {(o.pitch, o.auxiliary) for o in detect_trills(notes, bpm=120.0)}
+    from notation.voices import separate_voices
+    found = set()
+    for v in separate_voices(notes):
+        found |= {(o.pitch, o.auxiliary) for o in detect_trills(v)}
 
     assert found == {(60, 62), (79, 81)}
 
 
 def test_a_slow_alternation_is_still_rejected_inside_polyphony():
-    """The conservative bias holds in BOTH modes: a figure too slow to be a
-    trill must not become one just because a tempo was supplied. Separation
-    removes the interleaving that used to reject these by accident, so the
-    per-beat guard has to do the work deliberately."""
+    """The conservative bias holds regardless: a figure too slow to be a trill
+    must not become one just because other notes surround it."""
     slow = _trill(gap=0.4, dur=0.3)
     notes = sorted(slow + [NoteEvent(55, 1.5, 1.7, 80)],
                    key=lambda n: (n.onset, n.pitch))
 
     assert detect_trills(notes) == []
-    assert detect_trills(notes, bpm=120.0) == []
 
 
 def test_applying_an_ornament_replaces_the_run_with_one_note():

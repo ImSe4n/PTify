@@ -35,14 +35,6 @@ from dataclasses import dataclass, field
 from transcriber import config
 from transcriber.events import NoteEvent
 
-from .voices import separate_voices
-
-#: Two trills this close at the same pitch are one figure that two voices each
-#: caught part of. Matched to the ornament scorer's own 0.25s tolerance: a
-#: duplicate that survives here becomes a false positive there, so the two must
-#: not disagree about what "the same place" means.
-TRILL_DUPLICATE_SEC = 0.25
-
 
 @dataclass
 class KeyEstimate:
@@ -139,30 +131,7 @@ def detect_key(notes: list[NoteEvent]) -> KeyEstimate | None:
     )
 
 
-def _dedupe(ornaments: list[Ornament]) -> list[Ornament]:
-    """Drop trills that two voices each claimed part of.
-
-    A note belongs to exactly one voice, so one alternation cannot be reported
-    twice in full -- but two voices that each caught a FRAGMENT of one figure
-    can both clear the minimum and emit at nearly the same place. Two trill
-    symbols on one note is a worse error than one, and the scorer counts the
-    second as a false positive.
-
-    Matched within `TRILL_DUPLICATE_SEC` rather than on exact onset: the whole
-    point is that the two runs started at slightly different notes.
-    """
-    kept: list[Ornament] = []
-    for orn in ornaments:
-        if any(k.pitch == orn.pitch
-               and abs(k.onset - orn.onset) <= TRILL_DUPLICATE_SEC
-               for k in kept):
-            continue
-        kept.append(orn)
-    return kept
-
-
-def detect_trills(notes: list[NoteEvent],
-                  bpm: float | None = None) -> list[Ornament]:
+def detect_trills(notes: list[NoteEvent]) -> list[Ornament]:
     """Find trills in RAW (unquantised) notes.
 
     A trill is a rapid alternation between two adjacent pitches. The test is
@@ -175,45 +144,33 @@ def detect_trills(notes: list[NoteEvent],
         which is what separates a trill from a slow alternating figure that a
         reader expects to see written out
 
-    TWO MODES, AND `bpm` PICKS BETWEEN THEM.
+    VOICE SEPARATION WAS TRIED TWICE AND REJECTED TWICE. Do not re-apply it
+    without reading this and `transcriber/config.py`.
 
-    Without a tempo this walks ONE flat list, exactly as it always has. With
-    one it separates voices first (`notation/voices.py`) and applies
-    `TRILL_MIN_NOTES_PER_BEAT`. Both halves are needed together, and neither
-    works alone -- see below.
+    This walks ONE flat list, so a pitch outside the alternating pair breaks the
+    run -- and in polyphony another voice interleaves with the trill and kills
+    it. A six-note trill broken once in the middle leaves runs of three either
+    side, both under `TRILL_MIN_ALTERNATIONS`, so the trill is not mis-timed but
+    LOST. Five notes of accompaniment erase a twelve-note trill. That is a real
+    defect and most of the real-repertoire false negatives are made of it.
 
-    `bpm` is optional because the detector's own inputs are raw seconds and
-    plenty of callers have no tempo to give. Where one is known -- `score.py`
-    holds `grid.bpm` before it calls this -- passing it is strictly better.
+    `notation/voices.py` fixes exactly that and is kept, tested, and unused.
+    Fed one voice at a time this detector recovers those trills -- and scores no
+    better, because the same interleaving was also breaking ordinary passagework
+    by accident. Measured over NINE tempi (50-140):
 
-    WHY BOTH HALVES ARE NEEDED, MEASURED. Separation alone scores WORSE than
-    doing nothing, and the per-beat floor alone does nothing at all.
+        flat walk                     mean F1 0.3785
+        per-voice                     mean F1 0.3383   (-0.0401)
+        per-voice + per-beat guard    mean F1 0.3773   (-0.0011, 5/9 tempi)
 
-    The flat walk breaks its run at any pitch outside the alternating pair, so
-    in polyphony a second voice kills the trill -- and it is not mis-timed, it
-    is LOST: a six-note trill broken once in the middle leaves runs of three
-    either side, both under `TRILL_MIN_ALTERNATIONS`. Five notes of
-    accompaniment erase a twelve-note trill. That is most of the real-repertoire
-    false negatives.
+    The per-beat guard is the best of ten thresholds swept and it is a TIE. It
+    was briefly shipped on the strength of a five-tempo sweep that read +0.0182;
+    widening to nine tempi flipped it, because the four added tempi all landed
+    negative. Paired across tempi the difference is -0.0082 with sd 0.0444 --
+    indistinguishable from zero, and swamped by which tempi are chosen.
 
-    But the same interleaving was also breaking ordinary passagework by
-    accident, and separating voices stops that too. Swept over 60-140 BPM:
-
-        flat walk                mean F1 0.3602   spread 0.0487
-        per-voice                mean F1 0.3408   spread 0.0871
-        per-voice + per-beat     mean F1 0.3827   spread 0.0464
-
-    The middle row is why `bpm` gates the whole thing rather than just the
-    floor: separation without the guard is a regression, so it must not be
-    reachable on its own.
-
-    THE GUARD IS PER BEAT, NOT PER SECOND, AND THAT IS THE WHOLE POINT.
-    `transcriber/config.py` records an absolute notes/sec floor that was tried
-    and rejected: it looked near-perfect at one tempo and collapsed when swept,
-    because a genuine trill at 60 BPM realises to 8 notes/sec while ordinary
-    figures at 140 reach 18.7. Rate scales with tempo; subdivision does not. A
-    trill is defined by how it divides the BEAT -- which is also why realisation
-    subdivides the written value rather than working in real time.
+    What would move this is a false-positive rule that is not a threshold on a
+    single scalar, or a corpus larger than 7 scores and 122 trills.
 
     Notes must already be sorted by onset; `Transcription.sort()` guarantees it.
     """
@@ -222,19 +179,6 @@ def detect_trills(notes: list[NoteEvent],
     # exactly the minimum length -- the boundary the constant names.
     if len(notes) < config.TRILL_MIN_ALTERNATIONS:
         return []
-
-    if bpm is not None and bpm > 0:
-        found: list[Ornament] = []
-        for voice in separate_voices(notes):
-            found.extend(
-                o for o in detect_trills(voice)
-                if o.rate * 60.0 / bpm >= config.TRILL_MIN_NOTES_PER_BEAT
-            )
-        # Time order, because callers walk ornaments alongside notes:
-        # `apply_ornaments` and `score._trill_positions` both do. Per-voice
-        # detection yields them grouped by voice, which is not time order.
-        found.sort(key=lambda o: (o.onset, o.pitch))
-        return _dedupe(found)
 
     out: list[Ornament] = []
     i = 0
