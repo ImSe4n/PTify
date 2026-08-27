@@ -144,6 +144,34 @@ def detect_trills(notes: list[NoteEvent]) -> list[Ornament]:
         which is what separates a trill from a slow alternating figure that a
         reader expects to see written out
 
+    VOICE SEPARATION WAS TRIED TWICE AND REJECTED TWICE. Do not re-apply it
+    without reading this and `transcriber/config.py`.
+
+    This walks ONE flat list, so a pitch outside the alternating pair breaks the
+    run -- and in polyphony another voice interleaves with the trill and kills
+    it. A six-note trill broken once in the middle leaves runs of three either
+    side, both under `TRILL_MIN_ALTERNATIONS`, so the trill is not mis-timed but
+    LOST. Five notes of accompaniment erase a twelve-note trill. That is a real
+    defect and most of the real-repertoire false negatives are made of it.
+
+    `notation/voices.py` fixes exactly that and is kept, tested, and unused.
+    Fed one voice at a time this detector recovers those trills -- and scores no
+    better, because the same interleaving was also breaking ordinary passagework
+    by accident. Measured over NINE tempi (50-140):
+
+        flat walk                     mean F1 0.3785
+        per-voice                     mean F1 0.3383   (-0.0401)
+        per-voice + per-beat guard    mean F1 0.3773   (-0.0011, 5/9 tempi)
+
+    The per-beat guard is the best of ten thresholds swept and it is a TIE. It
+    was briefly shipped on the strength of a five-tempo sweep that read +0.0182;
+    widening to nine tempi flipped it, because the four added tempi all landed
+    negative. Paired across tempi the difference is -0.0082 with sd 0.0444 --
+    indistinguishable from zero, and swamped by which tempi are chosen.
+
+    What would move this is a false-positive rule that is not a threshold on a
+    single scalar, or a corpus larger than 7 scores and 122 trills.
+
     Notes must already be sorted by onset; `Transcription.sort()` guarantees it.
     """
     # `TRILL_MIN_ALTERNATIONS` counts NOTES in the run, and the run check

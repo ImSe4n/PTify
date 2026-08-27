@@ -11,10 +11,10 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 23 — the calibration training run is a NEGATIVE result. At matched threshold it costs −0.0050 onset F1; the apparent gain was the threshold change. `ptify-16b-step6555.pth` remains the best model.** |
-| **Branch** | `phase-22-precision`, off `phase-9-gpu-host` |
-| **Tests** | 1125 Python, ~1 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
-| **Next** | Finish the **ptify** `onset_threshold` sweep (`benchmarks/ptify-threshold-calibration.json`), adopt the value, re-score the MAPS baselines at it. Only then another training run — and it must change the **augmentation recipe**, not the schedule. See §1a. |
+| **Last completed** | **Phase 25 — the false-positive guard does not exist. Three were tried; all three rejected. A per-beat floor briefly shipped on a 5-tempo sweep reading +0.018 and a 9-tempo sweep flipped it to −0.001. `detect_trills` is unchanged.** |
+| **Branch** | `phase-24-voice-separation`, off `master` (Phase 25 continues on it) |
+| **Tests** | 1191 Python, ~2 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
+| **Next** | **Not another trill guard.** Three failed and §1c argues the corpus (7 scores, 122 trills) cannot resolve effects this small. Either enlarge the ornament corpus — this is what PDMX is finally for — or leave notation and run the pipeline end to end on a real recording. |
 
 **READ THIS BEFORE PLANNING THE NEXT TRAINING RUN.** Phase 22 overturned two
 conclusions this file previously asserted:
@@ -2014,6 +2014,18 @@ the primary metric.
 `benchmarks/real/maps-paired-ptify16b-at060.json` is the **controlled baseline**;
 compare future runs against it, not against the older 0.3-era reports.
 
+**The ptify `onset_threshold` sweep is DONE and the answer is NO CHANGE.**
+Phase 23's open task is closed: swept 0.3-0.9 on 16b over all 14 MAPS tracks,
+peak-relative regret picks **0.6**, which is what `PTIFY_ONSET_THRESHOLD`
+already was. 0.6 is an interior optimum, not a grid edge — mean F1 rises 0.8732
+(@0.3) to 0.8836 (@0.6) and falls to 0.8798 (@0.7) and 0.5391 (@0.9, where
+recall collapses to 0.39 while precision keeps climbing). ByteDance wants 0.7
+and ptify wants 0.6, which is why the constants are per-engine.
+`benchmarks/ptify-threshold-calibration.json`. Two consequences: the committed
+0.6-era reports need no re-scoring, and **0.8502 stands as the live target**.
+`frame_threshold` is inert as Phase 19 found — identical F1 at 0.05/0.02/0.01 in
+every row.
+
 **The MAESTRO cross-check passed.** 0.9595 against ByteDance's 0.9693 is −0.0097
 — the expected price, bounded by the 20% clean passthrough, and nowhere near the
 collapse that would indicate LR damage. The weights are healthy. They just are
@@ -2030,6 +2042,117 @@ threshold.
 **MAESTRO offset F1 is threshold-hypersensitive** — 0.5196 @0.3 vs 0.2999 @0.6,
 a 22-point swing on the same architecture. An offset comparison across different
 thresholds means nothing at all.
+
+### 1c. PHASE 25 — three false-positive guards, three rejections, and a method lesson
+
+**`detect_trills` is unchanged again.** A per-beat guard was shipped mid-phase
+and reverted within it; the commit is in the history and the revert is
+deliberate.
+
+**What was tried, against voice-separated detection:**
+
+| guard | why it looked right | why it failed |
+|---|---|---|
+| notes/**second** floor | at 100 BPM matched p10 11.1 vs false median 6.7 | rate scales with tempo; a real trill at 60 BPM is 8.0/sec, under any useful floor |
+| minimum **run length** | false runs cluster at n=4–5 | so do real ones — a trill on a short note realises to exactly 4 notes. Monotonically worse, 0.341 → 0.219 |
+| notes/**beat** floor | tempo-invariant, fixes the first flaw | **best value is a tie**: −0.0011 at 6.0, 5/9 tempi. Nothing beats the flat walk |
+
+**The method lesson, and it cost two wrong answers to learn.** The per-beat
+floor was measured on 60/80/100/120/140 and read **+0.0182** — enough that I
+shipped it. Widening to nine tempi (adding 50/70/110/130) flipped it to
+**−0.0082**, because **all four added tempi landed negative**. Paired across
+tempi the difference is −0.0082 with sd 0.0444: indistinguishable from zero and
+swamped by which tempi are chosen.
+
+Five tempi were enough to produce a confident wrong answer twice — once for the
+notes/sec floor in Phase 24, once here. **Ornament changes need nine or more**,
+and a paired per-tempo comparison rather than two means:
+
+```bash
+python -m tools.benchmark_notation --n 80     --bpm-sweep 50,60,70,80,100,110,120,130,140     --json benchmarks/notation-understanding-sweep-before.json
+```
+
+**Where this actually leaves trills.** Over nine tempi: flat walk **0.3785**,
+per-voice 0.3383, per-voice with the best guard 0.3773. The defect is real — a
+second voice destroys a trill outright, and `notation/voices.py` fixes exactly
+that — but every route from "recovers real trills" to "scores better" has now
+been closed by measurement.
+
+**The likely binding constraint is the corpus, not the algorithm.** Seven scores
+and 122 realisable trills, with `opus132` alone contributing a quarter of them.
+Effects of ~0.01 F1 cannot be resolved on that, which is what a paired sd of
+0.044 on a −0.008 effect is saying. **This is the point at which PDMX becomes
+worth fetching** — the same conclusion `evaluation/notation_corpus.py` reaches
+from the other direction for staccato and dynamics.
+
+### 1b. PHASE 24 — voice separation works and still scores worse. Read before retrying it.
+
+**`detect_trills` was NOT changed. Nothing about PTify's output moved.** What
+landed is a measuring instrument, a separator nothing calls yet, and two
+documented dead ends.
+
+**The defect is real.** `detect_trills` walks one flat, time-ordered list and
+breaks its run at any pitch outside the alternating pair. In polyphony a second
+voice interleaves and kills the trill — and it is not mis-timed, it is LOST: a
+six-note trill broken once in the middle leaves runs of three either side, both
+under `TRILL_MIN_ALTERNATIONS = 4`, so nothing is emitted. Five notes of
+accompaniment erase a twelve-note trill. That is what most of the 89
+real-repertoire false negatives are made of, and
+`tests/test_analysis.py` now pins it as a known defect.
+
+**The fix works, and loses anyway.** `notation/voices.py` separates voices and
+recovers exactly those trills — bwv432 went 0.000 → 1.000, opus132
+0.278 → 0.375, movement1 0.296 → 0.444. Swept over 60–140 BPM:
+
+| | mean F1 | spread |
+|---|---|---|
+| flat walk (**shipped**) | **0.3602** | 0.0487 |
+| per-voice | 0.3366 | 0.0871 |
+
+| bpm | flat | per-voice | Δ |
+|---|---|---|---|
+| 60 | 0.3536 (fp 27) | 0.3484 (fp 6) | −0.005 |
+| 80 | 0.3516 (fp 28) | 0.3780 (fp 11) | **+0.026** |
+| 100 | 0.3367 (fp 41) | 0.3226 (fp 60) | −0.014 |
+| 120 | 0.3737 (fp 39) | 0.3431 (fp 47) | −0.031 |
+| 140 | 0.3854 (fp 33) | 0.2909 (fp 66) | **−0.095** |
+
+**Why it loses: the flat walk was suppressing false positives BY ACCIDENT.** The
+same interleaving that destroys real trills also destroys slow alternating
+figures that are not trills. Separating voices removes both accidents at once,
+and the false ones outnumber the true. The spread nearly doubling is the tell —
+how many slip through depends on the tempo you assumed, and the notated scores
+carry no tempo.
+
+**The one thing needed is a false-positive guard that survives a tempo sweep.**
+Everything else is built. An absolute notes/sec floor was the obvious candidate
+and is REJECTED with its numbers in `transcriber/config.py`: at 100 BPM it looks
+near-perfect (keeps 33/35 matches, cuts fp 60 → 10), and it collapses when
+swept, because a genuine notated trill at 60 BPM realises to **8.0 notes/sec** —
+under any useful floor — while false runs at 140 BPM reach 18.7. Rate scales
+with tempo. A tempo-relative bound, or a rule keyed on something other than
+speed, is the route.
+
+**`--bpm-sweep` is the durable part of this phase.** The old trill number was a
+single point at 100 BPM plus a prose claim about a hand-run 60–140 sweep that
+could not be re-run. It is now reproducible with a real error bar:
+
+```bash
+python -m tools.benchmark_notation --n 80 --bpm-sweep 60,80,100,120,140     --json benchmarks/notation-understanding-sweep-before.json
+```
+
+**That sweep is what caught the rate floor.** Derived at one tempo it looked
+like a clean win; it would have silently rejected every trill in slow music.
+Measure ornament changes across the sweep, never at one tempo — the same lesson
+§1a records for `onset_threshold`, in a different place.
+
+`notation/voices.py` is deliberately KEPT although nothing imports it outside
+tests. It is correct, fast (18k notes in 0.8s), and carries two bugs already
+found and fixed by running it over the real corpus rather than over unit tests:
+a rested voice could never be resumed (18,177 notes → 7,530 voices averaging 2.4
+notes each, none long enough to hold a trill), and a passing note one semitone
+from an oscillation would steal it (bwv432 scattered across four voices). Both
+are pinned.
 
 ### "Fully in-house models" — costed, and the answer is not compute
 
