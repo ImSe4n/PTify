@@ -103,6 +103,88 @@ def test_a_repeated_note_is_not_a_trill():
     assert detect_trills(same) == []
 
 
+# --- trills inside polyphony: a KNOWN, MEASURED DEFECT --------------------
+#
+# `detect_trills` walks one flat, time-ordered list and breaks its run at any
+# pitch outside the alternating pair, so a second voice playing across a trill
+# destroys it. These tests pin that failure rather than a fix, the way
+# `test_notation_benchmark.test_a_trill_on_a_short_note_is_missed_and_the_
+# benchmark_says_so` pins the short-note miss: a defect nobody has written down
+# gets rediscovered instead of fixed.
+#
+# Phase 24 BUILT the fix -- `notation/voices.py`, still present and tested --
+# and measured it worse over a 60-140 BPM sweep (mean F1 0.360 -> 0.337, spread
+# 0.049 -> 0.087), because separation also stops interleaving from suppressing
+# slow alternating figures. See `detect_trills` for the full record.
+#
+# WHEN THAT IS FIXED, these tests should start failing. That is the signal to
+# invert them, not to delete them.
+
+def test_a_note_from_another_voice_destroys_a_trill():
+    """A six-note trill broken once in the middle is LOST, not mis-timed.
+
+    Runs of three survive either side, both under TRILL_MIN_ALTERNATIONS, so
+    nothing is emitted at all. This is what most of the 89 real-repertoire
+    false negatives are made of.
+    """
+    notes = sorted(_trill(n=6) + [NoteEvent(60, 1.15, 1.20, 80)],
+                   key=lambda n: (n.onset, n.pitch))
+
+    assert detect_trills(notes) == []
+
+    # The separator recovers it, which is why the module exists even though
+    # wiring it into this detector measured worse overall.
+    from notation.voices import separate_voices
+    assert sum(len(detect_trills(v)) for v in separate_voices(notes)) == 1
+
+
+def test_a_moving_bass_line_destroys_even_a_long_trill():
+    """Length is no defence. A bass line crossing a TWELVE-note trill breaks it
+    into fragments of three, and none survives TRILL_MIN_ALTERNATIONS:
+
+        48 72 74 72 49 74 72 74 50 72 74 51 72 74 72 52 74
+
+    A sparse accompaniment -- five notes against twelve -- is enough to erase
+    the ornament completely.
+    """
+    bass = [NoteEvent(48 + i, 1.0 + i * 0.16, 1.0 + i * 0.16 + 0.15, 80)
+            for i in range(5)]
+    notes = sorted(_trill(n=12) + bass, key=lambda n: (n.onset, n.pitch))
+
+    assert detect_trills(notes) == []
+
+    from notation.voices import separate_voices
+    assert sum(len(detect_trills(v)) for v in separate_voices(notes)) == 1
+
+
+def test_two_simultaneous_trills_in_different_registers():
+    """Interleaved in one list, each breaks the other's run.
+
+    Pinned as a fact about the current detector, not as an aspiration: with
+    voice separation both are found, which `test_voices.py` covers.
+    """
+    low = _trill(pitch=60, aux=62, n=10, start=1.0)
+    high = _trill(pitch=79, aux=81, n=10, start=1.0)
+    notes = sorted(low + high, key=lambda n: (n.onset, n.pitch))
+
+    from notation.voices import separate_voices
+    separated = set()
+    for v in separate_voices(notes):
+        separated |= {(o.pitch, o.auxiliary) for o in detect_trills(v)}
+
+    assert separated == {(60, 62), (79, 81)}
+
+
+def test_a_slow_alternation_is_still_rejected_inside_polyphony():
+    """The conservative bias holds regardless: a figure too slow to be a trill
+    must not become one just because other notes surround it."""
+    slow = _trill(gap=0.4, dur=0.3)
+    notes = sorted(slow + [NoteEvent(55, 1.5, 1.7, 80)],
+                   key=lambda n: (n.onset, n.pitch))
+
+    assert detect_trills(notes) == []
+
+
 def test_applying_an_ornament_replaces_the_run_with_one_note():
     # This is what makes it NOTATION rather than a label: twelve hammered
     # notes become one note plus a symbol, which is what a musician reads.

@@ -112,6 +112,35 @@ TRILL_MAX_ONSET_GAP_SEC = 0.16
 # common ornamental writing.
 TRILL_MIN_ALTERNATIONS = 4
 
+# A RATE FLOOR WAS TRIED AND REJECTED. Do not add one back without reading
+# this.
+#
+# Reading one voice at a time (Phase 24) surfaces slow alternating figures that
+# the flat note list used to break by accident, so an absolute notes/sec floor
+# looks like the obvious guard. At 100 BPM the two populations separate almost
+# perfectly -- matched trills p10 11.1/sec against false runs median 6.7, p90
+# 10.8 -- and a floor of 10.0 keeps 33 of 35 matches while cutting false
+# positives from 60 to 10.
+#
+# That separation is an artefact of measuring at ONE tempo. Swept, it collapses:
+#
+#     bpm    matched min / p10      false p75 / p90 / max
+#      60    (a real trill realises at 8.0/sec -- under the floor entirely)
+#      80    10.7 / 10.7            10.7 / 10.7 / 10.7
+#     100    10.7 / 11.1            11.1 / 11.7 / 13.3
+#     120    12.7 / 12.7            13.3 / 16.0 / 16.0
+#     140    10.1 / 14.6            14.0 / 18.7 / 18.7
+#
+# Rate scales with tempo and the notated scores carry no tempo, so any absolute
+# floor is really a statement about the tempo that was assumed. At 60 BPM a
+# genuine notated trill realises to 8.0 notes/sec and every floor above that
+# rejects real trills; by 120 BPM false runs reach 16/sec and every floor below
+# that admits them. The populations overlap once tempo moves.
+#
+# A tempo-relative bound, or a rule keyed on something other than speed, is the
+# route if this is revisited. `TRILL_MAX_ONSET_GAP_SEC` remains the only rate
+# constraint, and it bounds each PAIR of onsets rather than the whole run.
+
 # --- Staccato ---
 # Ratio of played duration to NOTATED duration below which a note is marked
 # staccato. The conventional performance value is about one half of the

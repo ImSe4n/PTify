@@ -161,9 +161,10 @@ def test_separation_recovers_a_trill_the_flat_list_loses():
     TRILL_MIN_ALTERNATIONS = 4 -- so the flat list yields NOTHING. The detector
     does not merely mis-time the trill; it loses it completely.
 
-    Asserted here against `detect_trills` directly rather than through the
-    consumer, because 24b deliberately leaves that function untouched: this
-    test states the payload that 24c goes on to collect.
+    `detect_trills` ships the FLAT walk -- wiring it to voices was measured
+    worse over a tempo sweep (see its docstring) -- so this compares the flat
+    result against the per-voice one directly. It states what the separator
+    buys, which is real, independently of whether the detector uses it.
     """
     from notation.analysis import detect_trills
 
@@ -172,9 +173,9 @@ def test_separation_recovers_a_trill_the_flat_list_loses():
     notes = sorted(trill + intruder, key=lambda n: (n.onset, n.pitch))
 
     assert detect_trills(notes) == [], (
-        "the flat list is expected to LOSE this trill -- if it no longer does, "
-        "the premise of voice separation has changed and the measured gain "
-        "should be re-derived"
+        "walked as one flat list this trill is expected to be LOST -- if it no "
+        "longer is, the premise of voice separation has changed and the "
+        "measured result should be re-derived"
     )
 
     per_voice = sum(len(detect_trills(v)) for v in separate_voices(notes))
