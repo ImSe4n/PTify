@@ -10,6 +10,7 @@ from notation.quantise import (
     DEFAULT_SUBDIVISION,
     BeatGrid,
     grid_from_tempo,
+    notated_offsets,
     quantise_notes,
     quantised_to_transcription,
     uncertain_fraction,
@@ -206,6 +207,119 @@ def test_empty_input_produces_empty_output():
     g = grid_from_tempo(120.0, 10.0)
     assert quantise_notes([], g) == []
     assert quantised_to_transcription([], g).notes == []
+
+
+# --- the notated duration ------------------------------------------------
+#
+# A note's OFFSET is when the string stops ringing. Under sustain that is most
+# of the bar, and printing it directly is what made a real transcription
+# unreadable: median note 2.39 beats, 22% longer than a whole 4/4 bar, which
+# inflated chords, forced music21 to manufacture 8 voices per staff, and turned
+# 520 notes into 2,018 MusicXML notes with 1,146 ties.
+#
+# `notated_offsets` bounds each note by three physical facts. Each test below
+# isolates ONE of them, because a single end-to-end assertion would pass with
+# any two of the three working.
+
+def test_a_note_is_cut_at_the_next_onset_in_the_same_staff():
+    """What the hand does: a finger leaves the key to play the next note."""
+    notes = [NoteEvent(72, 0.0, 9.0), NoteEvent(74, 1.0, 1.4)]
+
+    ends = notated_offsets(notes)
+
+    assert ends[0] == pytest.approx(1.0)
+
+
+def test_the_other_hand_does_not_cut_a_note_short():
+    """A left-hand note must survive the right hand playing.
+
+    This is why the next-onset bound is computed per staff. Globally, every
+    held bass note would be chopped by the melody above it -- which is exactly
+    the writing a piano score exists to show.
+    """
+    notes = [NoteEvent(40, 0.0, 3.0), NoteEvent(84, 1.0, 1.4)]
+
+    ends = notated_offsets(notes)
+
+    assert ends[0] == pytest.approx(3.0)
+
+
+def test_a_note_is_cut_at_the_pedal_release():
+    """Everything after the damper drops is decay, not duration.
+
+    No later onset here, so the pedal is the only thing that can shorten it.
+    """
+    notes = [NoteEvent(60, 0.0, 8.0)]
+    pedals = [PedalEvent(0.0, 2.0)]
+
+    ends = notated_offsets(notes, pedals)
+
+    assert ends[0] == pytest.approx(2.0)
+
+
+def test_a_short_note_is_never_lengthened():
+    """The bounds only ever shorten. A staccato note stays staccato even with
+    the pedal down and nothing following it."""
+    notes = [NoteEvent(60, 0.0, 0.1)]
+
+    ends = notated_offsets(notes, [PedalEvent(0.0, 5.0)])
+
+    assert ends[0] == pytest.approx(0.1)
+
+
+def test_the_earliest_bound_wins():
+    """All three apply at once; the note ends at whichever comes first."""
+    notes = [NoteEvent(60, 0.0, 9.0), NoteEvent(62, 3.0, 3.4)]
+    pedals = [PedalEvent(0.0, 1.5)]
+
+    # pedal release 1.5 < next onset 3.0 < own offset 9.0
+    assert notated_offsets(notes, pedals)[0] == pytest.approx(1.5)
+
+
+def test_an_unpedalled_note_with_nothing_after_it_keeps_its_length():
+    """No bound applies, so nothing changes. A held final chord stays held."""
+    notes = [NoteEvent(60, 0.0, 4.0)]
+
+    assert notated_offsets(notes)[0] == pytest.approx(4.0)
+
+
+def test_quantised_lengths_collapse_under_sustain():
+    """The whole point, through the real entry point.
+
+    Without the notated bound this note prints as 16 beats -- four bars held by
+    one notehead, which music21 then splits into four tied fragments.
+
+    Both notes are deliberately in the SAME register: `_split_point` puts a
+    treble and a bass note on different staves, where the next-onset rule
+    correctly declines to cut across hands.
+    """
+    g = grid_from_tempo(120.0, 20.0)
+    notes = [NoteEvent(72, 0.0, 8.0), NoteEvent(74, 0.5, 0.9)]
+    pedals = [PedalEvent(0.0, 8.0)]
+
+    q = quantise_notes(notes, g, pedals)
+    held = next(n for n in q if n.pitch == 72)
+
+    assert held.length_beats == pytest.approx(1.0)   # cut at the next onset
+    assert held.duration_uncertain is True            # and flagged as pedalled
+
+
+def test_notated_offsets_is_positional():
+    """The caller zips this against its input, so order must be preserved
+    even though the staff partition sorts internally."""
+    notes = [NoteEvent(84, 2.0, 2.4), NoteEvent(40, 0.0, 1.0),
+             NoteEvent(60, 1.0, 1.5)]
+
+    ends = notated_offsets(notes)
+
+    assert len(ends) == 3
+    for note, end in zip(notes, ends):
+        assert end >= note.onset
+        assert end <= note.offset + 1e-9
+
+
+def test_no_notes_is_not_an_error():
+    assert notated_offsets([]) == []
 
 
 # --- pedal survives the quantised export --------------------------------
