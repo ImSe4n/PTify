@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from .engine import ENGINE_NAMES, get_engine
+from .engine import ENGINE_NAMES, get_engine, resolve_default_engine
 from .events import midi_to_name
 from .midi import read_midi, write_midi
 # Import-safe: ptify.py pulls in no heavy dependency at module level (torch is
@@ -124,11 +124,11 @@ def main(argv: list[str] | None = None) -> int:
                          "and exit")
     ap.add_argument("-o", "--output", type=Path, default=None,
                     help="output .mid path (default: alongside the input)")
-    ap.add_argument("--engine", default="bytedance",
+    ap.add_argument("--engine", default=None,
                     choices=list(ENGINE_NAMES),
-                    help="transcription model (default: bytedance). ptify is "
-                         "the fine-tuned model and needs its checkpoint; see "
-                         "--doctor")
+                    help="transcription model. Default: ptify when its "
+                         "checkpoint is installed (see --fetch-ptify), "
+                         "otherwise bytedance")
     ap.add_argument("--notes", action="store_true",
                     help="print the detected notes")
     ap.add_argument("--verify", action="store_true",
@@ -161,10 +161,14 @@ def main(argv: list[str] | None = None) -> int:
     out = args.output or args.input.with_suffix(".mid")
 
     print(f"Input : {args.input}")
-    print(f"Engine: {args.engine}")
+    # Unset means "the best model available here"; an explicit --engine is
+    # obeyed exactly, so `--engine ptify` still raises when its checkpoint is
+    # missing rather than quietly transcribing with the baseline.
+    requested = args.engine or resolve_default_engine()
+    print(f"Engine: {requested}")
 
     try:
-        engine = get_engine(args.engine)
+        engine = get_engine(requested)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -182,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError as exc:
         # Optional engine dependencies are imported lazily inside load(), so
         # a missing package surfaces here rather than from get_engine().
-        print(f"\nerror: {args.engine} is missing a dependency: {exc}",
+        print(f"\nerror: {requested} is missing a dependency: {exc}",
               file=sys.stderr)
         print("       pip install -r requirements.txt, or use "
               "--engine bytedance", file=sys.stderr)

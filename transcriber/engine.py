@@ -204,3 +204,37 @@ def get_engine(name: str = "bytedance", *,
     raise ValueError(
         f"Unknown engine {name!r}. Options: {', '.join(ENGINE_NAMES)}"
     )
+
+
+def resolve_default_engine() -> str:
+    """The engine to use when the operator did not name one.
+
+    `ptify` when its checkpoint is installed, `bytedance` otherwise.
+
+    WHY THIS EXISTS
+    ---------------
+    The user-facing CLIs used to default to `bytedance`, because the fine-tuned
+    weights are not in the repository and a hard default would break the tool
+    for anyone without them. The cost was silent: every default run used the
+    WEAKER model. Measured on a real recording, bytedance found 500 notes
+    against ptify's 520, and 105 notes below MIDI 48 against ptify's 123 --
+    and a whole phase of engraving work was measured through the wrong engine
+    before anyone noticed, because nothing in the output said which model ran.
+
+    Falling back is only correct for an UNSET flag. An explicit `--engine
+    ptify` must still raise `PtifyWeightsMissing`: the operator named those
+    weights, and quietly substituting others is how a baseline gets published
+    as a fine-tuned result -- the failure HANDOFF section 4 catalogues.
+
+    Benchmarks are deliberately NOT routed through this. `evaluation/` and
+    `tools/crosscheck_remote.py` keep their explicit `bytedance` default, since
+    a comparison whose baseline moves when a checkpoint appears on disk is not
+    a comparison.
+    """
+    try:
+        from .ptify import resolve_checkpoint
+
+        resolve_checkpoint()
+    except Exception:  # noqa: BLE001 -- any failure to resolve means fall back
+        return "bytedance"
+    return "ptify"
