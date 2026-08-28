@@ -1,0 +1,156 @@
+{
+  "engine": "bytedance",
+  "corpus": "recordings\\maps_paired",
+  "n_tracks": 14,
+  "onset_tolerance": 0.05,
+  "matching": "mir_eval.transcription.match_notes, offset_ratio=None -- the same matching the published onset figures count",
+  "totals": {
+    "n_reference": 30356,
+    "n_estimated": 28678,
+    "n_matched": 25150,
+    "n_missed": 5206,
+    "n_invented": 3528,
+    "recall": 0.8285017788904994
+  },
+  "by_register": {
+    "contra   A0-B1": {
+      "missed": 415,
+      "total": 642,
+      "rate": 0.6464174454828661
+    },
+    "bass     C2-B2": {
+      "missed": 599,
+      "total": 2906,
+      "rate": 0.20612525808671714
+    },
+    "low-mid  C3-B3": {
+      "missed": 993,
+      "total": 6724,
+      "rate": 0.1476799524092802
+    },
+    "middle   C4-B4": {
+      "missed": 1747,
+      "total": 9730,
+      "rate": 0.17954779033915724
+    },
+    "upper    C5-B5": {
+      "missed": 813,
+      "total": 6536,
+      "rate": 0.12438800489596083
+    },
+    "high     C6-C8": {
+      "missed": 639,
+      "total": 3818,
+      "rate": 0.16736511262441067
+    }
+  },
+  "by_velocity": {},
+  "by_polyphony": {
+    "1-2 voices": {
+      "missed": 499,
+      "total": 2600,
+      "rate": 0.19192307692307692
+    },
+    "3-4 voices": {
+      "missed": 475,
+      "total": 4090,
+      "rate": 0.11613691931540342
+    },
+    "5-6 voices": {
+      "missed": 609,
+      "total": 4338,
+      "rate": 0.14038727524204703
+    },
+    "7+ voices": {
+      "missed": 3623,
+      "total": 19328,
+      "rate": 0.18744826158940397
+    }
+  },
+  "per_track": [
+    {
+      "label": "ENSTDkAm-bk_xmas1",
+      "n_reference": 2668,
+      "n_missed": 394,
+      "recall": 0.8523238380809596
+    },
+    {
+      "label": "ENSTDkAm-grieg_butterfly",
+      "n_reference": 937,
+      "n_missed": 163,
+      "recall": 0.8260405549626467
+    },
+    {
+      "label": "ENSTDkAm-liz_rhap09",
+      "n_reference": 8556,
+      "n_missed": 1536,
+      "recall": 0.820476858345021
+    },
+    {
+      "label": "ENSTDkAm-scn15_11",
+      "n_reference": 748,
+      "n_missed": 212,
+      "recall": 0.7165775401069518
+    },
+    {
+      "label": "ENSTDkAm-scn16_4",
+      "n_reference": 669,
+      "n_missed": 225,
+      "recall": 0.6636771300448431
+    },
+    {
+      "label": "ENSTDkAm-ty_maerz",
+      "n_reference": 597,
+      "n_missed": 170,
+      "recall": 0.7152428810720268
+    },
+    {
+      "label": "ENSTDkAm-ty_mai",
+      "n_reference": 1003,
+      "n_missed": 196,
+      "recall": 0.8045862412761715
+    },
+    {
+      "label": "ENSTDkCl-bk_xmas1",
+      "n_reference": 2668,
+      "n_missed": 458,
+      "recall": 0.828335832083958
+    },
+    {
+      "label": "ENSTDkCl-grieg_butterfly",
+      "n_reference": 937,
+      "n_missed": 59,
+      "recall": 0.9370330843116329
+    },
+    {
+      "label": "ENSTDkCl-liz_rhap09",
+      "n_reference": 8556,
+      "n_missed": 1354,
+      "recall": 0.8417484805984105
+    },
+    {
+      "label": "ENSTDkCl-scn15_11",
+      "n_reference": 748,
+      "n_missed": 98,
+      "recall": 0.8689839572192514
+    },
+    {
+      "label": "ENSTDkCl-scn16_4",
+      "n_reference": 669,
+      "n_missed": 169,
+      "recall": 0.7473841554559043
+    },
+    {
+      "label": "ENSTDkCl-ty_maerz",
+      "n_reference": 597,
+      "n_missed": 89,
+      "recall": 0.8509212730318257
+    },
+    {
+      "label": "ENSTDkCl-ty_mai",
+      "n_reference": 1003,
+      "n_missed": 83,
+      "recall": 0.9172482552342971
+    }
+  ]
+}

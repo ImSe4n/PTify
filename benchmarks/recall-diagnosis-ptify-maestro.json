@@ -1,0 +1,165 @@
+{
+  "engine": "ptify",
+  "corpus": "recordings\\maestro_test12",
+  "n_tracks": 12,
+  "onset_tolerance": 0.05,
+  "matching": "mir_eval.transcription.match_notes, offset_ratio=None -- the same matching the published onset figures count",
+  "totals": {
+    "n_reference": 52478,
+    "n_estimated": 48430,
+    "n_matched": 48094,
+    "n_missed": 4384,
+    "n_invented": 336,
+    "recall": 0.9164602309539236
+  },
+  "by_register": {
+    "contra   A0-B1": {
+      "missed": 313,
+      "total": 1079,
+      "rate": 0.29008341056533826
+    },
+    "bass     C2-B2": {
+      "missed": 670,
+      "total": 5704,
+      "rate": 0.11746143057503507
+    },
+    "low-mid  C3-B3": {
+      "missed": 966,
+      "total": 12839,
+      "rate": 0.07523950463431732
+    },
+    "middle   C4-B4": {
+      "missed": 1140,
+      "total": 16969,
+      "rate": 0.06718133066179503
+    },
+    "upper    C5-B5": {
+      "missed": 908,
+      "total": 12156,
+      "rate": 0.0746956235603817
+    },
+    "high     C6-C8": {
+      "missed": 387,
+      "total": 3731,
+      "rate": 0.103725542749933
+    }
+  },
+  "by_velocity": {
+    "pp  <40": {
+      "missed": 1361,
+      "total": 3551,
+      "rate": 0.38327231765699804
+    },
+    "p   40-59": {
+      "missed": 1559,
+      "total": 13964,
+      "rate": 0.11164422801489544
+    },
+    "mf  60-79": {
+      "missed": 1113,
+      "total": 20034,
+      "rate": 0.05555555555555555
+    },
+    "f   80+": {
+      "missed": 351,
+      "total": 14929,
+      "rate": 0.02351128675731797
+    }
+  },
+  "by_polyphony": {
+    "1-2 voices": {
+      "missed": 233,
+      "total": 5036,
+      "rate": 0.04626687847498014
+    },
+    "3-4 voices": {
+      "missed": 443,
+      "total": 6551,
+      "rate": 0.06762326362387422
+    },
+    "5-6 voices": {
+      "missed": 509,
+      "total": 5667,
+      "rate": 0.08981824598553026
+    },
+    "7+ voices": {
+      "missed": 3199,
+      "total": 35224,
+      "rate": 0.09081875993640699
+    }
+  },
+  "per_track": [
+    {
+      "label": "Alexander_Scriabin-2006-Sonata_No._9-MIDI-Unprocessed",
+      "n_reference": 3648,
+      "n_missed": 479,
+      "recall": 0.8686951754385965
+    },
+    {
+      "label": "Claude_Debussy-2011-Jardins_sous_la_pluie_from_Estampes-MIDI-Unprocessed",
+      "n_reference": 2730,
+      "n_missed": 168,
+      "recall": 0.9384615384615385
+    },
+    {
+      "label": "Domenico_Scarlatti-2008-Sonata_K._525-MIDI-Unprocessed",
+      "n_reference": 882,
+      "n_missed": 66,
+      "recall": 0.9251700680272109
+    },
+    {
+      "label": "Felix_Mendelssohn-2017-Fantasy_in_F-sharp_Minor,_Op._28_(Complete)-MIDI-Unprocessed",
+      "n_reference": 8277,
+      "n_missed": 464,
+      "recall": 0.9439410414401354
+    },
+    {
+      "label": "Franz_Liszt-2008-Transcendental_Etude_No._10_in_F_Minor__Appassionata_-MIDI-Unprocessed",
+      "n_reference": 4057,
+      "n_missed": 443,
+      "recall": 0.890806014296278
+    },
+    {
+      "label": "Franz_Schubert-2015-Impromptu_Op._90_No._4_in_A-flat_Major-MIDI-Unprocessed",
+      "n_reference": 4425,
+      "n_missed": 288,
+      "recall": 0.9349152542372882
+    },
+    {
+      "label": "Franz_Schubert___Franz_Liszt-2004-Song_Transcriptions__Aufenthalt,_Gretchen_am_Spinnrade,_",
+      "n_reference": 4435,
+      "n_missed": 943,
+      "recall": 0.7873731679819617
+    },
+    {
+      "label": "Fr\u00e9d\u00e9ric_Chopin-2015-Etude_Op._10_No._12-MIDI-Unprocessed",
+      "n_reference": 2111,
+      "n_missed": 124,
+      "recall": 0.9412600663192799
+    },
+    {
+      "label": "Johann_Sebastian_Bach-2013-Prelude_and_Fugue_in_D-sharp_Minor,_WTC_II,_BWV_877-ORIG-MIDI_0",
+      "n_reference": 2006,
+      "n_missed": 23,
+      "recall": 0.9885343968095713
+    },
+    {
+      "label": "Johannes_Brahms-2009-Sonata_2_F-sharp_Minor,_Op._2-MIDI-Unprocessed",
+      "n_reference": 13316,
+      "n_missed": 1211,
+      "recall": 0.9090567738059477
+    },
+    {
+      "label": "Joseph_Haydn-2008-Sonata_in_C_Minor,_First_Movement-MIDI-Unprocessed",
+      "n_reference": 2244,
+      "n_missed": 46,
+      "recall": 0.9795008912655971
+    },
+    {
+      "label": "Ludwig_van_Beethoven-2015-Sonata_No._3_in_C_Major,_Op._2_No._3,_I._Allegro_con_brio-MIDI-U",
+      "n_reference": 4347,
+      "n_missed": 129,
+      "recall": 0.9703243616287095
+    }
+  ]
+}
