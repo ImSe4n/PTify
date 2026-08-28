@@ -130,6 +130,29 @@ def _paint_ramp(target: np.ndarray, time_sec: float, key: int,
     np.maximum(target[lo:hi + 1, key], values, out=target[lo:hi + 1, key])
 
 
+#: Per-note onset-loss weighting by velocity (Phase 28).
+#:
+#: WHY THIS IS NOT `--loss-weights`
+#: --------------------------------
+#: `losses.compute` scales four HEADS by four scalars. That cannot express
+#: "care more about this note than that one", because `bce` averages uniformly
+#: over ~88,000 cells and every note contributes equally. Phase 27 measured a
+#: **16x** spread in the ONSET head's miss rate by velocity -- pp 38.3% against
+#: f 2.4% over 52,478 MAESTRO notes, with pp+p accounting for 66.6% of all
+#: missed notes from 33.4% of the reference. No existing knob addresses that.
+#:
+#: Phase 23's `--loss-weights velocity=0.1` is a DIFFERENT intervention on a
+#: DIFFERENT head: it downweighted predicting how loud notes are. This changes
+#: how hard the model is pushed to DETECT quiet ones.
+#:
+#: The weight is `1 + (SOFT_ONSET_BOOST - 1) * (1 - v/VELOCITY_SCALE)`, so a
+#: silent note would score SOFT_ONSET_BOOST and a maximal one exactly 1.0 --
+#: loud notes are never DOWNweighted, only soft ones lifted. A boost of 1.0
+#: reproduces the unweighted target bit-for-bit, which is the default and what
+#: every published checkpoint was trained with.
+SOFT_ONSET_BOOST_OFF = 1.0
+
+
 def render_targets(
     notes: list[NoteEvent],
     pedals: list[PedalEvent] | None = None,
@@ -138,6 +161,7 @@ def render_targets(
     seconds: float = SEGMENT_SECONDS,
     fps: int = FRAMES_PER_SECOND,
     half_width: int = RAMP_HALF_WIDTH,
+    soft_onset_boost: float = SOFT_ONSET_BOOST_OFF,
 ) -> dict[str, np.ndarray]:
     """Render one segment's training targets.
 
@@ -179,6 +203,9 @@ def render_targets(
     frame = np.zeros(shape, dtype=np.float32)
     velocity = np.zeros(shape, dtype=np.float32)
     mask = np.zeros(shape, dtype=np.float32)
+    # Ones, not zeros: cells with no onset must keep their full weight, or the
+    # loss would ignore the negative space that teaches the model NOT to fire.
+    onset_weight = np.ones(shape, dtype=np.float32)
     pedal_frame = np.zeros((frames, 1), dtype=np.float32)
 
     end = segment_start + seconds
@@ -204,6 +231,22 @@ def render_targets(
         # invent an onset the audio does not contain.
         if 0.0 <= onset_rel < seconds:
             _paint_ramp(reg_onset, onset_rel, key, fps, half_width)
+
+            # Painted over the RAMP's footprint, not just the peak frame: the
+            # onset loss is computed across the whole ramp, so weighting one
+            # frame would leave most of a soft note's supervision unweighted.
+            # `np.maximum` matches `_paint_ramp`'s own overlap rule -- where two
+            # notes share frames, the stronger claim wins, so a soft note is
+            # never quietly demoted by a loud neighbour.
+            if soft_onset_boost != SOFT_ONSET_BOOST_OFF:
+                softness = 1.0 - min(note.velocity / VELOCITY_SCALE, 1.0)
+                w = 1.0 + (soft_onset_boost - 1.0) * softness
+                lo_w = max(0, int(np.floor(onset_rel * fps - half_width)) + 1)
+                hi_w = min(frames - 1,
+                           int(np.ceil(onset_rel * fps + half_width)) - 1)
+                if hi_w >= lo_w:
+                    np.maximum(onset_weight[lo_w:hi_w + 1, key], w,
+                               out=onset_weight[lo_w:hi_w + 1, key])
 
             onset_frame = int(round(onset_rel * fps))
             if 0 <= onset_frame < frames:
@@ -239,5 +282,6 @@ def render_targets(
         "frame": frame,
         "velocity": velocity,
         "mask": mask,
+        "onset_weight": onset_weight,
         "pedal_frame": pedal_frame,
     }

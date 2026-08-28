@@ -81,7 +81,9 @@ def build_dataloader(args, split: str, *, shuffle: bool, augment=None,
 
     dataset = SegmentDataset(segments, audio_root=args.audio_root,
                              midi_root=args.midi_root or args.audio_root,
-                             augment=augment, epoch_offset=epoch_offset)
+                             augment=augment, epoch_offset=epoch_offset,
+                             soft_onset_boost=getattr(
+                                 args, "soft_onset_boost", 1.0))
     return torch.utils.data.DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -525,6 +527,17 @@ def build_parser() -> argparse.ArgumentParser:
                          "restarts from the baseline and discards what the "
                          "last one learned. NOT the same as --resume, which "
                          "continues an interrupted run from its step_N.pt")
+    ap.add_argument("--soft-onset-boost", type=float, default=1.0,
+                    metavar="X",
+                    help="weight the ONSET loss per note by how quiet it is: "
+                         "a silent note scores X, a maximal one 1.0, and loud "
+                         "notes are never downweighted. 1.0 (default) is "
+                         "bit-identical to every published run. Phase 27 "
+                         "measured the onset head missing 38.3%% of pp notes "
+                         "against 2.4%% of f notes, with pp+p making up 66.6%% "
+                         "of all misses. NOT --loss-weights velocity=, which "
+                         "scales the VELOCITY head (Phase 23, a negative "
+                         "result) rather than reweighting onset detection")
     ap.add_argument("--loss-weights", default=None, metavar="SPEC",
                     help="per-head coefficients, e.g. 'velocity=0.1'. "
                          "Unnamed heads stay at 1.0, and the default is all "

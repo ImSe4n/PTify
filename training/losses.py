@@ -99,6 +99,25 @@ def bce(output, target):
     return _elementwise_bce(output, target).mean()
 
 
+def weighted_bce(output, target, weight):
+    """BCE with a per-cell weight, normalised by the weights themselves.
+
+    Dividing by `weight.sum()` rather than by the cell COUNT is what makes this
+    a reweighting rather than a scale change: with all-ones weights the divisor
+    is the count and this is exactly `bce`, so turning the feature off is
+    bit-identical, and with soft notes boosted the loss does not silently grow
+    in magnitude and change what gradient clipping and the learning rate mean.
+    That matters here -- Phase 22 found the velocity term was 92.5% of the
+    total loss purely through scale, which is how a run's effective LR moves
+    without anyone choosing to move it.
+    """
+    import torch
+
+    w = weight.float()
+    return ((_elementwise_bce(output, target) * w).sum()
+            / (w.sum() + _EPS))
+
+
 def masked_bce(output, target, mask):
     """BCE averaged over the cells `mask` selects.
 
@@ -175,8 +194,15 @@ def compute_losses(output: dict, batch: dict, weights: dict | None = None) -> di
     """
     weights = DEFAULT_WEIGHTS if weights is None else weights
 
+    # The onset head is the one Phase 27 measured a 16x velocity spread in, so
+    # it is the only head that takes a per-cell weight. Absent or all-ones, this
+    # is exactly `bce` -- see `weighted_bce`.
+    onset_weight = batch.get("onset_weight")
     losses = {
-        "onset": bce(output["reg_onset_output"], batch["reg_onset"]),
+        "onset": (bce(output["reg_onset_output"], batch["reg_onset"])
+                  if onset_weight is None
+                  else weighted_bce(output["reg_onset_output"],
+                                    batch["reg_onset"], onset_weight)),
         "offset": bce(output["reg_offset_output"], batch["reg_offset"]),
         "frame": bce(output["frame_output"], batch["frame"]),
         "velocity": masked_bce(

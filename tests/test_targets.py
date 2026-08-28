@@ -239,9 +239,19 @@ def test_shapes_and_dtypes():
 
 
 def test_empty_segment_is_all_zeros():
+    """Every TARGET is zero on silence.
+
+    `onset_weight` is excluded and must be: it is a per-cell loss weight, not a
+    target, and it is all ONES by construction. Zero weights would delete the
+    negative space that teaches the model not to fire -- see
+    `tests/test_soft_onset_weighting.py::test_silence_keeps_full_weight`.
+    """
     targets = render_targets([])
 
     for key, array in targets.items():
+        if key == "onset_weight":
+            assert (array == 1.0).all(), key
+            continue
         assert array.sum() == 0.0, key
         assert np.isfinite(array).all(), key
 
