@@ -217,3 +217,26 @@ def test_the_cli_defaults_to_off():
     args = build_parser().parse_args(["--audio-root", "a", "--index", "i"])
 
     assert args.soft_onset_boost == 1.0
+
+
+def test_validation_is_scored_unweighted():
+    """`val_*` is compared ACROSS runs with different boosts and against the
+    14.5 baseline, so it must mean the same thing in every log.
+
+    The collated batch carries `onset_weight` because the training loss needs
+    it. If `evaluate` scored it too, every run's validation curve would sit at
+    a different level purely because of its boost setting -- a confound of
+    exactly the kind that produced Phase 23's phantom '+0.0057'.
+    """
+    import inspect
+
+    from training import train as T
+
+    src = inspect.getsource(T.evaluate)
+
+    assert "onset_weight" in src, (
+        "evaluate must explicitly handle onset_weight; if the key is simply "
+        "passed through, validation is weighted and runs stop being comparable"
+    )
+    # The batch handed to compute_losses must not be the raw one.
+    assert "compute_losses(note_model(batch[\"waveform\"]), batch)" not in src

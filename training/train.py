@@ -211,7 +211,15 @@ def evaluate(note_model, loader, device: str, max_batches: int = 20) -> dict:
             # regression guard and is compared against runs with different
             # weightings (and against the 14.5 baseline), so it has to mean the
             # same thing in every log. Only the training objective is weighted.
-            losses = compute_losses(note_model(batch["waveform"]), batch)
+            #
+            # `onset_weight` is DROPPED here for that reason (Phase 28). The
+            # collated batch carries it because the training loss needs it, and
+            # leaving it in would make `val_onset` drift with --soft-onset-boost
+            # -- so two runs' validation curves would no longer be comparable,
+            # which is the whole job of this number. Measured: a single boosted
+            # cell moves val_onset in the 4th decimal.
+            scored = {k: v for k, v in batch.items() if k != "onset_weight"}
+            losses = compute_losses(note_model(batch["waveform"]), scored)
             for key, value in losses.items():
                 totals[key] = totals.get(key, 0.0) + float(value)
             count += 1
