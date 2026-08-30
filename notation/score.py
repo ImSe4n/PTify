@@ -197,6 +197,7 @@ def build_score(
     trill_starts: set = None,
     staccato: set = None,
     dynamics_marks: list = None,
+    chord_symbols: list = None,
 ):
     """Assemble a two-staff piano score from quantised notes.
 
@@ -242,6 +243,22 @@ def build_score(
 
         for start, mark in dynamics_marks:
             lh.insert(start, m21dyn.Dynamic(mark))
+
+    # Chord symbols above the treble staff, as a printed arrangement does.
+    # Inserted BEFORE makeNotation so they are placed into measures with
+    # everything else rather than floating at absolute offsets.
+    if chord_symbols:
+        from music21 import harmony as m21harmony
+
+        for sym in chord_symbols:
+            try:
+                cs = m21harmony.ChordSymbol(sym.figure)
+            except Exception:  # noqa: BLE001 -- music21 rejects odd figures
+                continue
+            # writeAsChord=False prints the SYMBOL only; left True it also
+            # engraves the notes, doubling the harmony onto the staff.
+            cs.writeAsChord = False
+            rh.insert(sym.start_beats, cs)
 
     # makeNotation fills rests, splits notes across barlines and adds ties.
     # Without it Verovio receives bars that do not add up and silently drops
@@ -318,6 +335,15 @@ def transcription_to_score(
 
     trill_starts = _trill_positions(qnotes, ornaments)
 
+    # Chord symbols are part of ANALYSIS, so they follow `analyse` like the
+    # key and the ornaments do: a caller asking for a literal engraving of the
+    # notes must not get an interpretation layered on top.
+    chord_syms = []
+    if analyse:
+        from .analysis import detect_chords
+
+        chord_syms = detect_chords(qnotes, grid, key_estimate)
+
     sc = build_score(
         qnotes,
         bpm=grid.bpm,
@@ -329,6 +355,7 @@ def transcription_to_score(
         trill_starts=trill_starts,
         staccato=staccato_ids,
         dynamics_marks=dynamics_marks,
+        chord_symbols=chord_syms,
     )
 
     n_measures = 0

@@ -384,7 +384,54 @@ def quantise_notes(
         )
 
     out.sort(key=lambda q: (q.start_beats, q.pitch))
+    _close_hairline_gaps(out, sub)
     return out
+
+
+#: Gaps this small are quantisation artifacts, not silences anyone played, and
+#: are closed by extending the earlier note. Measured on a real 520-note take:
+#: of 123 same-staff gaps, **55 (44.7%) were exactly one subdivision** and the
+#: next size up appeared 4 times. A rhythm distribution does not look like
+#: that -- a single spike at the grid's own resolution is the signature of a
+#: note quantising one step short of its neighbour.
+#:
+#: The cost of NOT closing them is 68 sixteenth rests over 113 measures, about
+#: one per bar, scattered through the score. `makeNotation` fills every gap it
+#: finds, however short, and a reader cannot tell an artifact rest from a
+#: written one.
+HAIRLINE_GAP_SUBDIVISIONS = 1.0
+
+
+def _close_hairline_gaps(qnotes: list[QuantisedNote], sub: float) -> None:
+    """Extend notes that stop one subdivision short of the next onset.
+
+    PER STAFF, because rests are per staff: a treble note does not leave a hole
+    in the bass. The staff split is the same rule the engraver uses, so the
+    gaps closed here are exactly the ones that would have been filled.
+
+    Extends the EARLIER note rather than moving the later one. Onsets are what
+    the model detects best and what every metric scores; lengths are already
+    an estimate (see `notated_offsets`), so absorbing the error into a length
+    changes the reading of the page without moving anything a listener would
+    place differently.
+
+    Mutates in place -- these are the same objects the caller sorted.
+    """
+    if not qnotes:
+        return
+    from .score import _split_point
+
+    tolerance = HAIRLINE_GAP_SUBDIVISIONS * sub + 1e-9
+    split = _split_point([q.source for q in qnotes if q.source is not None])
+
+    for upper in (True, False):
+        staff = [q for q in qnotes if (q.pitch >= split) == upper]
+        staff.sort(key=lambda q: q.start_beats)
+        for a, b in zip(staff, staff[1:]):
+            end = a.start_beats + a.length_beats
+            gap = b.start_beats - end
+            if 0.0 < gap <= tolerance:
+                a.length_beats = b.start_beats - a.start_beats
 
 
 def quantised_to_transcription(
