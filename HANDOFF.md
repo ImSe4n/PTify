@@ -14,7 +14,8 @@ State of the codebase, the traps in it, and what the next phase needs.
 | **Last completed** | **Phase 29 — the printed page. Chord symbols (11/14 exact, 14/14 roots against a reference engraving), accidentals 334 -> 38, whole-measure rests 110 -> 8, spurious 16th rests 68 -> 28. `benchmarks/notation-readability-README.md`.** |
 | **Branch** | `phase-27-recall-diagnosis`, off `master` (Phases 28 and 29 continue on it) |
 | **Tests** | 1292 Python, ~2.5 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
-| **Next** | **Not another loss-weighting run.** Phases 27 and 28 closed that: soft notes are missed 16x more than loud ones, and TWO independent interventions -- a decode threshold and a per-note onset loss -- both land exactly on the generic precision/recall curve. See §1d. The unbanked gain is the Phase 28 CONTROL arm: 1,500 unboosted steps moved MAESTRO F1 0.9400 -> 0.9431 with pp misses 51.3% -> 48.1%, which is ordinary continued training from a checkpoint that had not converged. |
+| **Next** | **Not another loss-weighting run.** Phases 27 and 28 closed that: soft notes are missed 16x more than loud ones, and TWO independent interventions -- a decode threshold and a per-note onset loss -- both land exactly on the generic precision/recall curve. See §1d. The unbanked gain is the Phase 28 CONTROL arm: 1,500 unboosted steps moved MAESTRO F1 0.9400 -> 0.9431 with pp misses 51.3% -> 48.1%, which is ordinary continued training from a checkpoint that had not converged. `training/kaggle/continuation_run.ipynb` is written and unrun. |
+| **Remote GPU** | **LIVE and verified.** `https://imse4n--ptify-transcribe-transcriber-transcribe.modal.run`, serving `ptify`. Cross-check: onset F1 **1.000000**, 284 notes both sides, **9.30x** speedup (68.0s -> 7.3s). See §1e. |
 
 ### 1d. PHASES 27-29 in one paragraph
 
@@ -37,6 +38,79 @@ engraving showed the transcription was already 94.2% in-key with the bass roots
 correct bar for bar. Chord detection generalises: 96.9% coverage and **0
 degenerate figures over 2,389 bars** on 12 MAESTRO pieces it was not tuned on
 (`tools/chord_generalisation.py`).
+
+### 1e. THE ENVIRONMENT AND THE REMOTE HOST — both were broken, both are fixed
+
+**`requirements.txt` does not install in one command, and has not for a while.**
+Verified on a from-scratch Python 3.12.5 venv, two independent conflicts:
+
+    basic-pitch 0.4.0 requires resampy<0.4.3   -- this file pins ==0.4.3
+    basic-pitch 0.4.0 requires tensorflow<2.15.1 -- no 3.12 wheel exists
+
+The second has **no workaround at these pins**: the wheel is not published. An
+environment built up incrementally hides both, which is why this went unnoticed
+-- the conflict only appears when pip resolves the whole file at once, which is
+exactly what `pip install -r requirements.txt` does. The file now documents the
+two-step install; the pins were deliberately NOT changed, because dropping a
+shipped engine is a decision rather than a dependency edit.
+
+**MEASURED without basic-pitch: 1,279 pass, 13 skip.** The skips are
+`test_remote_host_weights.py`, which needs `modal` -- not basicpitch. With
+`modal` installed the suite is **1,292**. bytedance, ptify and remote are all
+unaffected.
+
+**A venv copied between projects breaks every console script.** This one carried
+`command = ... -m venv C:\Users\SeanN\LivePianoSynthesizer\.venv` in its
+`pyvenv.cfg`, and every `.exe` launcher in `Scripts\` had that dead path
+compiled in -- so `pip`, `modal` and `pytest` all failed with `Fatal error in
+launcher`. **`python -m pip` / `python -m modal` bypasses the launchers
+entirely** and is the cheap fix; rebuilding is the real one.
+
+**DO NOT `Remove-Item -Recurse -Force .venv` WITHOUT CHECKING FOR HOLDERS.**
+VS Code's autopep8 language server runs from the venv, so the delete stops
+partway and leaves an unusable shell -- `Scripts\` with one file, no
+`pyvenv.cfg`, no `Lib`. Kill the holders first:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object { $_.CommandLine -like "*PTify*" } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+VS Code restarts that server within seconds, so do the delete immediately after.
+
+**The remote host was deployed but stale, and a stale deployment fails
+silently.** The app showed `deployed` and the URL returned a correct 401 --
+both healthy-looking -- while being two weeks older than the
+`ptify-remote-token` secret it was supposed to check (`Last used at` was empty).
+It would have rejected the current token, and may have predated the
+`PTIFY_HOST_ENGINE` baking, in which case it served **ByteDance under the ptify
+name** -- the Phase 22 failure, which produces plausible numbers rather than an
+error.
+
+**A redeploy settles both, and `crosscheck_remote` is what proves it.** An
+onset F1 of exactly 1.000000 against local `ptify` is the evidence the host runs
+the fine-tuned weights; anything less would mean it does not. Never conclude
+this from `modal app list`, which reported `deployed` throughout.
+
+```powershell
+$env:PYTHONUTF8 = "1"; $env:PYTHONIOENCODING = "utf-8"
+$env:PTIFY_HOST_ENGINE = "ptify"          # READ AT DEPLOY TIME -- bakes the model in
+python -m modal deploy hosting/modal/app.py
+python -m modal app list                   # deploy exits 0 even when it deploys nothing
+
+$env:PTIFY_REMOTE_URL = "https://imse4n--ptify-transcribe-transcriber-transcribe.modal.run"
+$env:PTIFY_REMOTE_TOKEN = "<the ptify-remote-token secret>"
+python -m tools.crosscheck_remote var\clip25.wav --remote-engine ptify --local-engine ptify
+```
+
+**`/v1/engines` reports CONFIGURATION, not reachability**, and the badge used to
+lie about which. `available: false` has two unrelated causes -- `ptify` needs a
+172MB checkpoint, `remote` needs `PTIFY_REMOTE_URL` -- and the UI printed
+"checkpoint missing" for both. That sent a real debugging session to the GPU
+host and its checkpoint when the cause was an unset env var. `requires_weights`
+already distinguished them on the API side; the frontend now reads it and prints
+**"not configured"** for remote.
 
 **READ THIS BEFORE PLANNING THE NEXT TRAINING RUN.** Phase 22 overturned two
 conclusions this file previously asserted:
@@ -1734,6 +1808,10 @@ before the first measurement.
    with a misleading exit code attached.
 
 Run it:
+
+A LIVE deployment exists and is verified -- see section 1e for the URL, the
+redeploy procedure, and why a stale deployment looks healthy while serving the
+wrong model.
 
 ```bash
 set PTIFY_REMOTE_URL=https://<you>--ptify-transcribe-transcriber-transcribe.modal.run

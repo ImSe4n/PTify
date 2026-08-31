@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated": "2026-08-26T15:55:12Z",
+  "generated": "2026-08-31T01:11:10Z",
   "source": {
     "clip": "var\\clip25.wav",
     "audio_seconds": 25.0,
@@ -27,14 +27,14 @@
     "passed": true
   },
   "timing": {
-    "local_load_seconds": 18.364,
-    "local_inference_seconds": 73.896,
-    "local_end_to_end_seconds": 92.259,
-    "remote_call_seconds": 7.031,
-    "remote_end_to_end_seconds": 7.031,
-    "speedup_end_to_end": 13.12,
-    "local_realtime_factor": 3.69,
-    "remote_realtime_factor": 0.281
+    "local_load_seconds": 16.219,
+    "local_inference_seconds": 51.808,
+    "local_end_to_end_seconds": 68.026,
+    "remote_call_seconds": 7.313,
+    "remote_end_to_end_seconds": 7.313,
+    "speedup_end_to_end": 9.3,
+    "local_realtime_factor": 2.721,
+    "remote_realtime_factor": 0.293
   },
   "environment": {
     "local_device": "cpu",
