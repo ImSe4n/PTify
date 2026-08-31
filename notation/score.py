@@ -139,8 +139,114 @@ def _group_into_chords(
     return sorted(groups.items())
 
 
+def _spell(midi: int, key_estimate=None):
+    """A MIDI number as a PITCH SPELLED FOR THE KEY.
+
+    `music21.note.Note(61)` is C#4 whatever the key signature says. In a flat
+    key every black key then prints as a sharp, and -- worse -- every white key
+    after one needs a natural to cancel it. MEASURED on a real take in F minor
+    (4 flats): **305 accidentals on 587 noteheads, 52%**, of which 142 were
+    sharps and 151 were naturals cancelling them. That is what makes an
+    otherwise correct page look filthy, and it is entirely a spelling bug --
+    the key signature was already right in the file.
+
+    Returns the enharmonic whose accidental matches the key's, so a flat key
+    prints D-, E-, A- rather than C#, D#, G#. Notes outside the signature keep
+    their default spelling, which is what a reader expects of an accidental
+    that genuinely is one.
+    """
+    from music21 import pitch as m21pitch
+
+    p = _drop_redundant_natural(m21pitch.Pitch(midi))
+    if key_estimate is None or not getattr(key_estimate, "confident", False):
+        return p
+
+    from music21 import key as m21key
+
+    try:
+        k = m21key.Key(key_estimate.tonic, key_estimate.mode)
+    except Exception:  # noqa: BLE001 -- an unparseable tonic is not fatal here
+        return p
+
+    altered = {a.name for a in k.alteredPitches}
+    if p.name in altered:
+        return p
+    enh = p.getEnharmonic()
+    if enh.name in altered:
+        return _drop_redundant_natural(enh)
+    return p
+
+
+def _drop_redundant_natural(p):
+    """Strip the no-op `natural` music21 attaches to every white-key pitch.
+
+    `Pitch(60)` carries an explicit natural whose `displayStatus` is False --
+    music21 knows not to print it -- but the MusicXML exporter writes
+    `<accidental>natural</accidental>` regardless, and Verovio then engraves
+    it. MEASURED in F minor: **125 naturals on C, F and G**, steps the
+    signature does not touch at all, so not one of them could ever be needed.
+
+    Only B, E, A and D can require a natural in a 4-flat key, and those keep
+    theirs: this drops the accidental only when it alters nothing.
+    """
+    if p.accidental is not None and p.accidental.alter == 0:
+        p.accidental = None
+    return p
+
+
+def _trim_staff_overlaps(notes: list[QuantisedNote]) -> None:
+    """Shorten notes that outlast the next differently-timed note on the staff.
+
+    THIS IS WHAT REMOVES THE BLACK SQUARES.
+
+    music21 answers two overlapping notes on one staff by opening a SECOND
+    VOICE, and every measure where that voice has nothing then engraves a
+    whole-measure rest -- a solid black bar. MEASURED on a real take: the
+    hand-assigned staves produced **114 voices across 57 measures**, so nearly
+    every measure carried two of them, while a pitch-threshold split of the
+    same notes produced ZERO.
+
+    The overlaps are not real polyphony. Of 520 notes, **4** outlast a later
+    note on their staff -- 1 in the treble, 3 in the bass. Four notes were
+    forcing a second voice through the entire score.
+
+    Why they exist at all: hand assignment (`notation/hands.py`) is physically
+    right that one hand sustains a note while playing another, and it puts
+    both on that hand's staff. Engraving that faithfully costs a voice layer;
+    trimming the held note to end where the next begins costs a little
+    sustain, on a duration that was already an estimate under pedal.
+
+    Mutates in place, on the caller's own list.
+    """
+    # Trim against the lengths the ENGRAVER will use, not the raw ones. A
+    # chord is written with its longest member's value (see `_fill_part`), so
+    # measuring overlaps on individual lengths misses the case where that
+    # lengthening is itself what collides with the next chord -- which is what
+    # left the treble staff with 57 voices after a first, naive pass.
+    groups: dict[float, list] = {}
+    for n in notes:
+        groups.setdefault(round(n.start_beats, 6), []).append(n)
+
+    starts = sorted(groups)
+    for i, start in enumerate(starts):
+        if i + 1 >= len(starts):
+            break
+        nxt = starts[i + 1]
+        for n in groups[start]:
+            if start + n.length_beats > nxt + 1e-9:
+                n.length_beats = nxt - start
+
+    # Every member of a chord then shares the group's longest value, so the
+    # collapse `_fill_part` performs cannot reintroduce an overlap.
+    for start in starts:
+        longest = max(n.length_beats for n in groups[start])
+        for n in groups[start]:
+            n.length_beats = longest
+
+
 def _fill_part(part, notes: list[QuantisedNote], clef_obj,
-               trill_starts: set = None, staccato: set = None) -> None:
+               trill_starts: set = None, staccato: set = None,
+               key_estimate=None) -> None:
     """Append notes to a music21 Part, inserting rests for gaps.
 
     Notes are *inserted* at explicit offsets rather than appended in sequence,
@@ -151,6 +257,7 @@ def _fill_part(part, notes: list[QuantisedNote], clef_obj,
     set of ids() of the QuantisedNotes to mark. Both are keyed that way because
     grouping into chords loses the original indices.
     """
+    _trim_staff_overlaps(notes)
     from music21 import articulations, chord, expressions, note as m21note
 
     trill_starts = trill_starts or set()
@@ -165,9 +272,9 @@ def _fill_part(part, notes: list[QuantisedNote], clef_obj,
         pitches = sorted({g.pitch for g in group})
 
         if len(pitches) == 1:
-            el = m21note.Note(pitches[0])
+            el = m21note.Note(_spell(pitches[0], key_estimate))
         else:
-            el = chord.Chord(pitches)
+            el = chord.Chord([_spell(p, key_estimate) for p in pitches])
         el.quarterLength = length
 
         # PLAYBACK velocity only -- this exports as MusicXML <sound dynamics>,
@@ -224,7 +331,11 @@ def build_score(
     ts_string = time_signature or f"{beats_per_bar}/4"
     rh.insert(0, meter.TimeSignature(ts_string))
     lh.insert(0, meter.TimeSignature(ts_string))
-    rh.insert(0, tempo.MetronomeMark(number=round(bpm, 2)))
+    # ROUNDED TO A WHOLE NUMBER. A tracked tempo is an estimate with far
+    # less precision than two decimals implies, and the page printed
+    # "120.19" -- which reads as a measurement nobody made. Published
+    # scores print an integer.
+    rh.insert(0, tempo.MetronomeMark(number=int(round(bpm))))
 
     # Inserted on BOTH staves: a key signature on one staff of a grand staff is
     # a malformed score. music21 respells accidentals from this, which is what
@@ -233,8 +344,10 @@ def build_score(
         for part in (rh, lh):
             part.insert(0, m21key.Key(key_estimate.tonic, key_estimate.mode))
 
-    _fill_part(rh, treble, clef.TrebleClef(), trill_starts, staccato)
-    _fill_part(lh, bass, clef.BassClef(), trill_starts, staccato)
+    _fill_part(rh, treble, clef.TrebleClef(), trill_starts, staccato,
+               key_estimate)
+    _fill_part(lh, bass, clef.BassClef(), trill_starts, staccato,
+               key_estimate)
 
     # Dynamics belong to the piece, not to a hand. They go on the bass staff by
     # convention for piano music (printed between the staves).
@@ -244,27 +357,38 @@ def build_score(
         for start, mark in dynamics_marks:
             lh.insert(start, m21dyn.Dynamic(mark))
 
-    # Chord symbols above the treble staff, as a printed arrangement does.
-    # Inserted BEFORE makeNotation so they are placed into measures with
-    # everything else rather than floating at absolute offsets.
-    if chord_symbols:
-        from music21 import harmony as m21harmony
-
-        for sym in chord_symbols:
-            try:
-                cs = m21harmony.ChordSymbol(sym.figure)
-            except Exception:  # noqa: BLE001 -- music21 rejects odd figures
-                continue
-            # writeAsChord=False prints the SYMBOL only; left True it also
-            # engraves the notes, doubling the harmony onto the staff.
-            cs.writeAsChord = False
-            rh.insert(sym.start_beats, cs)
-
     # makeNotation fills rests, splits notes across barlines and adds ties.
     # Without it Verovio receives bars that do not add up and silently drops
     # material rather than reporting an error.
     rh.makeNotation(inPlace=True)
     lh.makeNotation(inPlace=True)
+
+    # Chord symbols go in AFTER makeNotation, straight into the measures.
+    #
+    # Inserting them into the flat part beforehand makes music21 lay the part
+    # out as two parallel VOICES, and every measure where the second voice
+    # holds no notes then engraves a whole-measure rest -- a solid black bar.
+    # MEASURED: the bare score has 0 backups and 6 rests; five symbols
+    # inserted the old way took it to **57 backups and 62 whole-measure
+    # rests**, which is what a reader sees as black squares across the page.
+    # The threshold is sharp -- one symbol is harmless, five trigger all 57 --
+    # so this is music21 switching layout strategy, not a per-symbol cost.
+    if chord_symbols:
+        from music21 import harmony as m21harmony
+
+        measures = list(rh.getElementsByClass("Measure"))
+        for sym in chord_symbols:
+            index = int(sym.start_beats // beats_per_bar)
+            if index >= len(measures):
+                continue
+            try:
+                cs = m21harmony.ChordSymbol(sym.figure)
+            except Exception:  # noqa: BLE001 -- an unnameable figure is skipped
+                continue
+            # writeAsChord=False prints the SYMBOL only; left True it also
+            # engraves the notes, doubling the harmony onto the staff.
+            cs.writeAsChord = False
+            measures[index].insert(0.0, cs)
 
     sc.insert(0, layout.StaffGroup([rh, lh], symbol="brace"))
     sc.insert(0, rh)

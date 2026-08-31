@@ -262,3 +262,163 @@ def test_verovio_has_no_pdf_renderer():
     import verovio
 
     assert not hasattr(verovio.toolkit(), "renderToPDF")
+
+
+def test_chord_symbol_accidentals_survive_the_pdf_path():
+    """THE black-square bug.
+
+    Verovio writes a chord symbol's flat as `<tspan font-family="Leipzig">`
+    holding U+EA64, a Private Use Area codepoint from the SMuFL music font.
+    A browser with that font renders it fine. The PDF path does not have it --
+    SVG -> svglib -> reportlab -- so reportlab substitutes a missing-glyph
+    rectangle and every D-flat chord prints as a SOLID BLACK BOX followed by
+    the rest of its figure: `D-maj9` reads as a box, then `j9`.
+
+    MEASURED: 16 occurrences of U+EA64 on page 1 of a real take.
+
+    The replacement is ASCII `b`, not U+266D: see
+    `test_the_replacement_is_ascii_not_unicode_musical_symbols`.
+    """
+    from notation.render import _detonate_smufl_text
+
+    svg = '<tspan font-family="Leipzig" font-size="720px"></tspan>'
+
+    out = _detonate_smufl_text(svg)
+
+    assert "" not in out
+    assert "♭" in out or ">b</tspan>" in out
+    assert "Leipzig" not in out
+
+
+def test_the_substitution_leaves_ordinary_svg_alone():
+    """Staff accidentals are drawn as <use> references to embedded paths, not
+    as font characters, so they must pass through untouched."""
+    from notation.render import _detonate_smufl_text
+
+    svg = '<use xlink:href="#E260-abc" x="10" y="20"/>'
+
+    assert _detonate_smufl_text(svg) == svg
+
+
+def test_a_real_accidental_is_engraved_when_a_font_has_it():
+    """PROPER NOTATION, not `Db`.
+
+    reportlab's base-14 faces go through WinAnsiEncoding, which stops at 255,
+    so U+266D (9837) renders as the same missing-glyph box the SMuFL codepoint
+    did. Registering a TrueType face that actually has the glyph -- with
+    svglib's OWN font map, not just `pdfmetrics` -- is what puts a real flat
+    sign on the page.
+    """
+    import notation.render as render
+
+    if render._register_accidental_font() is None:
+        pytest.skip("no font on this machine carries U+266D")
+
+    flat = chr(0xEA64)
+    svg = (
+        '<g class="harm"><text x="1" y="1" font-size="0px">'
+        '<tspan class="text">'
+        '<tspan font-size="405px">D</tspan>'
+        f'<tspan font-family="Leipzig" font-size="720px">{flat}</tspan>'
+        "</tspan></text></g>"
+    )
+
+    out = render._detonate_smufl_text(svg)
+
+    assert "D♭" in out
+    assert "Leipzig" not in out
+
+
+def test_it_falls_back_to_ascii_when_no_font_has_the_glyph():
+    """A machine without such a font must print `Db`, not a box. The page is
+    still correct -- a lead sheet spells it that way -- just less engraved."""
+    import notation.render as render
+
+    saved = (render._accidental_font, render._accidental_font_resolved)
+    try:
+        render._accidental_font = None
+        render._accidental_font_resolved = True
+
+        flat = chr(0xEA64)
+        svg = (
+            '<g class="harm"><text x="1" y="1" font-size="0px">'
+            '<tspan class="text">'
+            '<tspan font-size="405px">D</tspan>'
+            f'<tspan font-family="Leipzig" font-size="720px">{flat}</tspan>'
+            "</tspan></text></g>"
+        )
+
+        out = render._detonate_smufl_text(svg)
+
+        assert "Db" in out
+        assert "♭" not in out
+    finally:
+        render._accidental_font, render._accidental_font_resolved = saved
+
+
+
+def test_a_chord_symbol_renders_as_one_positioned_run():
+    """Verovio splits a symbol across NESTED tspans -- the root letter in one,
+    the accidental in another with no x/y because SVG flows it after the first.
+
+    svglib does not implement that flow. It places every tspan at the text
+    origin, so the accidental lands ON TOP of the root and, being set at a
+    larger font-size, hides it: `Db` rendered as a lone flat and `DbMaj7` as a
+    flat followed by `Maj7`.
+    """
+    from notation.render import _detonate_smufl_text
+
+    flat = chr(0xEA64)          # the SMuFL glyph, built by codepoint
+    svg = (
+        '<g class="harm"><text x="100" y="50" font-size="0px">'
+        '<tspan class="text">'
+        '<tspan font-size="405px" x="100" y="50">D</tspan>'
+        f'<tspan font-family="Leipzig" font-size="720px">{flat}</tspan>'
+        "</tspan></text></g>"
+    )
+
+    out = _detonate_smufl_text(svg)
+
+    # Either spelling: this test is about the FLATTENING, and which of the
+    # two runs depends on whether this machine has a symbol font.
+    assert "D♭" in out or "Db" in out
+    assert 'font-size="0px"' not in out
+    # The SMALLEST size wins: the accidental tspan is set larger than the root,
+    # and taking the first match rendered the symbol at nearly double size.
+    assert 'font-size="405px"' in out
+
+
+def test_flattening_does_not_glue_words_together_with_spaces():
+    """Tag boundaries are not word boundaries. Verovio writes `D` and `b` as
+    separate tspans with markup indentation between them, and joining on that
+    whitespace produced `D b`."""
+    from notation.render import _detonate_smufl_text
+
+    svg = (
+        '<g class="harm"><text x="1" y="1" font-size="0px">\n'
+        '   <tspan class="text">\n'
+        '      <tspan font-size="405px">A</tspan>\n'
+        '      <tspan font-size="405px">b</tspan>\n'
+        "   </tspan>\n</text></g>"
+    )
+
+    assert "Ab" in _detonate_smufl_text(svg)
+
+
+def test_the_tempo_marking_prints_a_whole_number():
+    """A tracked tempo carries nowhere near two decimals of precision, and the
+    page printed `120.19` -- which reads as a measurement nobody made."""
+    from notation.quantise import grid_from_tempo
+    from notation.render import render_musicxml
+
+    tr = Transcription(notes=_scale(), duration=4.0, engine="test")
+    sc, _ = transcription_to_score(tr, grid_from_tempo(120.19, 4.0))
+
+    import tempfile
+    from pathlib import Path as _P
+
+    with tempfile.TemporaryDirectory() as td:
+        xml = render_musicxml(sc, _P(td) / "s.musicxml").read_text(
+            encoding="utf-8")
+
+    assert "120.19" not in xml

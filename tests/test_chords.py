@@ -175,3 +175,158 @@ def test_support_is_reported_so_a_caller_can_decline():
     got = _chords(_bar([60, 64, 67]))
 
     assert 0.0 <= got[0].support <= 1.0
+
+
+# --- spelling on the page (Phase 29) ---------------------------------------
+#
+# The engraved score carried **334 accidentals on 588 noteheads -- 57%**, which
+# is what "a lot of random black squares" looks like to a reader. Two separate
+# bugs, both entirely in spelling: the key signature in the file was already
+# correct.
+
+def test_a_flat_key_spells_black_keys_as_flats():
+    """`m21note.Note(61)` is C#4 whatever the signature says. In F minor that
+    prints every black key as a sharp AND forces a natural on the white key
+    after it -- 142 sharps and 151 naturals cancelling them."""
+    from notation.analysis import KeyEstimate
+    from notation.score import _spell
+
+    key = KeyEstimate(tonic="F", mode="minor", correlation=0.9, margin=0.2)
+
+    assert _spell(61, key).name == "D-"      # not C#
+    assert _spell(68, key).name == "A-"      # not G#
+    assert _spell(70, key).name == "B-"      # not A#
+
+
+def test_a_white_key_carries_no_accidental():
+    """THE other half. `Pitch(60)` carries an explicit `natural` whose
+    displayStatus is False -- music21 knows not to print it, but the MusicXML
+    exporter writes it anyway and Verovio engraves it.
+
+    MEASURED in F minor: 125 naturals on C, F and G, steps the 4-flat
+    signature does not touch, so not one could ever have been needed.
+    """
+    from notation.analysis import KeyEstimate
+    from notation.score import _spell
+
+    key = KeyEstimate(tonic="F", mode="minor", correlation=0.9, margin=0.2)
+
+    for midi in (60, 65, 67):                # C, F, G
+        assert _spell(midi, key).accidental is None
+
+
+def test_a_natural_that_cancels_the_signature_is_kept():
+    """The guard. In a 4-flat key B, E, A and D CAN need a natural, and
+    dropping those would misspell the music rather than tidy it."""
+    from notation.analysis import KeyEstimate
+    from notation.score import _spell
+
+    key = KeyEstimate(tonic="F", mode="minor", correlation=0.9, margin=0.2)
+
+    # B natural (71) is not in the signature's B-flat, so it must stay spelled
+    # as a B that a reader can see is natural.
+    assert _spell(71, key).name in {"B", "C-"}
+
+
+def test_an_unconfident_key_does_not_respell():
+    """A guessed signature applied to every note is worse than sharps."""
+    from notation.analysis import KeyEstimate
+    from notation.score import _spell
+
+    weak = KeyEstimate(tonic="F", mode="minor", correlation=0.05, margin=0.0)
+
+    assert _spell(61, weak).name == "C#"
+
+
+def test_no_key_still_drops_the_no_op_natural():
+    """The redundant natural is wrong regardless of key -- it alters nothing
+    in any signature."""
+    from notation.score import _spell
+
+    assert _spell(60, None).accidental is None
+
+
+def test_every_template_figure_can_be_constructed():
+    """A figure music21 rejects is a symbol that never reaches the page.
+
+    `maj9` shipped in the template list and raises `ValueError: Invalid chord
+    abbreviation` -- so every bar whose best match was a major ninth silently
+    lost its symbol. The valid spelling is `M9`.
+    """
+    from music21 import harmony
+
+    for quality, _ in CHORD_TEMPLATES:
+        harmony.ChordSymbol("C" + quality)      # must not raise
+
+
+def test_symbols_do_not_create_a_second_voice():
+    """THE rendering test.
+
+    Inserted into the flat part before `makeNotation`, chord symbols make
+    music21 lay the staff out as two parallel VOICES, and every measure whose
+    second voice holds no notes engraves a whole-measure rest -- a solid black
+    bar. MEASURED: the bare score had 0 backups and 6 rests; five symbols
+    inserted that way took it to **57 backups and 62 whole-measure rests**.
+    The threshold is sharp -- one symbol is harmless, five trigger all 57 --
+    so it is music21 switching layout strategy, not a per-symbol cost.
+
+    Placing them into the measures AFTER makeNotation avoids it entirely.
+    """
+    import re
+
+    from notation.score import build_score
+    from transcriber.events import NoteEvent
+
+    notes = []
+    for bar in range(6):
+        notes.extend(_bar([60, 64, 67], bar=bar))
+    grid = _grid(seconds=16.0)
+    q = quantise_notes(notes, grid)
+    syms = detect_chords(q, grid)
+    assert len(syms) >= 5, "need enough symbols to cross the threshold"
+
+    sc = build_score(q, bpm=120.0, beats_per_bar=4, chord_symbols=syms)
+    xml = open(sc.write("musicxml"), encoding="utf-8").read()
+
+    assert xml.count("<backup") == 0
+    assert xml.count("<harmony") >= 5
+
+
+# --- extensions must earn their place (Phase 29) ---------------------------
+
+def test_a_passing_seventh_does_not_rename_the_triad():
+    """THE quality test.
+
+    MEASURED against a reference engraving: a bar reading F/Ab/C at 25% each --
+    a clean F minor triad -- was named `Fm7` on the strength of an Eb at 12.5%,
+    a passing tone just over `CHORD_TONE_MIN_WEIGHT`. The arrangement prints
+    `Fm`. A 7th changes the chord's NAME, so it has to be genuinely sounding.
+    """
+    notes = _bar([53, 56, 60], dur=1.9)                # F Ab C, held
+    notes.append(NoteEvent(63, 0.4, 0.65, 80))         # Eb, brief
+
+    got = _chords(notes)
+
+    assert got[0].figure == "Fm"
+
+
+def test_a_sustained_seventh_still_names_the_chord():
+    """The guard. Penalising unsupported extensions must not suppress ones
+    that are really there -- `C7` is the correct name for a bar that holds
+    its Bb."""
+    notes = _bar([60, 64, 67, 70], dur=1.9)            # C E G Bb, all held
+
+    got = _chords(notes)
+
+    assert got[0].figure == "C7"
+
+
+def test_triad_tones_are_never_penalised():
+    """Only notes PAST the triad pay the extension penalty. Charging the root,
+    third or fifth would push every bar toward a bare fifth -- the failure the
+    first threshold-based attempt produced as `Cpower`."""
+    notes = _bar([60, 64, 67], dur=1.9)
+
+    got = _chords(notes)
+
+    assert got[0].figure == "C"

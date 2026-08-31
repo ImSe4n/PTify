@@ -11,10 +11,32 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 25 — the false-positive guard does not exist. Three were tried; all three rejected. A per-beat floor briefly shipped on a 5-tempo sweep reading +0.018 and a 9-tempo sweep flipped it to −0.001. `detect_trills` is unchanged.** |
-| **Branch** | `phase-24-voice-separation`, off `master` (Phase 25 continues on it) |
-| **Tests** | 1191 Python, ~2 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
-| **Next** | **Not another trill guard.** Three failed and §1c argues the corpus (7 scores, 122 trills) cannot resolve effects this small. Either enlarge the ornament corpus — this is what PDMX is finally for — or leave notation and run the pipeline end to end on a real recording. |
+| **Last completed** | **Phase 29 — the printed page. Chord symbols (11/14 exact, 14/14 roots against a reference engraving), accidentals 334 -> 38, whole-measure rests 110 -> 8, spurious 16th rests 68 -> 28. `benchmarks/notation-readability-README.md`.** |
+| **Branch** | `phase-27-recall-diagnosis`, off `master` (Phases 28 and 29 continue on it) |
+| **Tests** | 1292 Python, ~2.5 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
+| **Next** | **Not another loss-weighting run.** Phases 27 and 28 closed that: soft notes are missed 16x more than loud ones, and TWO independent interventions -- a decode threshold and a per-note onset loss -- both land exactly on the generic precision/recall curve. See §1d. The unbanked gain is the Phase 28 CONTROL arm: 1,500 unboosted steps moved MAESTRO F1 0.9400 -> 0.9431 with pp misses 51.3% -> 48.1%, which is ordinary continued training from a checkpoint that had not converged. |
+
+### 1d. PHASES 27-29 in one paragraph
+
+**Phase 27 found the deficit and Phase 28 proved it is not reachable from the
+loss.** The onset head misses **38.3% of pp notes against 2.4% of f notes** --
+a 16x spread over 52,478 MAESTRO notes, with `pp`+`p` accounting for 66.6% of
+all missed notes from 33.4% of the reference. It was invisible on MAPS **by
+construction**: MAPS assigns every note velocity 80, so the dimension is
+degenerate there, and a first reading of the MAPS-only data supported the
+opposite conclusion. Two interventions were then measured and both failed the
+same way -- a velocity-aware decode threshold
+(`velocity-aware-decode-README.md`) and a per-note velocity-weighted onset loss
+(`soft-onset-boost-README.md`), the latter gated at ~6 GPU hours instead of a
+week. Neither recovers soft notes more EFFICIENTLY than simply trading
+precision for recall. Two independent mechanisms failing identically is
+evidence about the model rather than the interventions.
+
+**Phase 29 then improved the page rather than the notes**, after a reference
+engraving showed the transcription was already 94.2% in-key with the bass roots
+correct bar for bar. Chord detection generalises: 96.9% coverage and **0
+degenerate figures over 2,389 bars** on 12 MAESTRO pieces it was not tuned on
+(`tools/chord_generalisation.py`).
 
 **READ THIS BEFORE PLANNING THE NEXT TRAINING RUN.** Phase 22 overturned two
 conclusions this file previously asserted:

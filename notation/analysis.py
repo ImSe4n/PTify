@@ -421,6 +421,26 @@ CHORD_SPAN_BEATS = 4.0
 #: as harmony. Weighting by duration and discarding the tail fixes both.
 CHORD_TONE_MIN_WEIGHT = 0.12
 
+#: An EXTENSION -- anything past the triad -- needs this much of the span's
+#: weighted duration before it may change the chord's name. Set above
+#: `CHORD_TONE_MIN_WEIGHT` on purpose: measured against a reference engraving,
+#: the passing tones that inflated `Fm` to `Fm7` and `Ab` to `AbM9` sat at
+#: 12.5% and 16.7%, both over the chord-tone floor but well under what a real
+#: seventh holds.
+#:
+#: SWEPT over 4 x 4 values against 14 reference bars: exact matches run 9-11
+#: and roots 12-14, with the whole region above `minw` 0.16 costing roots. The
+#: chosen cell is the only one holding **14/14 roots at 11/14 exact**.
+#: One song is a thin basis for two constants, so they are set at the edge of
+#: a flat region rather than at a sharp peak -- the same discipline the Phase
+#: 24 rate floor lacked when it was tuned at a single tempo and rejected at
+#: nine.
+EXTENSION_MIN_WEIGHT = 0.14
+
+#: What an unsupported extension costs. Large enough to lose to the plain
+#: triad, small enough that a genuinely sounding seventh still wins.
+EXTENSION_PENALTY = 0.15
+
 #: Below this, the span had no harmony worth naming -- a run, a fill, or
 #: silence. Printing a symbol there is worse than printing nothing, because a
 #: reader trusts it.
@@ -543,7 +563,10 @@ CHORD_TEMPLATES: list[tuple[str, tuple[int, ...]]] = [
     ("dim",    (0, 3, 6)),
     ("sus4",   (0, 5, 7)),
     ("m9",     (0, 3, 7, 10, 14 % 12)),
-    ("maj9",   (0, 4, 7, 11, 14 % 12)),
+    # "M9", not "maj9": music21's ChordSymbol rejects the latter outright, and
+    # a figure that cannot be constructed is a symbol that never reaches the
+    # page. Verified against `harmony.ChordSymbol` for every entry here.
+    ("M9",     (0, 4, 7, 11, 14 % 12)),
     ("9",      (0, 4, 7, 10, 14 % 12)),
 ]
 
@@ -571,6 +594,22 @@ def _best_template(weight: dict[int, float], total: float,
             missing = sum(1 for pc in tones if weight.get(pc, 0.0) / total
                           < CHORD_TONE_MIN_WEIGHT)
             score = covered / total - 0.12 * missing
+
+            # EXTENSIONS MUST EARN THEIR PLACE. A 7th or 9th changes the
+            # chord's printed name, so it has to be genuinely sounding rather
+            # than merely present. MEASURED against a reference engraving: a
+            # bar reading F/Ab/C at 25% each -- a clean F minor triad -- was
+            # named `Fm7` on the strength of an Eb at 12.5%, a passing tone
+            # just over `CHORD_TONE_MIN_WEIGHT`. The same bar in the
+            # arrangement is printed `Fm`.
+            #
+            # Triad tones are exempt: a root, third and fifth at any weight are
+            # what the chord IS, and penalising them would push every bar
+            # toward a bare fifth.
+            for offset in offsets[3:]:
+                pc = (root + offset) % 12
+                if weight.get(pc, 0.0) / total < EXTENSION_MIN_WEIGHT:
+                    score -= EXTENSION_PENALTY
             if root == bass_pc:
                 score += 0.15
             if best is None or score > best[2]:
