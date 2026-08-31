@@ -11,7 +11,9 @@ import pytest
 from notation.quantise import grid_from_tempo, quantise_notes
 from notation.score import (
     DEFAULT_SPLIT,
+    _assign_staves,
     _group_into_chords,
+    _hand_method,
     _split_point,
     build_score,
     transcription_to_score,
@@ -42,6 +44,62 @@ def test_split_point_separates_two_registers():
 
 def test_split_point_defaults_when_there_is_nothing_to_split():
     assert _split_point([]) == DEFAULT_SPLIT
+
+
+def test_the_hand_model_runs_when_sources_are_present():
+    """The normal path. `quantise_notes` populates `source`, so this is what
+    a real transcription gets."""
+    g = grid_from_tempo(120.0, 10.0)
+    q = quantise_notes(_scale(), g)
+    treble, bass, method = _assign_staves(q, _split_point(q))
+    assert method == "sequential"
+    assert len(treble) + len(bass) == len(q)
+
+
+def test_one_missing_source_reverts_the_WHOLE_piece():
+    """The cliff this reporting exists for.
+
+    A single note without a `source` -- out of any number -- sends every note
+    through the 88.1% pitch cut instead of the 93.1% model. The point of the
+    test is the word WHOLE: it is not a per-note degradation, and nothing in
+    the engraved page says which rule drew it.
+    """
+    g = grid_from_tempo(120.0, 10.0)
+    q = quantise_notes(_scale(n=8), g)
+    assert _hand_method(q) == "sequential"
+
+    q[3].source = None
+    assert _hand_method(q) == "pitch-cut"
+
+    split = _split_point(q)
+    treble, bass, method = _assign_staves(q, split)
+    assert method == "pitch-cut"
+    # Engraved by the cut: every treble note is above it, which the sequential
+    # model does not guarantee (a hand crosses).
+    assert all(n.pitch >= split for n in treble)
+    assert all(n.pitch < split for n in bass)
+
+
+def test_stats_report_the_method_actually_used():
+    """The reported method must be the one that drew the page.
+
+    `ScoreStats.hand_method` is derived from `_hand_method` rather than from
+    `_assign_staves`' return value, so this pins that the two agree. A page
+    engraved by the fallback while the CLI says "sequential" would be a
+    measurement that lies -- worse than not reporting it.
+    """
+    g = grid_from_tempo(120.0, 10.0)
+    notes = _scale()
+    tr = Transcription(notes=notes, pedals=[], duration=10.0)
+
+    _, stats = transcription_to_score(tr, grid=g)
+    assert stats.hand_method == "sequential"
+    assert _assign_staves(stats.notes, _split_point(stats.notes))[2] == \
+        stats.hand_method
+
+
+def test_empty_input_reports_the_fallback_rather_than_claiming_a_model_ran():
+    assert _hand_method([]) == "pitch-cut"
 
 
 def test_group_into_chords_merges_simultaneous_notes():

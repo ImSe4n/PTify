@@ -48,6 +48,13 @@ class ScoreStats:
     split_point: int
     uncertain_fraction: float
 
+    #: "sequential" (the 93.1% hand model) or "pitch-cut" (the 88.1% fallback).
+    #: Reported because the fallback is a cliff: one `QuantisedNote` without a
+    #: `source` reverts the whole piece, and the symptom looks like a bad hand
+    #: model rather than an absent one. Defaulted so a caller that builds
+    #: `ScoreStats` directly -- several tests do -- keeps working.
+    hand_method: str = "sequential"
+
     #: The notes as placed on the grid. Carried here so callers can export the
     #: quantised rhythm (e.g. to MIDI) without re-running quantisation and
     #: risking a file that disagrees with the engraved page.
@@ -94,9 +101,23 @@ def _split_point(notes: list[QuantisedNote]) -> int:
     return best_split
 
 
+def _hand_method(notes: list[QuantisedNote]) -> str:
+    """Which staff-assignment rule `_assign_staves` will use on these notes.
+
+    ONE condition, consulted in two places: `_assign_staves` branches on it and
+    `ScoreStats` reports it. Duplicating the predicate would let the engraving
+    and the reported method drift apart, which is worse than not reporting it
+    at all -- a page engraved by the fallback while the CLI says "sequential"
+    is a measurement that lies.
+    """
+    if not notes or any(n.source is None for n in notes):
+        return "pitch-cut"
+    return "sequential"
+
+
 def _assign_staves(
     notes: list[QuantisedNote], split: int
-) -> tuple[list[QuantisedNote], list[QuantisedNote]]:
+) -> tuple[list[QuantisedNote], list[QuantisedNote], str]:
     """Split notes into (treble, bass) by HAND, falling back to the pitch cut.
 
     WHY NOT `_split_point` ALONE. It is one pitch boundary for the whole piece,
@@ -115,18 +136,26 @@ def _assign_staves(
     The fallback matters: `assign_hands` needs the raw `NoteEvent` timings, and
     `QuantisedNote.source` is typed optional. A caller that built notes without
     sources still gets a score, engraved by the old rule.
+
+    THE FALLBACK IS A CLIFF, NOT A GRADIENT, SO IT IS REPORTED. One missing
+    `source` out of thousands silently reverts the WHOLE piece from the 93.1%
+    model to the 88.1% cut -- and the visible symptom is the overloaded-treble
+    failure described above, which reads as "hand assignment is inaccurate"
+    rather than as "hand assignment did not run". Returning the method used
+    lets `ScoreStats` carry it to the CLI, the same way `uncertain_fraction`
+    reports that printed durations are estimates.
     """
-    sources = [n.source for n in notes]
-    if not notes or any(s is None for s in sources):
+    if _hand_method(notes) == "pitch-cut":
         return ([n for n in notes if n.pitch >= split],
-                [n for n in notes if n.pitch < split])
+                [n for n in notes if n.pitch < split],
+                "pitch-cut")
 
     from .hands import assign_hands
 
-    hands = assign_hands(sources)
+    hands = assign_hands([n.source for n in notes])
     treble = [n for n, h in zip(notes, hands) if h == "right"]
     bass = [n for n, h in zip(notes, hands) if h == "left"]
-    return treble, bass
+    return treble, bass, "sequential"
 
 
 def _group_into_chords(
@@ -320,7 +349,7 @@ def build_score(
     sc.metadata.composer = composer or "transcribed"
 
     split = _split_point(notes)
-    treble, bass = _assign_staves(notes, split)
+    treble, bass, _hand_method = _assign_staves(notes, split)
 
     rh = stream.Part(id="treble")
     lh = stream.Part(id="bass")
@@ -492,6 +521,12 @@ def transcription_to_score(
         bpm=grid.bpm,
         split_point=_split_point(qnotes),
         uncertain_fraction=uncertain_fraction(qnotes),
+        # Derived from the same condition `_assign_staves` branches on, rather
+        # than threaded back out of `build_score` (whose public signature
+        # returns a score alone) and rather than re-running the assignment,
+        # which would cost a second beam search to learn a label.
+        # `test_stats_report_the_method_actually_used` pins the two together.
+        hand_method=_hand_method(qnotes),
         notes=qnotes,
         key=key_estimate,
         n_trills=len(ornaments),

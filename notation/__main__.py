@@ -186,8 +186,19 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Measures : {stats.n_measures}")
     print(f"Metre    : {stats.time_signature}")
-    print(f"Split    : MIDI {stats.split_point} "
-          f"(treble >= this, bass below)")
+    # WHICH RULE ACTUALLY ENGRAVED THE STAVES. `Split` alone used to print a
+    # pitch cut that, in the normal case, nothing used -- the sequential hand
+    # model ignores it entirely. Worse, the fallback is a cliff: one note
+    # without a `source` reverts the whole piece from the 93.1% model to the
+    # 88.1% cut, and the symptom (an overloaded treble staff under a nearly
+    # empty bass) reads as a bad hand model rather than an absent one.
+    if stats.hand_method == "sequential":
+        print("Hands    : sequential model (93.1% vs 88.1% for a pitch cut)")
+    else:
+        print(f"Hands    : PITCH CUT at MIDI {stats.split_point} "
+              f"(treble >= this, bass below)")
+        print("           (fallback: notes carried no source timings, so the "
+              "hand model could not run)", file=sys.stderr)
 
     # Key detection is reported WITH its confidence, and a weak reading prints
     # no signature at all rather than guessing: a wrong key signature misspells
