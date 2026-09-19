@@ -13,8 +13,8 @@ State of the codebase, the traps in it, and what the next phase needs.
 |---|---|
 | **Last completed** | **Phase 29 — the printed page. Chord symbols (11/14 exact, 14/14 roots against a reference engraving), accidentals 334 -> 38, whole-measure rests 110 -> 8, spurious 16th rests 68 -> 28. `benchmarks/notation-readability-README.md`.** |
 | **Branch** | `phase-27-recall-diagnosis`, off `master` (Phases 28 and 29 continue on it) |
-| **Tests** | 1292 Python, ~2.5 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
-| **Next** | **Not another loss-weighting run.** Phases 27 and 28 closed that: soft notes are missed 16x more than loud ones, and TWO independent interventions -- a decode threshold and a per-note onset loss -- both land exactly on the generic precision/recall curve. See §1d. The unbanked gain is the Phase 28 CONTROL arm: 1,500 unboosted steps moved MAESTRO F1 0.9400 -> 0.9431 with pp misses 51.3% -> 48.1%, which is ordinary continued training from a checkpoint that had not converged. `training/kaggle/continuation_run.ipynb` is written and unrun. |
+| **Tests** | 1309 Python, ~3.2 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `cd frontend && node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire; reproduces **93.1% vs 88.1%** over 6,273 notes). |
+| **Next** | **The DURATION deficit, and measure it before training anything.** `offset_f1` is 0.4984 against onset 0.8502 -- the largest gap on the board, and the one users see, since Phase 3 measured 91% of printed durations as interpolation on pedalled repertoire. Run `tools/offset_diagnosis.py` (Phase 30, written and committed) FIRST: it reports duration accuracy *conditional on the onset already matching*, which the joint `offset_f1` cannot. Its `too_short`/`too_long` split picks the phase -- truncation is a decode threshold, over-holding under sustain is a decode-time sustain model, flat across pedal state is a frame-head training problem. **Do NOT run `continuation_run.ipynb` before that:** see §1f, three continuations have now lost to 16b. |
 | **Remote GPU** | **LIVE and verified.** `https://imse4n--ptify-transcribe-transcriber-transcribe.modal.run`, serving `ptify`. Cross-check: onset F1 **1.000000**, 284 notes both sides, **9.30x** speedup (68.0s -> 7.3s). See §1e. |
 
 ### 1d. PHASES 27-29 in one paragraph
@@ -352,6 +352,98 @@ either direction.
 The `clean` baseline for both engines exists; the augmented cells do not. See
 §9 for why that is a scoping decision rather than an oversight.
 
+### 1f. PHASE 30 — 16b IS STILL THE CHAMPION. Read before continuing training.
+
+**Re-averaged from the committed reports, not cited from this file.** Three
+separate continuations of `ptify-16b-step6555.pth` have now been scored on the
+14 MAPS paired tracks at the matched `onset_threshold` 0.6, and **all three
+lost**:
+
+| model | MAPS onset F1 | P | R | MAESTRO |
+|---|---|---|---|---|
+| ByteDance @0.3 | 0.7866 | 0.7435 | 0.8373 | 0.9693 |
+| **16b @0.6 — STILL THE CHAMPION** | **0.8502** | 0.8753 | 0.8269 | 0.9633 |
+| step10000 (Phase 23) | 0.8452 | 0.8657 | 0.8258 | 0.9595 |
+| a Phase 28 gate arm (`maps-paired-ptify-clean10.json`) | 0.8480 | 0.8692 | 0.8280 | — |
+
+They fail the same way each time: **precision drifts down, recall stays flat.**
+That is the opposite of what 16b's win was made of (a 37% cut in invented
+notes). §1a already concluded *"change the recipe, not the schedule"*;
+`continuation_run.ipynb` changes the schedule, and would be the fourth attempt
+at the same shape for ~6 GPU-hours to bank a +0.0031 *MAESTRO* delta measured
+on a 1,500-step arm -- a metric that is not the target.
+
+**`maps-paired-ptify-clean10.json` is committed but NOT REPRODUCIBLE, deliberately.**
+Its `checkpoint_sha256` is `2acf04b2…`, which matches no file on disk:
+`ptify-note-pedal.pth` now hashes `1f10fcd1…`. The report was generated
+2026-08-27; all four gate checkpoints were re-downloaded 2026-08-29 to the same
+filename, overwriting whichever arm produced it. It is kept because it is an
+honest record of a measurement that happened, and this note is here so nobody
+spends an afternoon trying to re-derive it. `benchmarks/soft-onset-boost-README.md`
+records the recovery method that worked before (reproducing a loss ordering);
+it cannot help here, because the file itself is gone.
+
+**The scoreboard-reading lesson, again.** The `Next` line in this file pointed
+at the continuation run for two phases while the committed reports said it
+would lose. §8's rule -- *diff the committed baselines, do not trust the prose*
+-- applies to this file's own summary rows.
+
+### 1g. PHASE 30 — HAND ASSIGNMENT: the model is fine, the benchmark was broken
+
+**Hand assignment cannot affect any accuracy number.** `evaluation/` has no
+coupling to it -- the metrics compare `(pitch, onset, offset)` against
+ground-truth MIDI, and staff assignment is a rendering decision downstream in
+`notation/score.py`. It is a readability problem, and a real one, but it does
+not move 0.8502 or 0.4984.
+
+**`frontend/tests/browser/hand-benchmark.mjs` had `C:/Users/SeanN/LivePianoSynthesizer`
+hardcoded** for BOTH the ground truth and the `hands.ts` it loaded. It printed
+`missing handtruth.json` while the file sat in this repo's own `var/` -- and had
+that directory existed, it would have scored **another project's implementation**
+while claiming to measure this one. Same class as the copied venv in §1e. Now
+resolved from `import.meta.url`; reproduces **93.1% vs 88.1% over 6,273 notes**,
+winning on all eight pieces.
+
+**The fallback in `_assign_staves` is a CLIFF and is now reported.** One
+`QuantisedNote` with `source is None` -- out of any number -- reverts the whole
+piece from the 93.1% sequential model to the 88.1% pitch cut. The symptom is an
+overloaded treble staff under a nearly empty bass, which reads as *"the hand
+model is bad"* rather than *"the hand model did not run"*. `ScoreStats.hand_method`
+now carries it and the CLI prints `Hands : sequential model` or names the cut
+and warns. One predicate, `score._hand_method()`, is consulted by both the
+branch and the report so they cannot drift.
+
+**Measured on `var/clip25.wav`: `Hands : sequential model`.** So on that file the
+good model ran, and any error seen there is genuine model error, not the
+fallback. Two caveats: the 93.1% is measured on **clean engraved MIDI**, so the
+in-pipeline figure on transcriber output (with invented and missing notes) is
+unmeasured and necessarily lower; and Bach is the honest weak case at **75.5%**,
+where two voices share a register and "which hand" is a real musical judgement.
+
+### 1h. PHASE 30 — ARBITRARY AUDIO -> PIANO is a SEPARATE ENGINE, not a fix
+
+`docs/arbitrary-audio.md` is the costed assessment. The short version: a
+non-piano MP3 producing garbage is **scope, not a defect** -- the CRNN's output
+layer is 88 units wide and trained only on piano, so given a guitar it reports
+which piano key best explains the spectrum. It belongs behind
+`transcriber/engine.py: get_engine()` as a fourth engine (the seam Phase 17
+already proved), never as a change to `ptify`, so the piano baselines stay
+comparable and it can ship as clearly experimental.
+
+**The hard stage is arrangement, and it has no metric.** Separation (Demucs) and
+multi-instrument transcription (MT3) are off-the-shelf and permissive. Deciding
+what *ten fingers* should play is taste, and every metric here compares against
+ground-truth MIDI of the same performance -- for arrangement no such reference
+exists. Phases 20-21 record what building without a metric costs. The licensing
+blocker from `from-scratch.md` is also worse here: there is no aligned corpus of
+"song + its piano arrangement", and the obvious pairs are two different
+copyrighted recordings.
+
+**The cheap probe first:** Demucs on a piano-plus-band mix, piano stem into the
+existing `ptify`, scored by the existing harness. A day's work, no new model,
+and it answers whether stage 1's output is clean enough for a piano transcriber
+to read. If it is not, stages 2 and 3 are moot.
+
 ## 2. Run it
 
 ```bash
@@ -393,6 +485,20 @@ set PTIFY_CHECKPOINT=C:\path\to\ptify-16b-step6555.pth
 .venv\Scripts\python.exe -m evaluation --compare
 .venv\Scripts\python.exe -m evaluation --all-presets
 .venv\Scripts\python.exe -m pytest tests/ -q
+
+# WHERE THE ERROR LIVES (Phases 27 and 30). Both take ~1.9x realtime on CPU,
+# so REDIRECT TO A FILE and use --limit: the 12-track MAESTRO corpus is 85
+# minutes of audio (Brahms alone is 24) and piping through `tail` hides all
+# progress until it exits.
+.venv\Scripts\python.exe -m tools.recall_diagnosis --audio-dir recordings/maps_paired ^
+    --engine ptify --json benchmarks/recall-diagnosis-ptify.json
+.venv\Scripts\python.exe -m tools.offset_diagnosis --audio-dir recordings/maestro_test12 ^
+    --engine ptify --limit 4 ^
+    --json benchmarks/offset-diagnosis-ptify-maestro.json > var\offset.log 2>&1
+
+# MAESTRO for the PEDAL question (it carries CC64; MAPS does not), MAPS for the
+# duration-regime question. `offset_diagnosis` prints the pedal table as
+# "no pedal data" rather than 0% when the reference has none.
 
 # sheet music (Phase 3)
 .venv\Scripts\python.exe -m notation song.mid --formats musicxml,pdf

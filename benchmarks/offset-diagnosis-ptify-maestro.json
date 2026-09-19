@@ -1,0 +1,90 @@
+{
+  "engine": "ptify",
+  "corpus": "recordings\\maestro_test12",
+  "n_tracks": 4,
+  "onset_tolerance": 0.05,
+  "offset_ratio": 0.2,
+  "offset_min_tolerance": 0.05,
+  "matching": "mir_eval.transcription.match_notes, offset_ratio=None -- onset-only, so duration error is measured over the notes the published onset figures counted as found",
+  "totals": {
+    "n_reference": 15537,
+    "n_matched": 14360,
+    "n_in_tolerance": 4209,
+    "conditional_accuracy": 0.29310584958217273,
+    "median_signed_error": 0.1428380330403698
+  },
+  "direction": {
+    "too_long": 10075,
+    "in_tolerance": 4209,
+    "too_short": 76
+  },
+  "by_duration": {
+    "<0.25s (floor)": {
+      "in_tolerance": 3689,
+      "total": 12018,
+      "rate": 0.30695623231818936
+    },
+    "0.25-0.5s": {
+      "in_tolerance": 186,
+      "total": 1260,
+      "rate": 0.14761904761904762
+    },
+    "0.5-1s": {
+      "in_tolerance": 204,
+      "total": 751,
+      "rate": 0.27163781624500666
+    },
+    ">1s": {
+      "in_tolerance": 130,
+      "total": 331,
+      "rate": 0.39274924471299094
+    }
+  },
+  "by_pedal": {
+    "under sustain": {
+      "in_tolerance": 2394,
+      "total": 11768,
+      "rate": 0.20343303874915022
+    },
+    "pedal up": {
+      "in_tolerance": 1815,
+      "total": 2592,
+      "rate": 0.7002314814814815
+    }
+  },
+  "pedal_valid": true,
+  "per_track": [
+    {
+      "label": "Alexander_Scriabin-2006-Sonata_No._9-MIDI-Unprocessed",
+      "n_reference": 3648,
+      "n_matched": 3169,
+      "conditional_accuracy": 0.09940044177974125,
+      "median_signed_error": 0.33433024088537877,
+      "pedal_valid": true
+    },
+    {
+      "label": "Claude_Debussy-2011-Jardins_sous_la_pluie_from_Estampes-MIDI-Unprocessed",
+      "n_reference": 2730,
+      "n_matched": 2562,
+      "conditional_accuracy": 0.11202185792349727,
+      "median_signed_error": 0.19338734944660985,
+      "pedal_valid": true
+    },
+    {
+      "label": "Domenico_Scarlatti-2008-Sonata_K._525-MIDI-Unprocessed",
+      "n_reference": 882,
+      "n_matched": 816,
+      "conditional_accuracy": 0.5122549019607843,
+      "median_signed_error": 0.049788713455200195,
+      "pedal_valid": true
+    },
+    {
+      "label": "Felix_Mendelssohn-2017-Fantasy_in_F-sharp_Minor,_Op._28_(Complete)-MIDI-Unprocessed",
+      "n_reference": 8277,
+      "n_matched": 7813,
+      "conditional_accuracy": 0.4081658773838474,
+      "median_signed_error": 0.08428751627604925,
+      "pedal_valid": true
+    }
+  ]
+}
