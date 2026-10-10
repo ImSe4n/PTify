@@ -21,10 +21,12 @@ from dataclasses import dataclass, field
 from transcriber.events import Transcription
 
 from .quantise import (
+    DEFAULT_SUBDIVISION,
     BeatGrid,
     QuantisedNote,
     grid_from_tempo,
     quantise_notes,
+    estimate_subdivision,
     uncertain_fraction,
 )
 
@@ -54,6 +56,18 @@ class ScoreStats:
     #: model rather than an absent one. Defaulted so a caller that builds
     #: `ScoreStats` directly -- several tests do -- keeps working.
     hand_method: str = "sequential"
+
+    #: Beats per grid slot the notes were snapped to: 0.25 (four per beat) or
+    #: 1/3 (three per beat, Phase 33). Reported for the same reason as
+    #: `hand_method`: a page engraved on the other grid reads very differently,
+    #: and nothing else on the page says which one was chosen.
+    subdivision: float = DEFAULT_SUBDIVISION
+
+    #: "grid" (beat tracker + quantiser) or "model" (the Phase 33 rhythm
+    #: model), and the beat times the notes were placed against. Carried so the
+    #: score benchmark scores the grid actually used, not the tracker's.
+    rhythm: str = "grid"
+    grid_beats: list[float] = field(default_factory=list, repr=False)
 
     #: The notes as placed on the grid. Carried here so callers can export the
     #: quantised rhythm (e.g. to MIDI) without re-running quantisation and
@@ -450,6 +464,10 @@ def transcription_to_score(
     composer: str = "",
     analyse: bool = True,
     time_signature: str = "",
+    division: str = "auto",
+    rhythm: str = "grid",
+    rhythm_model=None,
+    rhythm_bars: str = "model",
 ):
     """`Transcription` -> (score, stats), quantising against `grid`.
 
@@ -464,6 +482,31 @@ def transcription_to_score(
     if grid is None:
         grid = grid_from_tempo(120.0, tr.duration or 1.0, beats_per_bar)
 
+    # THE BEAT DIVISION (Phase 33). `division="auto"` chooses four or three
+    # slots per beat from the notes' own timing; "grid" keeps whatever the grid
+    # carries. Measured on `tools/score_benchmark.py` (38 published scores):
+    # rhythm 52.9% -> 58.3%, durations 39.6% -> 43.5%, Bach bwv_873 0.0% ->
+    # 95.6%, and no other piece moved. Only a grid still on the default is
+    # re-chosen, so an explicit subdivision is never overridden, and
+    # `analyse=False` keeps its promise of the literal pre-analysis score.
+    # RHYTHM SOURCE (Phase 33 C). "model" places notes with the trained rhythm
+    # model instead of snapping to the beat-tracked grid. Off by default until
+    # the score benchmark shows it beats the grid; torch is imported only here.
+    # "hybrid": the model's rhythm anchored to the beat-tracked grid, with bar
+    # lines from the model (`rhythm_bars="model"`) or the grid ("grid").
+    if rhythm not in ("grid", "model", "hybrid"):
+        raise ValueError(f"rhythm must be 'grid', 'model' or 'hybrid', got {rhythm!r}")
+    if rhythm_bars not in ("model", "grid"):
+        raise ValueError(f"rhythm_bars must be 'model' or 'grid', got {rhythm_bars!r}")
+    if rhythm != "grid" and rhythm_model is None:
+        raise ValueError("rhythm='model' needs rhythm_model (see rhythm.infer.load_model)")
+    if division not in ("auto", "grid"):
+        raise ValueError(f"division must be 'auto' or 'grid', got {division!r}")
+    if analyse and division == "auto" and grid.subdivision == DEFAULT_SUBDIVISION:
+        from dataclasses import replace
+
+        grid = replace(grid, subdivision=estimate_subdivision(tr.notes, grid))
+
     from . import analysis
 
     # ORDER IS LOAD-BEARING, and this is the only place it is visible.
@@ -477,7 +520,14 @@ def transcription_to_score(
     ornaments = analysis.detect_trills(tr.notes) if analyse else []
     notes_for_grid = analysis.apply_ornaments(tr.notes, ornaments)
 
-    qnotes = quantise_notes(notes_for_grid, grid, tr.pedals)
+    if rhythm in ("model", "hybrid"):
+        from rhythm.infer import rhythm_quantise
+
+        grid, qnotes = rhythm_quantise(
+            notes_for_grid, rhythm_model, tr.pedals,
+            grid=grid if rhythm == "hybrid" else None, bars=rhythm_bars)
+    else:
+        qnotes = quantise_notes(notes_for_grid, grid, tr.pedals)
 
     # Articulation is the other way round: "staccato" compares the played
     # duration against the NOTATED one, which does not exist until the note is
@@ -527,6 +577,9 @@ def transcription_to_score(
         # which would cost a second beam search to learn a label.
         # `test_stats_report_the_method_actually_used` pins the two together.
         hand_method=_hand_method(qnotes),
+        subdivision=grid.subdivision,
+        rhythm=rhythm,
+        grid_beats=list(grid.beats),
         notes=qnotes,
         key=key_estimate,
         n_trills=len(ornaments),

@@ -1,0 +1,133 @@
+"""Model predictions -> written rhythm the engraver can use (Phase 33 C5).
+
+Pure numpy. The model predicts, per note: the written gap from the previous
+note (ticks), the written value (ticks) and whether it starts a bar. From
+those this module derives:
+
+  positions   cumulative gaps, in beats. Never decreasing, by construction.
+  bar         beats per bar = the most common spacing between predicted
+              downbeats; the phase shifts every position so downbeats land on
+              bar lines (a pickup bar starts mid-bar, as printed).
+  tempo map   the time of every whole beat, interpolated from the onsets of
+              the notes around it (chord notes averaged). This replaces
+              librosa's beat tracker, which Phase 32 found at the wrong level in
+              19 of 38 pieces.
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from dataclasses import dataclass
+
+import numpy as np
+
+from rhythm.features import TICKS_PER_BEAT
+
+#: Bar lengths, in beats, the decoder may choose from.
+BAR_CHOICES = (2, 3, 4, 6)
+DEFAULT_BEATS_PER_BAR = 4
+#: Seconds per beat when there is nothing to measure it from (a single note).
+FALLBACK_SEC_PER_BEAT = 0.5
+DOWNBEAT_THRESHOLD = 0.5
+
+
+@dataclass(frozen=True)
+class Decoded:
+    start_beats: np.ndarray
+    length_beats: np.ndarray
+    beat_times: list[float]
+    beats_per_bar: int
+
+
+def _bar(ticks: np.ndarray, downbeat_prob: np.ndarray) -> tuple[int, float]:
+    """(beats per bar, shift in beats that puts downbeats on bar lines)."""
+    on_beat = ticks % TICKS_PER_BEAT == 0
+    beats = np.unique(ticks[(downbeat_prob > DOWNBEAT_THRESHOLD) & on_beat]
+                      // TICKS_PER_BEAT)
+    if len(beats) == 0:
+        return DEFAULT_BEATS_PER_BAR, 0.0
+    gaps = Counter(int(g) for g in np.diff(beats) if int(g) in BAR_CHOICES)
+    # Ties go to the conventional choice: 4, then 3, then the rest.
+    bar = (max(gaps, key=lambda g: (gaps[g], g == 4, g == 3))
+           if gaps else DEFAULT_BEATS_PER_BAR)
+    phase = Counter(int(b) % bar for b in beats).most_common(1)[0][0]
+    return bar, float((-phase) % bar)
+
+
+def _sec_per_beat(p0, t0, p1, t1) -> float:
+    slope = (t1 - t0) / (p1 - p0) if p1 != p0 else 0.0
+    return slope if slope > 0 else FALLBACK_SEC_PER_BEAT
+
+
+def _beat_times(pos: np.ndarray, onsets: np.ndarray) -> list[float]:
+    upos, inverse = np.unique(pos, return_inverse=True)
+    t = np.array([onsets[inverse == k].mean() for k in range(len(upos))])
+    if len(upos) == 1:
+        lo_slope = hi_slope = FALLBACK_SEC_PER_BEAT
+    else:
+        lo_slope = _sec_per_beat(upos[0], t[0], upos[1], t[1])
+        hi_slope = _sec_per_beat(upos[-2], t[-2], upos[-1], t[-1])
+    out = []
+    for b in range(0, int(np.floor(upos[-1])) + 2):
+        if b < upos[0]:
+            v = t[0] - (upos[0] - b) * lo_slope
+        elif b > upos[-1]:
+            v = t[-1] + (b - upos[-1]) * hi_slope
+        else:
+            v = float(np.interp(b, upos, t))
+        # Strictly increasing, or BeatGrid's interpolation divides by zero.
+        if out and v <= out[-1]:
+            v = out[-1] + 1e-3
+        out.append(float(v))
+    return out
+
+
+def decode(onsets, delta_ticks, duration_ticks, downbeat_prob) -> Decoded:
+    """Per-note predictions (sorted by onset) -> positions, values, grid, bar."""
+    onsets = np.asarray(onsets, dtype=float)
+    delta = np.maximum(np.asarray(delta_ticks, dtype=np.int64), 0)
+    delta[0] = 0                     # the first note starts the piece
+    ticks = np.cumsum(delta)
+    bar, shift = _bar(ticks, np.asarray(downbeat_prob, dtype=float))
+    pos = ticks / TICKS_PER_BEAT + shift
+    return Decoded(
+        start_beats=pos,
+        length_beats=np.asarray(duration_ticks, dtype=float) / TICKS_PER_BEAT,
+        beat_times=_beat_times(pos, onsets),
+        beats_per_bar=bar,
+    )
+
+
+#: How far (in beats) the model's running position may drift from where a note
+#: falls on the grid before it is re-anchored. A quarter beat: past that, the
+#: written position would read as a different beat subdivision entirely.
+ANCHOR_TOL_BEATS = 0.25
+
+
+def anchor_positions(delta_ticks, grid_pos, snap: float,
+                     tol: float = ANCHOR_TOL_BEATS) -> np.ndarray:
+    """The model's written gaps, kept on an external beat grid (the hybrid).
+
+    `grid_pos` is each note's position on the pipeline's (audio-tracked) grid,
+    in beats, unsnapped. Positions advance by the model's predicted gap -- so
+    triplets, dotted rhythms and chords come from the model -- until the running
+    sum strays more than `tol` from the grid; then the note is snapped to the
+    grid at `snap` resolution, which is what the rule quantiser would have
+    written. Never decreasing.
+    """
+    grid_pos = np.asarray(grid_pos, dtype=float)
+    delta = np.maximum(np.asarray(delta_ticks, dtype=np.int64), 0)
+    out = np.empty(len(grid_pos))
+    if not len(out):
+        return out
+
+    def snapped(x: float) -> float:
+        return round(x / snap) * snap
+
+    out[0] = snapped(grid_pos[0])
+    for i in range(1, len(out)):
+        pos = out[i - 1] + delta[i] / TICKS_PER_BEAT
+        if abs(pos - grid_pos[i]) > tol:
+            pos = max(snapped(grid_pos[i]), out[i - 1])
+        out[i] = pos
+    return out

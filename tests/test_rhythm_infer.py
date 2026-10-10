@@ -1,0 +1,108 @@
+"""Running the rhythm model on a transcription: `rhythm/infer.py` + wiring.
+
+THE POINT OF THIS FILE
+----------------------
+Plumbing, not musical quality (an untrained model is used on purpose): every
+note must come back exactly once, in a usable order, from pieces longer than
+one window, and the score must still engrave. Quality is the benchmark's job.
+"""
+
+import numpy as np
+import pytest
+
+torch = pytest.importorskip("torch")
+
+from notation.quantise import grid_from_tempo  # noqa: E402
+from notation.score import transcription_to_score  # noqa: E402
+from rhythm.infer import predict, rhythm_quantise  # noqa: E402
+from rhythm.model import RhythmTransformer  # noqa: E402
+from transcriber.events import NoteEvent, Transcription  # noqa: E402
+
+
+def _tiny(max_len=16):
+    torch.manual_seed(0)
+    return RhythmTransformer(d_model=32, n_layers=1, n_heads=2, max_len=max_len).eval()
+
+
+def _notes(n, seed=0):
+    rng = np.random.default_rng(seed)
+    return [NoteEvent(int(rng.integers(40, 90)), 0.25 * i, 0.25 * i + 0.2,
+                      int(rng.integers(30, 110))) for i in range(n)]
+
+
+def test_predict_covers_every_note_once_across_windows():
+    notes = _notes(50)                       # longer than one 16-note window
+    p = predict(_tiny(), notes)
+    assert sorted(p["order"].tolist()) == list(range(50))
+    for k in ("delta", "duration_ticks", "downbeat_prob"):
+        assert len(p[k]) == 50
+    assert np.all(p["delta"] >= 0)
+    assert np.all((p["downbeat_prob"] >= 0) & (p["downbeat_prob"] <= 1))
+
+
+def test_predict_handles_unsorted_input_and_reports_the_order():
+    notes = _notes(10)[::-1]
+    p = predict(_tiny(), notes)
+    onsets = [notes[i].onset for i in p["order"]]
+    assert onsets == sorted(onsets)
+
+
+def test_rhythm_quantise_returns_one_written_note_per_note():
+    notes = _notes(30)
+    grid, qnotes = rhythm_quantise(notes, _tiny())
+    assert len(qnotes) == 30
+    assert {id(q.source) for q in qnotes} == {id(n) for n in notes}
+    assert all(q.length_beats > 0 for q in qnotes)
+    assert len(grid.beats) >= 2
+    assert all(b2 > b1 for b1, b2 in zip(grid.beats, grid.beats[1:]))
+
+
+def test_score_engraves_with_the_model_rhythm():
+    tr = Transcription(notes=_notes(40), duration=11.0, engine="t")
+    sc, stats = transcription_to_score(tr, grid_from_tempo(120.0, 11.0),
+                                       rhythm="model", rhythm_model=_tiny())
+    assert stats.n_notes == 40
+    assert stats.rhythm == "model"
+    assert len(stats.grid_beats) >= 2
+    assert sc is not None
+
+
+def test_model_rhythm_without_a_model_is_refused():
+    tr = Transcription(notes=_notes(5), duration=2.0, engine="t")
+    with pytest.raises(ValueError):
+        transcription_to_score(tr, grid_from_tempo(120.0, 2.0), rhythm="model")
+
+
+def test_default_rhythm_is_unchanged():
+    tr = Transcription(notes=_notes(8), duration=3.0, engine="t")
+    _, stats = transcription_to_score(tr, grid_from_tempo(120.0, 3.0))
+    assert stats.rhythm == "grid"
+
+
+# --- hybrid: model rhythm on the pipeline's grid ------------------------------
+
+def test_hybrid_places_notes_on_the_given_grid():
+    notes = _notes(30)
+    grid = grid_from_tempo(120.0, 9.0)                 # beats every 0.5s
+    out_grid, qnotes = rhythm_quantise(notes, _tiny(), grid=grid, bars="grid")
+    assert len(qnotes) == 30
+    assert out_grid.beats_per_bar == grid.beats_per_bar
+    # the pipeline's beats are kept, so bars and beat F come from the audio grid
+    assert out_grid.beats[-len(grid.beats):] == grid.beats
+    starts = [q.start_beats for q in sorted(qnotes, key=lambda q: q.source.onset)]
+    assert all(b >= a for a, b in zip(starts, starts[1:]))
+
+
+def test_hybrid_engraves_through_transcription_to_score():
+    tr = Transcription(notes=_notes(40), duration=11.0, engine="t")
+    _, stats = transcription_to_score(tr, grid_from_tempo(120.0, 11.0),
+                                      rhythm="hybrid", rhythm_model=_tiny(),
+                                      rhythm_bars="grid")
+    assert stats.rhythm == "hybrid" and stats.n_notes == 40
+
+
+def test_unknown_rhythm_bars_is_refused():
+    tr = Transcription(notes=_notes(5), duration=2.0, engine="t")
+    with pytest.raises(ValueError):
+        transcription_to_score(tr, grid_from_tempo(120.0, 2.0), rhythm="hybrid",
+                               rhythm_model=_tiny(), rhythm_bars="sometimes")

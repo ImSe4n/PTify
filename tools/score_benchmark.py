@@ -70,6 +70,17 @@ def build_parser() -> argparse.ArgumentParser:
                          "`remote` (e.g. ptify), defaults to --engine")
     ap.add_argument("--cache-dir", type=Path, default=Path("var/estimates"))
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--rhythm-model", type=Path, default=None,
+                    help="place notes with this trained rhythm model "
+                         "(Phase 33 C) instead of the beat-tracked grid")
+    ap.add_argument("--rhythm-mode", choices=("model", "hybrid"), default="model",
+                    help="model: its own grid; hybrid: its rhythm on the beat-tracked grid")
+    ap.add_argument("--rhythm-bars", choices=("model", "grid"), default="model",
+                    help="hybrid only: bar lines from the model or from the grid")
+    ap.add_argument("--subdivision", choices=("fixed", "auto"), default="auto",
+                    help="auto (the product's behaviour since Phase 33): four or three "
+                         "slots per beat, chosen from the notes; fixed: the old "
+                         "0.25-beat grid, for before/after comparisons")
     ap.add_argument("--json", type=Path, default=None)
     return ap
 
@@ -196,16 +207,30 @@ def _transcribe(engine_name: str, served: str, audio: Path,
     return est
 
 
-def notate(tr: Transcription, grid):
-    """The product's notation path. Returns (quantised notes, staff per note)."""
+def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=None,
+           rhythm_mode: str = "model", rhythm_bars: str = "model"):
+    """The product's notation path.
+
+    Returns (quantised notes, staff per note, beat times used, beats per bar):
+    with the rhythm model the grid is the model's, not the tracker's, and the
+    meter and beat columns must score the one the notes were placed on.
+    """
     from notation.score import _assign_staves, transcription_to_score
 
     _, stats = transcription_to_score(tr, grid,
-                                      beats_per_bar=grid.beats_per_bar)
+                                      beats_per_bar=grid.beats_per_bar,
+                                      division="auto" if auto_division else "grid",
+                                      rhythm=rhythm_mode if rhythm_model else "grid",
+                                      rhythm_model=rhythm_model,
+                                      rhythm_bars=rhythm_bars)
+    if stats.subdivision != grid.subdivision:
+        print(f"          {tr.engine or 'midi'}: subdivision {stats.subdivision:.3f}",
+              flush=True)
     treble, _, _ = _assign_staves(stats.notes, stats.split_point)
     upper = {id(q) for q in treble}
-    return stats.notes, ["upper" if id(q) in upper else "lower"
-                         for q in stats.notes]
+    staffs = ["upper" if id(q) in upper else "lower" for q in stats.notes]
+    bpb = int(stats.time_signature.split("/")[0]) if stats.time_signature else grid.beats_per_bar
+    return stats.notes, staffs, stats.grid_beats, bpb
 
 
 def _score_tracks(path: Path) -> list[list[NoteEvent]]:
@@ -219,7 +244,9 @@ def _score_tracks(path: Path) -> list[list[NoteEvent]]:
 
 
 def run_piece(row: dict, meta, engine: str, served: str,
-              cache_dir: Path) -> list:
+              cache_dir: Path, auto_division: bool = False,
+              rhythm_model=None, rhythm_mode: str = "model",
+              rhythm_bars: str = "model") -> list:
     from notation.quantise import BeatGrid
 
     audio, maestro_midi = fetch_track(meta, AUDIO_DIR)
@@ -245,15 +272,17 @@ def run_piece(row: dict, meta, engine: str, served: str,
     est = crop(_transcribe(engine, served, audio, cache_dir), start, end, shift)
 
     common = dict(
-        label=row["folder"], grid_beats=beats, beats_per_bar=grid.beats_per_bar,
+        label=row["folder"],
         perf_notes=perf.notes, perf_map=BeatMap.from_annotations(perf_anns),
         ref_beats=[a.time for a in perf_anns if a.exact],
         ref_downbeats=[a.time for a in perf_anns if a.downbeat and a.exact],
         score=score)
     out = []
     for name, tr in (("audio", est), ("perfect_midi", perf)):
-        ours, staffs = notate(tr, grid)
-        out.append(evaluate_piece(row=name, ours=ours, our_staffs=staffs, **common))
+        ours, staffs, used_beats, bpb = notate(tr, grid, auto_division, rhythm_model,
+                                               rhythm_mode, rhythm_bars)
+        out.append(evaluate_piece(row=name, ours=ours, our_staffs=staffs,
+                                  grid_beats=used_beats, beats_per_bar=bpb, **common))
     return out
 
 
@@ -304,12 +333,21 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{len(rows)} pieces, engine {args.engine} serving {served}\n",
           flush=True)
 
+    rhythm_model = None
+    if args.rhythm_model:
+        from rhythm.infer import load_model
+        rhythm_model = load_model(args.rhythm_model)
+        print(f"rhythm model: {args.rhythm_model}", flush=True)
+
     results, skipped = [], []
     for i, (row, meta) in enumerate(rows, 1):
         print(f"[{i}/{len(rows)}] {row['folder']}", flush=True)
         try:
             results.extend(run_piece(row, meta, args.engine, served,
-                                     args.cache_dir))
+                                     args.cache_dir,
+                                     args.subdivision == "auto",
+                                     rhythm_model, args.rhythm_mode,
+                                     args.rhythm_bars))
         except ValueError as exc:
             print(f"          SKIPPED: {exc}", flush=True)
             skipped.append({"piece": row["folder"], "reason": str(exc)})
@@ -325,6 +363,9 @@ def main(argv: list[str] | None = None) -> int:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps({
             "engine": args.engine, "served": served,
+            "subdivision": args.subdivision,
+            "rhythm_model": str(args.rhythm_model) if args.rhythm_model else None,
+            "rhythm_mode": args.rhythm_mode, "rhythm_bars": args.rhythm_bars,
             "corpus": "ASAP x MAESTRO v3 test split, one performance per score",
             "license_note": "ASAP and MAESTRO are CC BY-NC-SA; evaluation only",
             "pooled": {row: pool([r for r in results if r.row == row])

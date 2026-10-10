@@ -1,3 +1,179 @@
+# Phase 33 -- rhythm on the page: a baseline, then our own model
+
+## Why
+
+Phase 32: the page is wrong from PERFECT notes as often as from audio
+(durations 39.6%, rhythm 52.9%, beat level right in 19/38). The fixed 0.25-beat
+grid cannot write triplets or compound meter (0-4% rhythm on those pieces).
+All three gaps (division, beat level, note values) are one problem: turning
+performed timing into written rhythm. The user wants a home-built model; this
+is where one can move the page. The rule-based baseline comes first, so the
+model has a number to beat.
+
+## Requirements
+
+- Part A (baseline): choose the beat division per piece, four or three per
+  beat, from the notes' own timing. Only what exists at inference.
+- Part B (data): training pairs from ASAP performances that are NOT among the
+  39 benchmark scores, split BY SCORE. Eval-only data never enters training.
+- Part C (model): a small Transformer, notes + tracked beats in, written
+  rhythm out. Design reviewed by the user BEFORE any GPU spend.
+
+## Success criteria
+
+- A: on `tools/score_benchmark.py`, rhythm improves on the 5 triple-division
+  pieces, and pooled rhythm and durations do not drop on the 33 others (each
+  within 0.5 points). Otherwise it is not wired in.
+- B: pair counts reported. Zero overlap with benchmark scores, asserted in a test.
+- C: beats the better of baseline and current on pooled rhythm AND durations.
+
+## Steps
+
+- [x] A1. Tests first: `estimate_subdivision` on hand-built duple, triplet and
+      6/8 note sets, plus too few notes (keeps 0.25).
+- [x] A2. Measured: rhythm 52.9% -> 58.3%, durations 39.6% -> 43.5% (audio);
+      3 pieces improved (bwv_873 0.0->95.6%), 35 identical, 0 worse. Fixed run
+      reproduced Phase 32 exactly (determinism).
+- [x] A3. Wired into `transcription_to_score(division="auto")`; `ScoreStats.subdivision`
+      reports it. Wired run == measured run on all 76 rows. Full suite 1390 passed.
+- [x] B1. `evaluation/rhythm_pairs.py` + `tests/test_rhythm_pairs.py` (5 tests;
+      written with the code, not RED-first). Counts from ASAP metadata:
+      held out 39 scores / 128 perfs (every perf of a benchmark score);
+      **train 848 perfs / 176 scores, val 91 perfs / 20 scores**. Before
+      beat-count refusals (ASAP: 29 perfs skip beats).
+- [x] C1. `docs/phase33-rhythm-model.md`. **STOPPED for user review** (GPU spend,
+      licence).
+
+## Files (expected)
+
+- `notation/quantise.py`, `tests/test_quantise.py` (A)
+- `tools/score_benchmark.py` (a `--subdivision` switch for before/after)
+- new `evaluation/rhythm_pairs.py` + test (B)
+
+## Not doing
+
+- No GPU training before C1 is reviewed.
+- No meter/downbeat work in A (that's the model's job, or a later rule).
+- No third-party engines.
+
+## Decisions (2026-10-10)
+
+- PTify is non-commercial / personal: training on ASAP (CC BY-NC-SA) is fine.
+- GPU: Kaggle, driven from the shell (`tools/kaggle_rhythm.py`).
+
+## C progress
+
+- [x] C2. ASAP cloned to `var/asap-repo` (commit afc815c, 460 MB, gitignored).
+      `tools/export_rhythm_pairs.py`: train 785 perfs / 2.50M notes (94.5%
+      labelled), val 89 / 287k; 65 skipped with reasons (39 beat counts, 18
+      staff count, 18 out-of-range pitch). Packed: train.npz 41 MB, val.npz 5 MB.
+- [x] C3. `rhythm/` (features, model, train) + 19 tests incl. a tiny-overfit
+      check. Local CPU smoke run on real data OK (6,636 train windows).
+- [~] C4. Private dataset `imse4n/ptify-rhythm-pairs`; kernel `imse4n/ptify-rhythm-train`.
+      **Run 1 (T4, 23 min, 30 epochs): did not generalise.** Val vs
+      always-majority: gap 60.9% vs 49.9%, value 24.0% vs 21.3%, hand 83.7% vs
+      56.5%, downbeat F1 0.23. Train loss kept falling (value CE 2.28 -> 0.87)
+      while val stalled after epoch 1: memorising.
+      **Cause (measured): targets were in ANNOTATED beats, a per-piece convention.**
+      Quarters per annotated beat across 235 ASAP scores: 1.0 x159, 1.5 x41,
+      2.0 x18, 0.5 x10, 0.75 x5, 3.0 x2. The same rhythm got contradictory
+      labels. Fix: positions and values in QUARTER NOTES from the score MIDI's
+      tick clock (`ScoreNote.start_quarter`/`length_quarters`, tests added);
+      downbeats stay annotation-based. Val labels now: gap 6 ticks (16th) most
+      common after chords, value 6 ticks 32.6%.
+      Also fixed: the Kaggle CLI on Windows silently failed the big file in
+      `datasets version` with a relative `-p` path; the helper now runs inside the
+      folder and decides create vs version from the dataset list.
+      **Run 2 (quarter targets): gap improved, values still at guessing.**
+      Val gap 63.9% (majority 49.9%), value 31.9% (majority 32.6%). Best ckpt =
+      epoch 0; later epochs memorised (train up, val down). Per-performance val
+      value accuracy 0.04-0.72, median 0.20.
+      Diagnosis: absolute-seconds inputs make the same written value look
+      different at every tempo; 176 scores is too few to learn tempo-normalising.
+      **Run 3 (pushed 00:00):** + relative timing inputs (gap / local pulse,
+      chord spread excluded; tempo-invariance tested), smaller + more regularised
+      (d192, 3 layers, dropout 0.2, wd 0.05, 20 epochs), train accuracy logged per
+      epoch, final weights saved too.
+      **Run 3 result: memorises.** Train gap 83.1% / value 63.8% vs val 63.0% /
+      28.0%. Val real (non-chord) gaps only 34.6% (chords 97%). Benchmark
+      (38 pieces, audio): rhythm 39.5%, durations 31.5% vs pipeline 58.3% /
+      43.5%. NOT wired in.
+      Re-plan: the rule pipeline wins by snapping to a beat grid, which the
+      model was not given. Beat tracking from NOTES measured beat F 0.48 on val
+      (audio 0.49), so training MIDI and transcriptions get the same input.
+      **Run 4 (pushed 01:00):** + per-note beat inputs (`rhythm/beats.py`: phase
+      sin/cos, log beat length, log gap in beats; tracked once per piece from
+      clean notes, recomputed per window after drops/jitter). Same settings as
+      run 3, so the only change is the beat grid. Export now takes 39 min
+      (beat tracking 874 performances); worth caching if re-exported often.
+      **Run 4 result: same ceiling** (val gap 63.0%, value 28.3%; train 83%/65%).
+      Four different setups all plateau at val gap ~63% / value ~28-30%:
+      a label problem, not a model one. **Confirmed:** written scale is a
+      notational choice (2/4 vs 2/2 sound identical). Rescoring run 4 val with one
+      scale factor per piece: real gaps 34.1% -> 58.5%, values 33.6% -> 48.9%.
+      **Run 5 (pushed 01:21):** labels re-expressed per window in TRACKED-beat
+      units (`features.grid_scale`: written quarters per tracked beat, snapped),
+      so every piece shares the model-visible convention. Same settings.
+      Caveat: oracle-scale gap accuracy (58.5%) only matches the rule pipeline's
+      rhythm (58.3%); values (48.9%) look like the model's real edge. If run 5
+      only ties on rhythm -> hybrid: rules place onsets, model supplies note
+      values + downbeats. Option 2 (synthetic data) after that.
+      **Run 5 RESULT (2026-10-10 01:49): it WORKS and BEATS the pipeline.**
+      Val tracks train (gap 80.0/81.0%, value 50.8/60.0%); real gaps 64.4%
+      (majority 37.6%), values 51.5% (majority 30.5%). Benchmark, 38 pieces,
+      audio: rhythm 58.3% -> **63.3%**, durations 43.5% -> **47.0%**, staff
+      89.1% = 89.1%; better on 28/38 pieces (rhythm and durations). BUT beat
+      level 19 -> 16/38, beat F 0.49 -> 0.30, downbeat F 0.17 -> 0.14.
+      Weights: `var/rhythm-models/run5.pt` (gitignored). NOT made the default.
+- [x] C6. Benchmarked (above). Meets the stated bar (rhythm AND durations up,
+      staff not lower).
+
+## 2026-10-10 morning: hybrid tried, model made the default
+
+- Hybrid (model gaps anchored to the audio grid, `rhythm/decode.anchor_positions`):
+  rhythm 54.5%, durations 42.7% with either bar source: worse than both. Not
+  used. The model's downbeats on the audio grid gave downbeat F 0.23 (best).
+- **Default switched to the model** (`rhythm.weights.DEFAULT_MODE="model"`,
+  `api/pipeline._rhythm_choice`). Falls back to rules without weights; a
+  misconfigured env var is an `engine_unavailable` job error. Weights in
+  `checkpoints/rhythm-run5.pt` (gitignored, sha256 pinned). `tests/conftest.py`
+  pins grid for hermetic tests. Full suite: 1449 passed.
+- Cost: 8-min piece 9.5 s -> 23.7 s (steady state); 21-min piece 90 s -> 276 s.
+- The notation CLI (`notation/__main__.py`) still uses the rules; only the web app
+  pipeline switched.
+
+## Next
+
+1. Speed: beat tracking from notes is most of the model's time; cache or speed
+   it up. Profile music21 engraving of the finer rhythms.
+2. Bar lines: the model's downbeat head looks better than first measured (0.23
+   on a good grid). Retrain with the downbeat loss weighted, or decode bars from
+   it on the model's own grid more carefully.
+3. Look at the 9 pieces where the model loses rhythm.
+4. More data (synthetic performances) for the next model.
+
+## (older) Next (for the user to look at first)
+
+1. Decide whether `rhythm="model"` becomes the product default. Needed: load
+   the weights in `api/pipeline.py` and decide where weights live (repo or
+   download). Rhythm and durations are up, bar lines slightly down.
+2. Fix the beat/bar-line regression cheaply: the model's downbeat head
+   (val F1 ~0.18) is weak. Try a hybrid that keeps the rule pipeline's
+   meter/bars and uses the model's positions and values, or weight the
+   downbeat loss. Benchmark both.
+3. Look at the 9 pieces where the model loses rhythm.
+4. Then option 2 (synthetic performances) for more data.
+      Known mismatch for the AUDIO row: training offsets are key releases;
+      transcription offsets are sounding (pedal-extended). Augment for it.
+- [x] C5. `rhythm/decode.py` (7 tests), `rhythm/infer.py` + wiring
+      `transcription_to_score(rhythm="model", rhythm_model=...)` (6 tests;
+      default stays "grid"). `ScoreStats.rhythm`/`grid_beats`. Benchmark
+      `--rhythm-model PATH` scores the grid actually used. Default path
+      re-verified identical; model path smoke-tested end to end.
+- [ ] C6. Benchmark vs 58.3% rhythm / 43.5% durations.
+
+---
+
 # Phase 32 -- score-level benchmark: real recordings vs the real printed score
 
 ## Why

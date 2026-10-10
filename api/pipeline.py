@@ -211,6 +211,33 @@ def _transcribe(spec: JobSpec, report: ProgressFn, engine, cancelled):
     return tr
 
 
+#: Where the hybrid takes its bar lines from (Phase 33). Set from the score
+#: benchmark; see `benchmarks/score-benchmark-README.md`.
+RHYTHM_BARS = "grid"
+
+
+def _rhythm_choice():
+    """(rhythm mode, loaded model or None) for this server.
+
+    PTIFY_RHYTHM picks the mode (`rhythm.weights.DEFAULT_MODE` when unset). The
+    model is optional: with no weights found the job engraves with the rule
+    pipeline and logs why, rather than failing. `stats.rhythm` then reports
+    "grid", so nothing claims a model that did not run.
+    """
+    from rhythm import weights
+
+    mode = weights.rhythm_mode()
+    if mode == "grid":
+        return "grid", None
+    path = weights.resolve_rhythm_model()
+    if path is None:
+        log.warning("PTIFY_RHYTHM=%s but no rhythm model weights were found "
+                    "(set %s or put %s in checkpoints/); using the rule pipeline",
+                    mode, weights.RHYTHM_MODEL_ENV, weights.RHYTHM_MODEL_NAME)
+        return "grid", None
+    return mode, weights.load_cached(str(path))
+
+
 def _build_score(spec: JobSpec, tr):
     """Beat grid -> quantised score. Returns (grid, score, stats)."""
     from notation.quantise import estimate_grid, grid_from_tempo
@@ -233,9 +260,20 @@ def _build_score(spec: JobSpec, tr):
         raise PipelineError("bad_request", str(exc)) from exc
 
     try:
+        rhythm, rhythm_model = _rhythm_choice()
+    except (ValueError, FileNotFoundError) as exc:
+        # A SET-but-wrong PTIFY_RHYTHM / PTIFY_RHYTHM_MODEL is an operator error:
+        # say so, rather than silently engraving with something else.
+        log.exception("rhythm model misconfigured")
+        raise PipelineError("engine_unavailable",
+                            f"rhythm model misconfigured: {exc}") from exc
+    try:
         score, stats = transcription_to_score(
             tr,
             grid,
+            rhythm=rhythm,
+            rhythm_model=rhythm_model,
+            rhythm_bars=RHYTHM_BARS,
             beats_per_bar=spec.beats_per_bar,
             title=spec.title or Path(spec.original_name or "score").stem,
             composer=spec.composer,

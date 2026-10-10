@@ -36,6 +36,28 @@ if TYPE_CHECKING:
 # detection jitter into thirty-second notes that no one played.
 DEFAULT_SUBDIVISION = 0.25
 
+# The grid for a beat that divides in THREE: triplets in simple time, and
+# compound time (6/8, 12/16) when the tracked beat is the dotted one. MEASURED
+# in Phase 32: on a 0.25 grid those pieces score 0-4% rhythm against the
+# published score, because 1/3 and 2/3 of a beat do not exist on it.
+TRIPLE_SUBDIVISION = 1 / 3
+
+# An onset votes for a division when it sits this close (in beats) to a slot
+# only that division has. 1/4 and 1/3 are 1/12 of a beat apart, so the window
+# must stay under 1/24 or one onset could vote both ways.
+DIVISION_VOTE_TOL = 0.04
+
+# Distinct off-beat onsets needed before the vote may overturn the default. A
+# handful of triplets in duple music is decoration, not the piece's grid.
+MIN_DIVISION_VOTES = 12
+
+# Onsets closer than this (in beats) are one rhythmic event -- a chord, or a
+# spread chord -- and vote once.
+CHORD_TOL_BEATS = 0.02
+
+_DUPLE_ONLY = (0.25, 0.5, 0.75)
+_TRIPLE_ONLY = (1 / 3, 2 / 3)
+
 # Fallback tempo when beat tracking has nothing to work with (silence, or a
 # handful of notes). 120 BPM is the MIDI default and keeps output valid.
 FALLBACK_BPM = 120.0
@@ -212,6 +234,38 @@ def estimate_grid_from_samples(
         beats_per_bar=beats_per_bar,
         subdivision=subdivision,
     )
+
+
+def estimate_subdivision(notes: list[NoteEvent], grid: BeatGrid) -> float:
+    """Does this piece's beat divide in four or in three?
+
+    Each distinct onset is placed within its beat. A position only the duple
+    grid has (1/4, 1/2, 3/4) votes duple; one only the triple grid has (1/3,
+    2/3) votes triple; on-beat onsets carry no information and do not vote.
+    Triple wins only on a strict majority of at least `MIN_DIVISION_VOTES`
+    votes, so with thin or mixed evidence the established 0.25 grid stays.
+
+    One division for the WHOLE piece. A movement that switches between
+    duplets and triplets gets the majority; per-passage choice is the job of
+    the Phase 33 model, not this baseline.
+    """
+    positions = sorted(grid.beat_position(n.onset) for n in notes)
+    distinct: list[float] = []
+    for p in positions:
+        if not distinct or p - distinct[-1] > CHORD_TOL_BEATS:
+            distinct.append(p)
+
+    duple = triple = 0
+    for p in distinct:
+        f = p - math.floor(p)
+        if any(abs(f - s) <= DIVISION_VOTE_TOL for s in _TRIPLE_ONLY):
+            triple += 1
+        elif any(abs(f - s) <= DIVISION_VOTE_TOL for s in _DUPLE_ONLY):
+            duple += 1
+
+    if triple + duple < MIN_DIVISION_VOTES or triple <= duple:
+        return DEFAULT_SUBDIVISION
+    return TRIPLE_SUBDIVISION
 
 
 def _snap(value: float, subdivision: float) -> float:

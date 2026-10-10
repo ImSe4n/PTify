@@ -480,3 +480,45 @@ def test_the_tempo_marking_prints_a_whole_number():
             encoding="utf-8")
 
     assert "120.19" not in xml
+
+
+# --- Phase 33 A3: the beat division is chosen, and reported ------------------
+#
+# Measured on the score benchmark: choosing three-per-beat on triple music took
+# Bach bwv_873 from 0.0% to 95.6% rhythm, with no other piece changing. These
+# pin that the product path does it, says so, and can still be told not to.
+
+def _triplets(beats=12):
+    from transcriber.events import NoteEvent, Transcription
+    # 60 BPM grid below, so these onsets are triplet eighths, beat by beat.
+    notes = [NoteEvent(60 + i, k + i / 3, k + i / 3 + 0.3)
+             for k in range(beats) for i in range(3)]
+    return Transcription(notes=notes, duration=beats + 1.0, engine="t")
+
+
+def test_triplet_music_is_quantised_on_a_triple_grid():
+    from notation.quantise import TRIPLE_SUBDIVISION
+    _, stats = transcription_to_score(_triplets(), grid_from_tempo(60.0, 14.0))
+    assert stats.subdivision == TRIPLE_SUBDIVISION
+    starts = sorted({round(q.start_beats % 1, 3) for q in stats.notes})
+    assert starts == [0.0, 0.333, 0.667]
+
+
+def test_division_grid_keeps_the_fixed_quarter_beat_grid():
+    from notation.quantise import DEFAULT_SUBDIVISION
+    _, stats = transcription_to_score(_triplets(), grid_from_tempo(60.0, 14.0),
+                                      division="grid")
+    assert stats.subdivision == DEFAULT_SUBDIVISION
+
+
+def test_analyse_false_still_reproduces_the_old_grid():
+    from notation.quantise import DEFAULT_SUBDIVISION
+    _, stats = transcription_to_score(_triplets(), grid_from_tempo(60.0, 14.0),
+                                      analyse=False)
+    assert stats.subdivision == DEFAULT_SUBDIVISION
+
+
+def test_unknown_division_is_refused():
+    with pytest.raises(ValueError):
+        transcription_to_score(_triplets(), grid_from_tempo(60.0, 14.0),
+                               division="sometimes")

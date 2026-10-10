@@ -57,3 +57,85 @@ only:
 - Pitch spelling and key: needs the MusicXML, not the score MIDI.
 - Voices, ties, beaming, and readability as a whole.
 - Fixed 1/48-beat tolerance; there is no partial credit.
+
+## Phase 33 A — choosing the beat division (shipped)
+
+`score-benchmark-ptify-asap-phase33a.json`, same command (`--subdivision auto` is
+now the default; `--subdivision fixed` reproduces the table above exactly).
+
+`notation.quantise.estimate_subdivision` picks four or three slots per beat for
+the whole piece from where onsets fall in the beat, and keeps 0.25 unless the
+triple evidence is a clear majority. It's wired into `transcription_to_score`
+(`division="auto"`), so the web app, CLI and benchmark all use it.
+
+| row | durations | rhythm | staff |
+|---|---|---|---|
+| from audio, before | 39.6% | 52.9% | 89.1% |
+| from audio, **after** | **43.5%** | **58.3%** | 89.1% |
+| from perfect MIDI, after | 43.1% | 57.5% | 89.6% |
+
+Only three pieces changed, all for the better, and the other 35 are identical:
+Bach bwv_873 rhythm 0.0% -> 95.6%, Beethoven 18-4 0.9% -> 89.5%, Schubert
+664-3 2.3% -> 24.7%. The Chopin Sonata 2 finale and Liszt S145/2 stayed on the
+0.25 grid because the evidence was mixed, so the rule abstained.
+
+## Phase 33 C — our own rhythm model, run 5 (built, NOT the default)
+
+`score-benchmark-rhythm-model-run5.json`, produced by the same command plus
+`--rhythm-model var/rhythm-models/run5.pt`. A small Transformer (d192, 3 layers),
+trained on Kaggle (T4, 25 min) on 785 ASAP performances. The benchmark's 39 scores
+were excluded from training entirely. Training log: `training/rhythm-run5.jsonl`.
+
+| from audio | pipeline (Phase 33 A) | rhythm model run 5 |
+|---|---|---|
+| rhythm | 58.3% | **63.3%** |
+| durations | 43.5% | **47.0%** |
+| staff | 89.1% | 89.1% |
+| beat level right | 19/38 | 16/38 |
+| beat F / downbeat F | 0.49 / 0.17 | 0.30 / 0.14 |
+
+From perfect MIDI: rhythm 57.5% -> 68.7%, durations 43.1% -> 51.3%. The model is
+better on 28/38 pieces for rhythm and on 28/38 for durations, and worse on 9 and 7.
+
+Runs 1-4 failed, and why is the useful part:
+1. Labels in ANNOTATED beats: annotators' beat units differ per score (quarter
+   x159, dotted quarter x41, half x18 ...), so the labels contradicted each other.
+2. Quarter-note labels: still capped. A written value is a notational choice (2/4
+   and 2/2 sound the same). One scale factor per piece lifted validation real-gap
+   accuracy from 34.1% to 58.5%.
+3. Fix (run 5): labels re-expressed per window in units of the beat tracked from
+   the notes, which the model sees as input. Validation tracks training
+   (gap 80.0% vs 81.0%). Real gaps 64.4% (always-majority 37.6%), values 51.5%
+   (always-majority 30.5%).
+
+It is not the default because beat level and bar lines (downbeats) got slightly
+worse. Those shape the page as much as rhythm does.
+
+## Phase 33 C — the model is the web app's default (2026-10-10)
+
+Hybrids tried first: the model's rhythm anchored to the pipeline's audio grid
+(`--rhythm-mode hybrid`, `score-benchmark-rhythm-hybrid-*.json`). Both lost rhythm.
+
+| from audio | pipeline | **model (run 5)** | hybrid, grid bars | hybrid, model bars |
+|---|---|---|---|---|
+| rhythm | 58.3% | **63.3%** | 54.5% | 54.5% |
+| durations | 43.5% | **47.0%** | 42.7% | 42.7% |
+| beat level right | 19/38 | 16/38 | 19/38 | 19/38 |
+| downbeat F | 0.17 | 0.14 | 0.17 | **0.23** |
+
+Likely cause: the model was trained on grids tracked from NOTES, so an audio grid
+is unfamiliar input, and re-anchoring snaps away its choices. Useful finding:
+the model's downbeat head beats the pipeline's bar lines (0.23 vs 0.17) when its
+beats are good, so bar lines are worth revisiting.
+
+**Default:** `rhythm.weights.DEFAULT_MODE = "model"`. It meets the Phase 33 bar
+(rhythm and durations up, staff not lower). Weights are found at $PTIFY_RHYTHM_MODEL,
+then `checkpoints/rhythm-run5.pt`, then `~/.ptify/checkpoints/` (sha256 pinned in
+`rhythm/weights.py`). With no weights the app engraves with the rules and
+`stats.rhythm` says "grid". `PTIFY_RHYTHM=grid` reverts. Tests pin `grid` in
+`tests/conftest.py`, so they don't depend on weights being present.
+
+**Cost:** an 8-minute piece takes 23.7 s to engrave against 9.5 s (steady state;
+51 s on a cold process). The 21-minute Wanderer Fantasy takes 276 s against 90 s.
+Most of the model's own time is beat tracking from notes; the rest is music21
+engraving finer rhythms.

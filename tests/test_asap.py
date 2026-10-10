@@ -104,3 +104,25 @@ def test_score_notes_name_staves_by_register_not_track_order():
 def test_score_notes_rejects_other_than_two_staves():
     with pytest.raises(ValueError):
         score_notes([[NoteEvent(60, 0.0, 0.5)]], BeatMap((0.0, 0.5)))
+
+
+def test_score_notes_can_carry_positions_in_quarter_notes():
+    # Phase 33: annotated beats are a per-piece convention (159 of 235 ASAP
+    # scores beat in quarters, 41 in dotted quarters, 18 in halves...), so a
+    # model target in beats means different note values in different pieces.
+    # The score MIDI's own clock gives quarter notes everywhere.
+    score_map = BeatMap((0.0, 1.0, 2.0))            # one HALF note per beat
+    upper = [NoteEvent(72, 0.0, 0.4989)]            # an eighth: 1/4 of a beat
+    lower = [NoteEvent(48, 0.0, 0.9989)]
+    notes = score_notes([upper, lower], score_map, to_quarters=lambda t: 2.0 * t)
+    by_pitch = {n.pitch: n for n in notes}
+    assert by_pitch[72].length_beats == pytest.approx(0.5)
+    assert by_pitch[72].start_quarter == pytest.approx(0.0)
+    assert by_pitch[72].length_quarters == pytest.approx(1.0)
+    assert by_pitch[48].length_quarters == pytest.approx(2.0)
+
+
+def test_score_notes_without_a_quarter_clock_leave_quarters_unset():
+    notes = score_notes([[NoteEvent(72, 0.0, 0.5)], [NoteEvent(48, 0.0, 0.5)]],
+                        BeatMap((0.0, 0.5, 1.0)))
+    assert all(n.start_quarter is None for n in notes)

@@ -30,6 +30,7 @@ e.g. `4.92\\t4.92\\tdb,4/4`.
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from transcriber.events import NoteEvent
@@ -100,15 +101,26 @@ class ScoreNote:
     start_beat: float
     length_beats: float
     staff: str  # "upper" or "lower"
+    #: The same note in QUARTER NOTES, from the score MIDI's own clock. Set only
+    #: when `score_notes` is given `to_quarters`. Annotated beats are a per-piece
+    #: convention (Phase 33: 76 of 235 ASAP scores do not beat in quarters), so
+    #: anything learned across pieces must use these instead.
+    start_quarter: float | None = None
+    length_quarters: float | None = None
 
 
 def _snap(beats: float) -> float:
     return round(beats * SCORE_LENGTH_DIVISIONS) / SCORE_LENGTH_DIVISIONS
 
 
-def score_notes(tracks: list[list[NoteEvent]],
-                score_map: BeatMap) -> list[ScoreNote]:
+def score_notes(tracks: list[list[NoteEvent]], score_map: BeatMap,
+                to_quarters: Callable[[float], float] | None = None
+                ) -> list[ScoreNote]:
     """Score-MIDI tracks -> notes in beats, one track per staff.
+
+    `to_quarters` maps score-MIDI seconds to quarter notes (e.g. pretty_midi's
+    `time_to_tick(t) / resolution`); given it, each note also carries its
+    position and length in quarters.
 
     The staff is named by REGISTER (the higher-sounding track is "upper"), not
     by track order, which a MIDI file does not promise.
@@ -126,5 +138,11 @@ def score_notes(tracks: list[list[NoteEvent]],
         for n in track:
             start = score_map.to_beats(n.onset)
             end = score_map.to_beats(n.offset)
-            out.append(ScoreNote(n.pitch, _snap(start), _snap(end - start), staff))
+            q0 = q1 = None
+            if to_quarters is not None:
+                q0, q1 = to_quarters(n.onset), to_quarters(n.offset)
+            out.append(ScoreNote(
+                n.pitch, _snap(start), _snap(end - start), staff,
+                None if q0 is None else _snap(q0),
+                None if q0 is None else _snap(q1 - q0)))
     return sorted(out, key=lambda n: (n.start_beat, n.pitch))
