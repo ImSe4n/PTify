@@ -1,0 +1,70 @@
+{
+  "engine": "ptify",
+  "corpus": "recordings\\maestro_test12",
+  "n_tracks": 12,
+  "n_estimated_notes": 48430,
+  "n_under_estimated_pedal": 35476,
+  "split_judged_on": "reference CC64; rules see estimated pedal only",
+  "rules": [
+    {
+      "rule": "baseline",
+      "conditional_accuracy": 0.26146712687653345,
+      "under_sustain": 0.0738692664216078,
+      "pedal_up": 0.6106252602772324,
+      "direction": {
+        "too_long": 35282,
+        "in_tolerance": 12575,
+        "too_short": 237
+      },
+      "mean_onset_f1": 0.9562387846148495,
+      "mean_offset_f1": 0.28014030112493166,
+      "notes_shortened": 0,
+      "notes_total": 48430
+    },
+    {
+      "rule": "next_onset_same_hand",
+      "conditional_accuracy": 0.4534037509876492,
+      "under_sustain": 0.3404187310212562,
+      "pedal_up": 0.6636920697245523,
+      "direction": {
+        "in_tolerance": 21806,
+        "too_short": 3189,
+        "too_long": 23099
+      },
+      "mean_onset_f1": 0.9562387846148495,
+      "mean_offset_f1": 0.45909566014181674,
+      "notes_shortened": 24732,
+      "notes_total": 48430
+    },
+    {
+      "rule": "next_bass_change",
+      "conditional_accuracy": 0.38986152118767414,
+      "under_sustain": 0.2536039635608119,
+      "pedal_up": 0.6434648105181748,
+      "direction": {
+        "too_long": 25394,
+        "in_tolerance": 18750,
+        "too_short": 3950
+      },
+      "mean_onset_f1": 0.9562387846148495,
+      "mean_offset_f1": 0.4032168821937405,
+      "notes_shortened": 21956,
+      "notes_total": 48430
+    },
+    {
+      "rule": "pedal_change",
+      "conditional_accuracy": 0.28542021873830414,
+      "under_sustain": 0.09774652389323957,
+      "pedal_up": 0.6347194955083586,
+      "direction": {
+        "too_long": 28357,
+        "in_tolerance": 13727,
+        "too_short": 6010
+      },
+      "mean_onset_f1": 0.9562387846148495,
+      "mean_offset_f1": 0.2985047108740672,
+      "notes_shortened": 15651,
+      "notes_total": 48430
+    }
+  ]
+}

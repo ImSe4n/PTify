@@ -31,10 +31,13 @@ from evaluation.offset_diagnosis import (
     OFFSET_MIN_TOLERANCE,
     OFFSET_RATIO,
     ONSET_TOLERANCE,
+    PEDAL_SOURCES,
     aggregate,
     format_profile,
+    pedal_confusion,
     profile_track,
 )
+from evaluation.estimate_cache import cache_path, load_estimate, save_estimate
 from transcriber.engine import get_engine, resolve_default_engine
 from transcriber.midi import read_midi
 
@@ -55,7 +58,28 @@ def build_parser() -> argparse.ArgumentParser:
                     help="only the first N tracks, for a quick look")
     ap.add_argument("--json", type=Path, default=None,
                     help="write the full breakdown here")
+    ap.add_argument("--cache-dir", type=Path, default=None,
+                    help="reuse/store engine output here (Phase 31), so "
+                         "re-scoring skips inference")
+    ap.add_argument("--pedal-source", choices=PEDAL_SOURCES,
+                    default="reference",
+                    help="which pedal decides 'under sustain': the reference "
+                         "CC64, or the model's own estimate")
     return ap
+
+
+def _transcribe(engine, engine_name: str, audio: Path,
+                cache_dir: Path | None):
+    """Engine output for one track, from the cache when it holds it."""
+    if cache_dir is None:
+        return engine.transcribe_file(str(audio))
+    path = cache_path(cache_dir, engine_name, audio.stem)
+    if path.exists():
+        print("          (cached)", flush=True)
+        return load_estimate(path, engine=engine_name)
+    est = engine.transcribe_file(str(audio))
+    save_estimate(est, path)
+    return est
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -81,12 +105,18 @@ def main(argv: list[str] | None = None) -> int:
     engine = get_engine(engine_name, checkpoint_path=args.checkpoint)
 
     profiles = []
+    confusion = {"both": 0, "reference only": 0,
+                 "estimate only": 0, "neither": 0}
     for i, (audio, midi) in enumerate(pairs, 1):
         print(f"[{i}/{len(pairs)}] {audio.stem[:60]}", flush=True)
-        est = engine.transcribe_file(str(audio))
+        est = _transcribe(engine, engine_name, audio, args.cache_dir)
         ref = read_midi(midi)
-        p = profile_track(ref, est, label=audio.stem)
+        p = profile_track(ref, est, label=audio.stem,
+                          pedal_source=args.pedal_source)
         profiles.append(p)
+        if ref.pedals:
+            for k, v in pedal_confusion(ref, est).items():
+                confusion[k] += v
         print(f"          conditional {p.conditional_accuracy:6.1%}  "
               f"median err {p.median_signed_error():+.3f}s  "
               f"({p.n_matched}/{p.n_reference} onsets matched)", flush=True)
@@ -95,6 +125,12 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print("=" * 72)
     print(format_profile(total))
+    print(f"pedal source      : {args.pedal_source}")
+    if any(confusion.values()):
+        n = sum(confusion.values())
+        print("\nmodel pedal vs reference CC64, at each matched release")
+        for k, v in confusion.items():
+            print(f"  {k:<16} {v:>6}/{n:<6} {v / n:6.1%}")
     print("=" * 72)
 
     if args.json:
@@ -126,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
             "by_duration": table(total.by_duration()),
             "by_pedal": table(total.by_pedal()),
             "pedal_valid": total.pedal_valid,
+            "pedal_source": args.pedal_source,
+            "pedal_confusion": confusion,
             "per_track": [
                 {"label": p.label, "n_reference": p.n_reference,
                  "n_matched": p.n_matched,

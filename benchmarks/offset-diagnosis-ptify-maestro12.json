@@ -1,0 +1,161 @@
+{
+  "engine": "ptify",
+  "corpus": "recordings\\maestro_test12",
+  "n_tracks": 12,
+  "onset_tolerance": 0.05,
+  "offset_ratio": 0.2,
+  "offset_min_tolerance": 0.05,
+  "matching": "mir_eval.transcription.match_notes, offset_ratio=None -- onset-only, so duration error is measured over the notes the published onset figures counted as found",
+  "totals": {
+    "n_reference": 52478,
+    "n_matched": 48094,
+    "n_in_tolerance": 12575,
+    "conditional_accuracy": 0.26146712687653345,
+    "median_signed_error": 0.1451059977213518
+  },
+  "direction": {
+    "too_long": 35282,
+    "in_tolerance": 12575,
+    "too_short": 237
+  },
+  "by_duration": {
+    "<0.25s (floor)": {
+      "in_tolerance": 10419,
+      "total": 39004,
+      "rate": 0.2671264485693775
+    },
+    "0.25-0.5s": {
+      "in_tolerance": 916,
+      "total": 5005,
+      "rate": 0.18301698301698302
+    },
+    "0.5-1s": {
+      "in_tolerance": 724,
+      "total": 2719,
+      "rate": 0.26627436557557926
+    },
+    ">1s": {
+      "in_tolerance": 516,
+      "total": 1366,
+      "rate": 0.37774524158125916
+    }
+  },
+  "by_pedal": {
+    "under sustain": {
+      "in_tolerance": 2311,
+      "total": 31285,
+      "rate": 0.0738692664216078
+    },
+    "pedal up": {
+      "in_tolerance": 10264,
+      "total": 16809,
+      "rate": 0.6106252602772324
+    }
+  },
+  "pedal_valid": true,
+  "pedal_source": "reference",
+  "pedal_confusion": {
+    "both": 30310,
+    "reference only": 975,
+    "estimate only": 800,
+    "neither": 16009
+  },
+  "per_track": [
+    {
+      "label": "Alexander_Scriabin-2006-Sonata_No._9-MIDI-Unprocessed",
+      "n_reference": 3648,
+      "n_matched": 3169,
+      "conditional_accuracy": 0.09940044177974125,
+      "median_signed_error": 0.33433024088537877,
+      "pedal_valid": true
+    },
+    {
+      "label": "Claude_Debussy-2011-Jardins_sous_la_pluie_from_Estampes-MIDI-Unprocessed",
+      "n_reference": 2730,
+      "n_matched": 2562,
+      "conditional_accuracy": 0.11202185792349727,
+      "median_signed_error": 0.19338734944660985,
+      "pedal_valid": true
+    },
+    {
+      "label": "Domenico_Scarlatti-2008-Sonata_K._525-MIDI-Unprocessed",
+      "n_reference": 882,
+      "n_matched": 816,
+      "conditional_accuracy": 0.5122549019607843,
+      "median_signed_error": 0.049788713455200195,
+      "pedal_valid": true
+    },
+    {
+      "label": "Felix_Mendelssohn-2017-Fantasy_in_F-sharp_Minor,_Op._28_(Complete)-MIDI-Unprocessed",
+      "n_reference": 8277,
+      "n_matched": 7813,
+      "conditional_accuracy": 0.4081658773838474,
+      "median_signed_error": 0.08428751627604925,
+      "pedal_valid": true
+    },
+    {
+      "label": "Franz_Liszt-2008-Transcendental_Etude_No._10_in_F_Minor__Appassionata_-MIDI-Unprocessed",
+      "n_reference": 4057,
+      "n_matched": 3614,
+      "conditional_accuracy": 0.17902600996126175,
+      "median_signed_error": 0.17608896891275094,
+      "pedal_valid": true
+    },
+    {
+      "label": "Franz_Schubert-2015-Impromptu_Op._90_No._4_in_A-flat_Major-MIDI-Unprocessed",
+      "n_reference": 4425,
+      "n_matched": 4137,
+      "conditional_accuracy": 0.09064539521392313,
+      "median_signed_error": 0.16654764811198675,
+      "pedal_valid": true
+    },
+    {
+      "label": "Franz_Schubert___Franz_Liszt-2004-Song_Transcriptions__Aufenthalt,_Gretchen_am_Spinnrade,_",
+      "n_reference": 4435,
+      "n_matched": 3492,
+      "conditional_accuracy": 0.14576174112256587,
+      "median_signed_error": 0.10656331380208606,
+      "pedal_valid": true
+    },
+    {
+      "label": "Fr\u00e9d\u00e9ric_Chopin-2015-Etude_Op._10_No._12-MIDI-Unprocessed",
+      "n_reference": 2111,
+      "n_matched": 1987,
+      "conditional_accuracy": 0.2747861097131354,
+      "median_signed_error": 0.1423995971679659,
+      "pedal_valid": true
+    },
+    {
+      "label": "Johann_Sebastian_Bach-2013-Prelude_and_Fugue_in_D-sharp_Minor,_WTC_II,_BWV_877-ORIG-MIDI_0",
+      "n_reference": 2006,
+      "n_matched": 1983,
+      "conditional_accuracy": 0.47655068078668683,
+      "median_signed_error": 0.12096150716143939,
+      "pedal_valid": true
+    },
+    {
+      "label": "Johannes_Brahms-2009-Sonata_2_F-sharp_Minor,_Op._2-MIDI-Unprocessed",
+      "n_reference": 13316,
+      "n_matched": 12105,
+      "conditional_accuracy": 0.16852540272614622,
+      "median_signed_error": 0.19370524088537877,
+      "pedal_valid": true
+    },
+    {
+      "label": "Joseph_Haydn-2008-Sonata_in_C_Minor,_First_Movement-MIDI-Unprocessed",
+      "n_reference": 2244,
+      "n_matched": 2198,
+      "conditional_accuracy": 0.4608735213830755,
+      "median_signed_error": 0.08059946695963305,
+      "pedal_valid": true
+    },
+    {
+      "label": "Ludwig_van_Beethoven-2015-Sonata_No._3_in_C_Major,_Op._2_No._3,_I._Allegro_con_brio-MIDI-U",
+      "n_reference": 4347,
+      "n_matched": 4218,
+      "conditional_accuracy": 0.5431484115694643,
+      "median_signed_error": 0.03427480061849053,
+      "pedal_valid": true
+    }
+  ]
+}

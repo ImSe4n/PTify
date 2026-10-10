@@ -66,6 +66,11 @@ class DurationProfile:
     pairs: list[tuple[NoteEvent, NoteEvent]] = field(default_factory=list)
     #: Sustain spans from the reference MIDI's CC64, for the pedal breakdown.
     pedals: list[tuple[float, float]] = field(default_factory=list)
+    #: Per-pair "released under sustain", fixed when a pooled profile is built.
+    #: Pedal times are per-TRACK, so pooling the spans themselves would test
+    #: one track's notes against every other track's pedal.
+    pedal_flags: list[bool] | None = None
+    _pooled_pedal_valid: bool = False
 
     @property
     def n_in_tolerance(self) -> int:
@@ -119,7 +124,15 @@ class DurationProfile:
         "0% pedalled" -- a finding rather than a missing column. Same failure
         mode as MAPS velocities in `recall_diagnosis.velocity_valid`.
         """
+        if self.pedal_flags is not None:
+            return self._pooled_pedal_valid
         return bool(self.pedals)
+
+
+    def _pedal_states(self) -> list[bool]:
+        if self.pedal_flags is not None:
+            return self.pedal_flags
+        return [self.under_pedal(ref) for ref, _ in self.pairs]
 
     def by_pedal(self) -> dict[str, tuple[int, int]]:
         """state -> (in tolerance, total matched). Returns {} with no pedal data."""
@@ -127,8 +140,8 @@ class DurationProfile:
             return {}
         out: dict[str, list[int]] = {"under sustain": [0, 0],
                                      "pedal up": [0, 0]}
-        for ref, est in self.pairs:
-            key = "under sustain" if self.under_pedal(ref) else "pedal up"
+        for (ref, est), pedalled in zip(self.pairs, self._pedal_states()):
+            key = "under sustain" if pedalled else "pedal up"
             out[key][1] += 1
             if self._ok(ref, est):
                 out[key][0] += 1
@@ -161,9 +174,16 @@ class DurationProfile:
         return float(np.median([self._signed(r, e) for r, e in self.pairs]))
 
 
+#: Which pedal track decides "under sustain". `reference` is the ground truth's
+#: CC64 (the Phase 30 diagnosis); `estimate` is the model's own pedal head, the
+#: only one a decode rule can use at inference (Phase 31).
+PEDAL_SOURCES = ("reference", "estimate")
+
+
 def profile_track(reference: Transcription, estimate: Transcription,
                   label: str = "",
-                  onset_tolerance: float = ONSET_TOLERANCE) -> DurationProfile:
+                  onset_tolerance: float = ONSET_TOLERANCE,
+                  pedal_source: str = "reference") -> DurationProfile:
     """Duration error over onset-matched pairs.
 
     Matching is ONSET-only (`offset_ratio=None`) on purpose: the whole question
@@ -172,9 +192,14 @@ def profile_track(reference: Transcription, estimate: Transcription,
     """
     import mir_eval.transcription as T
 
+    if pedal_source not in PEDAL_SOURCES:
+        raise ValueError(f"pedal_source must be one of {PEDAL_SOURCES}, "
+                         f"got {pedal_source!r}")
+
     ref_notes = sorted(reference.notes, key=lambda n: (n.onset, n.pitch))
     est_notes = sorted(estimate.notes, key=lambda n: (n.onset, n.pitch))
-    pedals = [(p.onset, p.offset) for p in getattr(reference, "pedals", [])]
+    pedal_tr = reference if pedal_source == "reference" else estimate
+    pedals = [(p.onset, p.offset) for p in getattr(pedal_tr, "pedals", [])]
 
     if not ref_notes or not est_notes:
         return DurationProfile(label=label, n_reference=len(ref_notes),
@@ -201,6 +226,26 @@ def profile_track(reference: Transcription, estimate: Transcription,
     )
 
 
+def pedal_confusion(reference: Transcription,
+                    estimate: Transcription) -> dict[str, int]:
+    """Do the model's pedal and the reference CC64 agree on each release?
+
+    Counted over onset-matched notes, on the REFERENCE release time, which is
+    the quantity every sustain rule is trying to recover. The pedal head is
+    frozen and was never trained (`training/model.py`), so this is the ceiling
+    on any rule that keys off it.
+    """
+    ref_p = profile_track(reference, estimate, pedal_source="reference")
+    est_p = profile_track(reference, estimate, pedal_source="estimate")
+    out = {"both": 0, "reference only": 0, "estimate only": 0, "neither": 0}
+    for ref, _ in ref_p.pairs:
+        r, e = ref_p.under_pedal(ref), est_p.under_pedal(ref)
+        key = ("both" if r and e else "reference only" if r
+               else "estimate only" if e else "neither")
+        out[key] += 1
+    return out
+
+
 def aggregate(profiles: list[DurationProfile]) -> DurationProfile:
     """Pool every track's matched pairs into one profile.
 
@@ -208,12 +253,14 @@ def aggregate(profiles: list[DurationProfile]) -> DurationProfile:
     equally, which is what a corpus-level rate means. Per-track rates are still
     printed individually so a single dominant track cannot hide.
     """
-    total = DurationProfile(label="ALL TRACKS", n_reference=0, n_matched=0)
+    total = DurationProfile(label="ALL TRACKS", n_reference=0, n_matched=0,
+                            pedal_flags=[])
     for p in profiles:
         total.n_reference += p.n_reference
         total.n_matched += p.n_matched
         total.pairs.extend(p.pairs)
-        total.pedals.extend(p.pedals)
+        total.pedal_flags.extend(p._pedal_states())
+        total._pooled_pedal_valid |= p.pedal_valid
     return total
 
 

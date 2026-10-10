@@ -23,6 +23,7 @@ from evaluation.offset_diagnosis import (
     aggregate,
     format_profile,
     offset_tolerance,
+    pedal_confusion,
     profile_track,
 )
 from transcriber.events import NoteEvent, PedalEvent, Transcription
@@ -149,6 +150,42 @@ def test_pedal_breakdown_splits_on_the_RELEASE_not_the_onset():
     assert table["pedal up"][1] == 1
 
 
+def test_pedal_source_estimate_uses_the_models_own_pedals():
+    """Phase 31: a decode rule only has the MODEL's pedal at inference, so the
+    breakdown must be computable on that too. Reference says the release is
+    under sustain; the estimate says the pedal was up."""
+    ref = _tr([_n(60, 0.5, 0.5)], pedals=[PedalEvent(0.0, 1.5)])
+    est = _tr([NoteEvent(60, 0.5, 1.0, 80)], pedals=[PedalEvent(2.0, 3.0)])
+
+    by_ref = profile_track(ref, est).by_pedal()
+    by_est = profile_track(ref, est, pedal_source="estimate").by_pedal()
+    assert by_ref["under sustain"][1] == 1
+    assert by_est["pedal up"][1] == 1
+
+
+def test_an_unknown_pedal_source_is_refused():
+    notes = [_n(60, 0.0)]
+    with pytest.raises(ValueError, match="pedal_source"):
+        profile_track(_tr(notes), _tr(notes), pedal_source="both")
+
+
+def test_pedal_confusion_compares_estimated_against_reference_sustain():
+    """How good is the frozen, never-trained pedal head? Every sustain rule is
+    capped by it, so it is measured per matched note RELEASE."""
+    ref_pedals = [PedalEvent(0.0, 2.0)]
+    est_pedals = [PedalEvent(0.0, 1.2)]
+    ref = _tr([_n(60, 0.0, 1.0),      # ends 1.0: both say sustain
+               _n(62, 0.5, 1.0),      # ends 1.5: reference only
+               _n(64, 2.5, 1.0)],     # ends 3.5: neither
+              pedals=ref_pedals)
+    est = _tr([NoteEvent(60, 0.0, 1.0, 80), NoteEvent(62, 0.5, 1.5, 80),
+               NoteEvent(64, 2.5, 3.5, 80)], pedals=est_pedals)
+
+    c = pedal_confusion(ref, est)
+    assert c == {"both": 1, "reference only": 1,
+                 "estimate only": 0, "neither": 1}
+
+
 def test_pedal_breakdown_is_empty_without_pedal_data():
     """MAPS carries no CC64. Absent data must not render as '0% pedalled'."""
     notes = [_n(60, 0.0), _n(64, 2.0)]
@@ -201,3 +238,17 @@ def test_format_reports_rates_with_counts():
     assert "demo" in out
     assert "conditional accuracy" in out
     assert "100.0%" in out
+
+
+def test_aggregate_keeps_each_tracks_pedal_to_its_own_track():
+    # Track A: pedal down 0-10s, note released at 5s -> under sustain.
+    # Track B: no pedal, note released at 5s -> pedal up.
+    # Pooling the pedal SPANS (times are per-track) would mark B's note as
+    # pedalled too, because A's pedal was down at 5s in A's timeline.
+    a_ref = _tr([_n(60, 4.0)], [PedalEvent(0.0, 10.0)])
+    b_ref = _tr([_n(62, 4.0)], [])
+    a = profile_track(a_ref, _tr([_n(60, 4.0)]))
+    b = profile_track(b_ref, _tr([_n(62, 4.0)]))
+    pooled = aggregate([a, b]).by_pedal()
+    assert pooled["under sustain"][1] == 1
+    assert pooled["pedal up"][1] == 1
