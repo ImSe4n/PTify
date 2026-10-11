@@ -167,3 +167,33 @@ def test_evaluate_piece_reports_every_column():
     assert r.duration == (4, 4)
     assert r.rhythm == (2, 2)
     assert r.staff == (4, 4)
+
+
+def test_chain_matches_one_pitch_at_a_time_like_the_full_matching():
+    # Phase 33: mir_eval's matching builds all-notes x all-notes tables (~1.6 GB
+    # on the Wanderer Fantasy). Only same-pitch notes can match, so matching
+    # pitch by pitch must give exactly the pairs the full matching gives.
+    import numpy as np
+    import mir_eval.transcription as T
+
+    from evaluation.score_benchmark import ONSET_TOL_SEC, _intervals
+
+    rng = np.random.default_rng(3)
+    perf = sorted((NoteEvent(int(p), float(t), float(t) + 0.3)
+                   for p, t in zip(rng.integers(60, 66, 400), rng.uniform(0, 40, 400))),
+                  key=lambda n: n.onset)
+    ours = [QuantisedNote(n.pitch, k * 0.5, 0.5,
+                          source=NoteEvent(n.pitch, n.onset + float(rng.normal(0, 0.03)),
+                                           n.offset))
+            for k, n in enumerate(perf) if rng.random() > 0.1]
+    score = [ScoreNote(n.pitch, k * 0.5, 0.5, "upper") for k, n in enumerate(perf)]
+    perf_to_score = {i: i for i in range(len(perf))}
+
+    ref_iv, ref_hz = _intervals(perf)
+    est_iv, est_hz = _intervals([q.source for q in ours])
+    full = T.match_notes(ref_iv, ref_hz, est_iv, est_hz,
+                         onset_tolerance=ONSET_TOL_SEC, offset_ratio=None)
+    want = sorted((score[i].start_beat, ours[k].start_beats) for i, k in full)
+
+    got = chain(ours, ["upper"] * len(ours), perf, perf_to_score, score)
+    assert sorted((c.score.start_beat, c.ours.start_beats) for c in got) == want

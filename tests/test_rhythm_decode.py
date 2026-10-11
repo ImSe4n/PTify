@@ -118,3 +118,35 @@ def test_anchored_positions_never_go_backwards():
 def test_first_note_snaps_to_the_grid():
     out = anchor_positions(np.array([0, 24]), np.array([3.52, 4.49]), snap=0.25)
     assert out.tolist() == [3.5, 4.5]
+
+
+# --- bar lines from soft downbeat evidence -----------------------------------
+#
+# The model's downbeat head is under-confident (val F1 ~0.18 at a 0.5
+# threshold) yet placed bar lines better than the pipeline on a good grid
+# (downbeat F 0.23 vs 0.17). So the bar is chosen from ALL its probabilities:
+# the (bar length, offset) whose bar lines carry the most downbeat confidence.
+
+def test_bar_lines_come_from_soft_evidence_below_the_threshold():
+    onsets, delta = _quarters(24)
+    # Never above 0.5, but beats 0, 3, 6, ... are consistently the likeliest.
+    down = np.array([0.45 if i % 3 == 0 else 0.15 for i in range(24)])
+    d = decode(onsets, delta, np.full(24, 24), down)
+    assert d.beats_per_bar == 3
+    assert all(d.start_beats[i] % 3 == 0 for i in range(0, 24, 3))
+
+
+def test_soft_evidence_finds_the_pickup_offset():
+    onsets, delta = _quarters(24)
+    down = np.array([0.4 if i % 4 == 2 else 0.1 for i in range(24)])
+    d = decode(onsets, delta, np.full(24, 24), down)
+    assert d.beats_per_bar == 4
+    assert d.start_beats[2] % 4 == 0               # a two-beat pickup
+
+
+def test_one_noisy_note_does_not_move_the_bar_lines():
+    onsets, delta = _quarters(24)
+    down = np.array([0.6 if i % 4 == 0 else 0.1 for i in range(24)])
+    down[7] = 0.9                                   # a single confident outlier
+    assert decode(onsets, delta, np.full(24, 24), down).beats_per_bar == 4
+    assert decode(onsets, delta, np.full(24, 24), down).start_beats[0] % 4 == 0

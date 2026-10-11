@@ -142,10 +142,28 @@ model has a number to beat.
 - The notation CLI (`notation/__main__.py`) still uses the rules; only the web app
   pipeline switched.
 
+## 2026-10-10 late morning
+
+- Speed: note beat tracking now uses scipy's FFT (scoped, restored): 36 s ->
+  22.6 s on the 21-min piece, beats IDENTICAL on all 22 cached pieces checked
+  (test pins it); benchmark rows identical to run 5. 8-min piece steady state
+  23.7 s -> 21.6 s. Profile: model network 0.4 s, beat tracking ~8 s, music21
+  engraving ~35 s (613k Fraction ops: triplet-type positions take music21's
+  slow exact path). Engraving speed left for later.
+- Bar lines: `decode._bar` now chooses (bar, offset) from SOFT downbeat
+  evidence (log-odds contrast, one value per beat). Benchmark running.
+- Model's losses: the Schumann Toccata (x2) 86-90% -> 0%. The note tracker locked
+  onto 3-sixteenth groups, so the model wrote 16ths as triplets (really wrong
+  notation, so the benchmark was NOT loosened). Other losses small (Chopin 53
+  -14, Beethoven 16-1 -11, rest < 6). Biggest wins: Beethoven 3-2 13.5 -> 88.4%,
+  Schubert 664-3 24.7 -> 89.9%, Rachmaninoff 23/6 24.2 -> 86.6%.
+- Fix in test: `choose_grid` -- read the piece on the note-tracked AND the
+  audio grid, keep the more confident reading (no anchoring). Benchmark next.
+
 ## Next
 
-1. Speed: beat tracking from notes is most of the model's time; cache or speed
-   it up. Profile music21 engraving of the finer rhythms.
+1. Speed: music21 engraving of the model's finer rhythms (pass exact
+   fractions?). Beat tracking done.
 2. Bar lines: the model's downbeat head looks better than first measured (0.23
    on a good grid). Retrain with the downbeat loss weighted, or decode bars from
    it on the model's own grid more carefully.

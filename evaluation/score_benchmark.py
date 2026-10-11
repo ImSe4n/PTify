@@ -133,10 +133,23 @@ def chain(ours: list[QuantisedNote], our_staffs: list[str],
     keep = [k for k, q in enumerate(ours) if q.source is not None]
     if not keep or not perf:
         return []
-    ref_iv, ref_hz = _intervals(perf)
-    est_iv, est_hz = _intervals([ours[k].source for k in keep])
-    matching = T.match_notes(ref_iv, ref_hz, est_iv, est_hz,
-                             onset_tolerance=ONSET_TOL_SEC, offset_ratio=None)
+    # Only same-pitch notes can match, so match one pitch at a time: the same
+    # pairs, without mir_eval's all-notes x all-notes tables (~1.6 GB on the
+    # longest pieces).
+    ref_by_pitch: dict[int, list[int]] = {}
+    for i, n in enumerate(perf):
+        ref_by_pitch.setdefault(n.pitch, []).append(i)
+    est_by_pitch: dict[int, list[int]] = {}
+    for e, k in enumerate(keep):
+        est_by_pitch.setdefault(ours[k].source.pitch, []).append(e)
+    matching = []
+    for pitch in ref_by_pitch.keys() & est_by_pitch.keys():
+        refs, ests = ref_by_pitch[pitch], est_by_pitch[pitch]
+        ref_iv, ref_hz = _intervals([perf[i] for i in refs])
+        est_iv, est_hz = _intervals([ours[keep[e]].source for e in ests])
+        matching += [(refs[a], ests[b]) for a, b in T.match_notes(
+            ref_iv, ref_hz, est_iv, est_hz,
+            onset_tolerance=ONSET_TOL_SEC, offset_ratio=None)]
     out = []
     for i_ref, i_est in matching:
         j = perf_to_score.get(int(i_ref))

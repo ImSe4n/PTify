@@ -51,3 +51,23 @@ def test_tracking_a_steady_pulse_finds_increasing_beats_at_a_plausible_tempo():
 def test_too_few_notes_still_give_a_grid():
     beats = track_beats_from_notes(np.array([1.0]), np.array([64]))
     assert len(beats) >= 2 and np.all(np.diff(beats) > 0)
+
+
+def test_fast_fft_gives_the_same_beats_and_leaves_librosa_as_it_was():
+    # Phase 33: librosa's tempo estimate is ~all of the tracking time; scipy's
+    # FFT computes the same transform 1.6x faster. The model was trained on
+    # numpy-FFT beats, so the beats must be IDENTICAL, and librosa's global
+    # FFT setting (also used by the audio tracker) must be restored.
+    import librosa
+
+    rng = np.random.default_rng(1)
+    onsets = np.sort(np.concatenate([np.arange(0, 40, 0.5),
+                                     rng.uniform(0, 40, 60)]))
+    vel = rng.integers(40, 100, len(onsets))
+    before = librosa.get_fftlib()
+    fast = track_beats_from_notes(onsets, vel)
+    assert librosa.get_fftlib() is before
+
+    import rhythm.beats as rb
+    slow = rb._track(onsets, vel)              # the plain numpy-FFT path
+    np.testing.assert_array_equal(fast, slow)

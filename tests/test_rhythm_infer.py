@@ -106,3 +106,33 @@ def test_unknown_rhythm_bars_is_refused():
     with pytest.raises(ValueError):
         transcription_to_score(tr, grid_from_tempo(120.0, 2.0), rhythm="hybrid",
                                rhythm_model=_tiny(), rhythm_bars="sometimes")
+
+
+# --- choosing the beat grid by the model's own confidence ---------------------
+#
+# Schumann's Toccata: the beat tracked from the notes locked onto groups of
+# three 16ths, and the model (correctly, relative to that pulse) wrote triplets:
+# 0% rhythm where the audio grid gave 86-90%. So the model reads the piece on
+# both grids and keeps the one it is more confident about.
+
+def test_predict_reports_its_confidence():
+    p = predict(_tiny(), _notes(20))
+    assert 0.0 < p["confidence"] <= 1.0
+
+
+def test_choose_grid_keeps_the_more_confident_reading(monkeypatch):
+    import rhythm.infer as ri
+    calls = []
+
+    def fake_predict(model, notes, beats=None):
+        calls.append(beats is None)
+        out = predict(model, notes, beats)
+        out["confidence"] = 0.4 if beats is None else 0.9   # audio grid wins
+        return out
+
+    monkeypatch.setattr(ri, "predict", fake_predict)
+    grid = grid_from_tempo(120.0, 9.0)
+    _, qnotes = rhythm_quantise(_notes(30), _tiny(), grid=grid, bars="model",
+                                choose_grid=True)
+    assert calls == [True, False]                       # both grids were read
+    assert len(qnotes) == 30

@@ -75,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "(Phase 33 C) instead of the beat-tracked grid")
     ap.add_argument("--rhythm-mode", choices=("model", "hybrid"), default="model",
                     help="model: its own grid; hybrid: its rhythm on the beat-tracked grid")
+    ap.add_argument("--rhythm-choose-grid", action="store_true",
+                    help="model mode: read on both grids, keep the more confident")
     ap.add_argument("--rhythm-bars", choices=("model", "grid"), default="model",
                     help="hybrid only: bar lines from the model or from the grid")
     ap.add_argument("--subdivision", choices=("fixed", "auto"), default="auto",
@@ -208,7 +210,8 @@ def _transcribe(engine_name: str, served: str, audio: Path,
 
 
 def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=None,
-           rhythm_mode: str = "model", rhythm_bars: str = "model"):
+           rhythm_mode: str = "model", rhythm_bars: str = "model",
+           choose_grid: bool = False):
     """The product's notation path.
 
     Returns (quantised notes, staff per note, beat times used, beats per bar):
@@ -222,7 +225,8 @@ def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=No
                                       division="auto" if auto_division else "grid",
                                       rhythm=rhythm_mode if rhythm_model else "grid",
                                       rhythm_model=rhythm_model,
-                                      rhythm_bars=rhythm_bars)
+                                      rhythm_bars=rhythm_bars,
+                                      rhythm_choose_grid=choose_grid)
     if stats.subdivision != grid.subdivision:
         print(f"          {tr.engine or 'midi'}: subdivision {stats.subdivision:.3f}",
               flush=True)
@@ -246,7 +250,7 @@ def _score_tracks(path: Path) -> list[list[NoteEvent]]:
 def run_piece(row: dict, meta, engine: str, served: str,
               cache_dir: Path, auto_division: bool = False,
               rhythm_model=None, rhythm_mode: str = "model",
-              rhythm_bars: str = "model") -> list:
+              rhythm_bars: str = "model", choose_grid: bool = False) -> list:
     from notation.quantise import BeatGrid
 
     audio, maestro_midi = fetch_track(meta, AUDIO_DIR)
@@ -280,7 +284,7 @@ def run_piece(row: dict, meta, engine: str, served: str,
     out = []
     for name, tr in (("audio", est), ("perfect_midi", perf)):
         ours, staffs, used_beats, bpb = notate(tr, grid, auto_division, rhythm_model,
-                                               rhythm_mode, rhythm_bars)
+                                               rhythm_mode, rhythm_bars, choose_grid)
         out.append(evaluate_piece(row=name, ours=ours, our_staffs=staffs,
                                   grid_beats=used_beats, beats_per_bar=bpb, **common))
     return out
@@ -347,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
                                      args.cache_dir,
                                      args.subdivision == "auto",
                                      rhythm_model, args.rhythm_mode,
-                                     args.rhythm_bars))
+                                     args.rhythm_bars, args.rhythm_choose_grid))
         except ValueError as exc:
             print(f"          SKIPPED: {exc}", flush=True)
             skipped.append({"piece": row["folder"], "reason": str(exc)})
@@ -366,6 +370,7 @@ def main(argv: list[str] | None = None) -> int:
             "subdivision": args.subdivision,
             "rhythm_model": str(args.rhythm_model) if args.rhythm_model else None,
             "rhythm_mode": args.rhythm_mode, "rhythm_bars": args.rhythm_bars,
+            "rhythm_choose_grid": args.rhythm_choose_grid,
             "corpus": "ASAP x MAESTRO v3 test split, one performance per score",
             "license_note": "ASAP and MAESTRO are CC BY-NC-SA; evaluation only",
             "pooled": {row: pool([r for r in results if r.row == row])

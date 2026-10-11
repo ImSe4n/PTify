@@ -79,7 +79,13 @@ def predict(model: RhythmTransformer, notes: list[NoteEvent],
         start += stride
     mean = {k: sums[k] / np.maximum(counts[k], 1)[:, None] for k in sums}
     down = np.exp(mean["downbeat"] - mean["downbeat"].max(-1, keepdims=True))
+    # Confidence: the mean probability the model gives its chosen gap, over
+    # notes that have a predecessor. Used to choose between beat grids.
+    dl = mean["delta"][1:] if n > 1 else mean["delta"]
+    soft = np.exp(dl - dl.max(-1, keepdims=True))
+    confidence = float((soft.max(-1) / soft.sum(-1)).mean())
     return {
+        "confidence": confidence,
         "order": order,
         "delta": mean["delta"].argmax(-1),
         "duration_ticks": np.array(DURATION_TICKS)[mean["duration"].argmax(-1)],
@@ -120,6 +126,7 @@ def _hybrid(ordered, p, grid: BeatGrid, bars: str):
 def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
                     pedals: list[PedalEvent] | None = None,
                     grid: BeatGrid | None = None, bars: str = "model",
+                    choose_grid: bool = False,
                     ) -> tuple[BeatGrid, list[QuantisedNote]]:
     """The model's alternative to `quantise_notes`: (grid, written notes).
 
@@ -127,12 +134,25 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
     anchored to it, so beat times -- and with `bars="grid"` the bar lines --
     are the pipeline's, while rhythm and note values are the model's. Without
     it the model tracks beats from the notes and builds its own grid.
+
+    `choose_grid=True` (needs `grid`): the model reads the piece twice, on the
+    beats tracked from the notes and on `grid`'s, and keeps the reading it is
+    more confident about, decoded on its own (no anchoring). Phase 33: the note
+    tracker locked onto 3-sixteenth groups in Schumann's Toccata and the model
+    wrote triplets (0% rhythm); the audio grid read it at 86-90%.
     """
     if not notes:
         raise ValueError("no notes to place")
     if bars not in BARS:
         raise ValueError(f"bars must be one of {BARS}, got {bars!r}")
-    p = predict(model, notes, beats=None if grid is None else grid.beats)
+    if choose_grid:
+        if grid is None:
+            raise ValueError("choose_grid needs a grid to choose against")
+        candidates = [predict(model, notes), predict(model, notes, beats=grid.beats)]
+        p = max(candidates, key=lambda c: c["confidence"])
+        grid = None                      # decode the chosen reading on its own
+    else:
+        p = predict(model, notes, beats=None if grid is None else grid.beats)
     ordered = [notes[i] for i in p["order"]]
     lengths = p["duration_ticks"] / TICKS_PER_BEAT
     if grid is None:

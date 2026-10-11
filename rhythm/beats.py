@@ -34,21 +34,42 @@ FALLBACK_SEC_PER_BEAT = 0.5
 _EPS_BEATS = 1e-2
 
 
+def _track(onsets: np.ndarray, velocities) -> np.ndarray:
+    """librosa's beat tracker on an onset curve built from the notes."""
+    import librosa
+
+    n = int(np.ceil(onsets.max() * ENVELOPE_SR)) + 2 * ENVELOPE_SR
+    env = np.zeros(n)
+    for t, v in zip(onsets, velocities):
+        env[max(int(t * ENVELOPE_SR), 0)] += v / 127.0
+    env = np.convolve(env, np.hanning(7), mode="same")
+    _, beats = librosa.beat.beat_track(onset_envelope=env, sr=ENVELOPE_SR,
+                                       hop_length=1, units="time")
+    return np.asarray(beats, dtype=float)
+
+
 def track_beats_from_notes(onsets: np.ndarray, velocities: np.ndarray) -> np.ndarray:
-    """Beat times in seconds from note onsets, via librosa on an onset curve."""
+    """Beat times in seconds from note onsets, via librosa on an onset curve.
+
+    SPEED. librosa's tempo estimate (an FFT per frame of the onset curve) is
+    nearly all the time: 36 s on a 21-minute piece. scipy's FFT computes the
+    same transform in 22.6 s, and gave IDENTICAL beats on all 22 cached pieces
+    checked (the model was trained on numpy-FFT beats, so identical matters).
+    librosa's FFT choice is global and the audio tracker uses it too, so it is
+    switched only for this call and always restored.
+    """
     onsets = np.asarray(onsets, dtype=float)
     beats = np.array([])
     if len(onsets) >= 2:
         import librosa
+        import scipy.fft
 
-        n = int(np.ceil(onsets.max() * ENVELOPE_SR)) + 2 * ENVELOPE_SR
-        env = np.zeros(n)
-        for t, v in zip(onsets, velocities):
-            env[max(int(t * ENVELOPE_SR), 0)] += v / 127.0
-        env = np.convolve(env, np.hanning(7), mode="same")
-        _, beats = librosa.beat.beat_track(onset_envelope=env, sr=ENVELOPE_SR,
-                                           hop_length=1, units="time")
-        beats = np.asarray(beats, dtype=float)
+        previous = librosa.get_fftlib()
+        librosa.set_fftlib(scipy.fft)
+        try:
+            beats = _track(onsets, velocities)
+        finally:
+            librosa.set_fftlib(previous)
     if len(beats) < 2:
         start = float(onsets.min()) if len(onsets) else 0.0
         span = float(onsets.max() - start) if len(onsets) else 0.0
