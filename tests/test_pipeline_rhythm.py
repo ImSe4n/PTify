@@ -75,3 +75,38 @@ def test_a_misconfigured_rhythm_model_is_a_clear_job_error(tmp_path, monkeypatch
     with pytest.raises(PipelineError) as e:
         _build_score(JobSpec(tempo=120.0), _tr())
     assert e.value.code == "engine_unavailable"
+
+
+# --- grid choice (Phase 33) -----------------------------------------------------
+#
+# The model reads the piece on the beats it tracks from the notes AND on the
+# audio's beats, and keeps the reading it is more confident about: rhythm
+# 63.3% -> 64.0%, durations 47.0% -> 47.5% on the 38-piece benchmark. Only a
+# grid tracked from the AUDIO is offered: a typed tempo or the MIDI default is
+# a made-up fixed grid, not evidence about the beat.
+
+def _spy(monkeypatch):
+    import notation.score
+    seen = {}
+    real = notation.score.transcription_to_score
+
+    def spy(*a, **kw):
+        seen.update(kw)
+        return real(*a, **kw)
+    monkeypatch.setattr(notation.score, "transcription_to_score", spy)
+    return seen
+
+
+def test_the_audio_grid_is_offered_to_the_model(monkeypatch, tmp_path):
+    from notation.quantise import grid_from_tempo
+    monkeypatch.setattr("notation.quantise.estimate_grid",
+                        lambda path, bpb=None: grid_from_tempo(120.0, 7.0, 4))
+    seen = _spy(monkeypatch)
+    _build_score(JobSpec(input_path=str(tmp_path / "a.wav")), _tr())
+    assert seen["rhythm_choose_grid"] is True
+
+
+def test_a_typed_tempo_is_not_offered_to_the_model(monkeypatch):
+    seen = _spy(monkeypatch)
+    _build_score(JobSpec(tempo=120.0), _tr())
+    assert seen["rhythm_choose_grid"] is False

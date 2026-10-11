@@ -139,3 +139,30 @@ then `checkpoints/rhythm-run5.pt`, then `~/.ptify/checkpoints/` (sha256 pinned i
 51 s on a cold process). The 21-minute Wanderer Fantasy takes 276 s against 90 s.
 Most of the model's own time is beat tracking from notes; the rest is music21
 engraving finer rhythms.
+
+## Phase 33 C — grid choice on; soft bar lines tried and dropped (2026-10-11)
+
+Same command as run 5, plus a flag per row.
+
+| from audio | model (run 5) | soft bar lines | **+ grid choice** |
+|---|---|---|---|
+| rhythm | 63.3% | 63.3% | **64.0%** |
+| durations | 47.0% | 47.0% | **47.5%** |
+| staff | 89.1% | 89.1% | 89.1% |
+| downbeat F (mean) | 0.142 | 0.136 | 0.137 |
+
+- **Soft bar lines** (`score-benchmark-rhythm-model-softbars.json`): bar length
+  and offset from ALL downbeat probabilities, not just those over 0.5. Worse on
+  21 pieces, better on 11. Reverted.
+- **Grid choice** (`--rhythm-choose-grid`, `score-benchmark-rhythm-model-choosegrid.json`;
+  run with soft bars still in, which does not touch rhythm or durations): the
+  model reads the piece on the beats tracked from the notes and on the audio's,
+  and keeps the more confident reading. Better on 6 pieces, worse on 1
+  (Beethoven 8-1, -0.8). Now on in the web app whenever the grid was tracked
+  from the audio (not for a typed tempo or MIDI input). Cost: one more model
+  pass, about 0.4 s.
+- **It does not fix the Schumann Toccata** (0% vs the pipeline's 86-90%). The
+  model is equally confident on both grids (0.922 vs 0.922), and even anchored
+  to the audio grid it scored 11% (hybrid run). The model itself misreads the
+  piece's 16th-note runs as triplets. That is a training-data gap, not a grid
+  problem.

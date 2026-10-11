@@ -29,9 +29,6 @@ DEFAULT_BEATS_PER_BAR = 4
 #: Seconds per beat when there is nothing to measure it from (a single note).
 FALLBACK_SEC_PER_BEAT = 0.5
 DOWNBEAT_THRESHOLD = 0.5
-#: Minimum log-odds contrast between bar-line beats and the rest before the
-#: model's bar is trusted over the 4/4 default.
-MIN_BAR_CONTRAST = 0.1
 
 
 @dataclass(frozen=True)
@@ -43,45 +40,17 @@ class Decoded:
 
 
 def _bar(ticks: np.ndarray, downbeat_prob: np.ndarray) -> tuple[int, float]:
-    """(beats per bar, shift in beats that puts downbeats on bar lines).
-
-    SOFT EVIDENCE (Phase 33). The downbeat head is under-confident: at a 0.5
-    threshold almost nothing qualifies (val F1 ~0.18), yet its probabilities
-    placed bar lines better than the pipeline on a good grid (F 0.23 vs 0.17).
-    So every (bar length, offset) is scored by the mean log-odds of a downbeat
-    on the beats it would make bar lines -- one value per beat (the likeliest
-    note starting on it), so a chord counts once -- and the best wins. Ties go
-    to 4, then 3. With no beat above 0.5 AND no clear contrast, 4/4 from
-    beat 0 stays the default.
-    """
+    """(beats per bar, shift in beats that puts downbeats on bar lines)."""
     on_beat = ticks % TICKS_PER_BEAT == 0
-    if not on_beat.any():
+    beats = np.unique(ticks[(downbeat_prob > DOWNBEAT_THRESHOLD) & on_beat]
+                      // TICKS_PER_BEAT)
+    if len(beats) == 0:
         return DEFAULT_BEATS_PER_BAR, 0.0
-    beats = ticks[on_beat] // TICKS_PER_BEAT
-    probs = np.clip(np.asarray(downbeat_prob, dtype=float)[on_beat], 1e-3, 1 - 1e-3)
-    per_beat: dict[int, float] = {}
-    for b, pr in zip(beats.tolist(), probs.tolist()):
-        per_beat[b] = max(per_beat.get(b, 0.0), pr)
-    b_arr = np.array(list(per_beat))
-    logit = np.log(np.array(list(per_beat.values())) / (1 - np.array(list(per_beat.values()))))
-    if len(b_arr) < 2:
-        return DEFAULT_BEATS_PER_BAR, 0.0
-
-    best, best_key = (DEFAULT_BEATS_PER_BAR, 0), None
-    for bar in BAR_CHOICES:
-        for phase in range(bar):
-            on = (b_arr % bar) == phase
-            if not on.any() or on.all():
-                continue
-            # Contrast between would-be bar lines and the other beats: robust to
-            # a head that is under-confident everywhere.
-            score = float(logit[on].mean() - logit[~on].mean())
-            key = (round(score, 9), bar == 4, bar == 3)
-            if best_key is None or key > best_key:
-                best, best_key = (bar, phase), key
-    if best_key is None or best_key[0] <= MIN_BAR_CONTRAST:
-        return DEFAULT_BEATS_PER_BAR, 0.0
-    bar, phase = best
+    gaps = Counter(int(g) for g in np.diff(beats) if int(g) in BAR_CHOICES)
+    # Ties go to the conventional choice: 4, then 3, then the rest.
+    bar = (max(gaps, key=lambda g: (gaps[g], g == 4, g == 3))
+           if gaps else DEFAULT_BEATS_PER_BAR)
+    phase = Counter(int(b) % bar for b in beats).most_common(1)[0][0]
     return bar, float((-phase) % bar)
 
 

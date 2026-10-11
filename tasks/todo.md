@@ -150,24 +150,33 @@ model has a number to beat.
   23.7 s -> 21.6 s. Profile: model network 0.4 s, beat tracking ~8 s, music21
   engraving ~35 s (613k Fraction ops: triplet-type positions take music21's
   slow exact path). Engraving speed left for later.
-- Bar lines: `decode._bar` now chooses (bar, offset) from SOFT downbeat
-  evidence (log-odds contrast, one value per beat). Benchmark running.
+- Bar lines: tried choosing (bar, offset) from SOFT downbeat evidence
+  (log-odds contrast). REVERTED (2026-10-11): downbeat F 0.142 -> 0.136, worse
+  on 21 pieces, better on 11; rhythm/durations/staff unchanged
+  (`var/sb-model-softbars.json`). `_bar` is back to the >0.5 rule.
+- Benchmark memory: `chain` matches notes one pitch at a time instead of
+  mir_eval's all-notes x all-notes tables. Same pairs (test pins it; 10/10
+  rows identical to `sb-wired` on 5 pieces).
 - Model's losses: the Schumann Toccata (x2) 86-90% -> 0%. The note tracker locked
   onto 3-sixteenth groups, so the model wrote 16ths as triplets (really wrong
   notation, so the benchmark was NOT loosened). Other losses small (Chopin 53
   -14, Beethoven 16-1 -11, rest < 6). Biggest wins: Beethoven 3-2 13.5 -> 88.4%,
   Schubert 664-3 24.7 -> 89.9%, Rachmaninoff 23/6 24.2 -> 86.6%.
-- Fix in test: `choose_grid` -- read the piece on the note-tracked AND the
-  audio grid, keep the more confident reading (no anchoring). Benchmark next.
+- `choose_grid`: read the piece on the note-tracked AND the audio grid, keep
+  the more confident reading. Benchmark (2026-10-11): rhythm 63.3 -> 64.0%,
+  durations 47.0 -> 47.5%, 6 better / 1 worse. ON in the web app when the grid
+  is tracked from audio (`api/pipeline._build_score`, 2 tests). Did NOT fix the
+  Toccata: confidence ties (0.922 vs 0.922) and the model scores 11% even
+  anchored to the audio grid, so it misreads the 16th runs itself (data gap).
 
 ## Next
 
 1. Speed: music21 engraving of the model's finer rhythms (pass exact
    fractions?). Beat tracking done.
-2. Bar lines: the model's downbeat head looks better than first measured (0.23
-   on a good grid). Retrain with the downbeat loss weighted, or decode bars from
-   it on the model's own grid more carefully.
-3. Look at the 9 pieces where the model loses rhythm.
+2. Bar lines: soft decoding failed; next is retraining with the downbeat loss
+   weighted.
+3. The Toccata: the model writes even 16th runs as triplets. Needs training
+   data with long even runs (synthetic performances, item 4).
 4. More data (synthetic performances) for the next model.
 
 ## (older) Next (for the user to look at first)

@@ -244,6 +244,7 @@ def _build_score(spec: JobSpec, tr):
     from notation.score import transcription_to_score
 
     duration = tr.duration or 1.0
+    audio_grid = False
     try:
         if spec.tempo is not None:
             grid = grid_from_tempo(spec.tempo, duration, spec.beats_per_bar)
@@ -254,6 +255,7 @@ def _build_score(spec: JobSpec, tr):
         else:
             # Beat-tracks the ORIGINAL audio, not the transcription.
             grid = estimate_grid(spec.input_path, spec.beats_per_bar)
+            audio_grid = True
     except ValueError as exc:
         # grid_from_tempo and BeatGrid reject a non-positive tempo, a
         # beats_per_bar below 1 and a non-finite BPM.
@@ -274,6 +276,9 @@ def _build_score(spec: JobSpec, tr):
             rhythm=rhythm,
             rhythm_model=rhythm_model,
             rhythm_bars=RHYTHM_BARS,
+            # Phase 33: the model also reads the audio's beats and keeps the
+            # more confident reading. A typed or default tempo is no evidence.
+            rhythm_choose_grid=audio_grid,
             beats_per_bar=spec.beats_per_bar,
             title=spec.title or Path(spec.original_name or "score").stem,
             composer=spec.composer,
