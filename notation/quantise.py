@@ -83,6 +83,10 @@ class BeatGrid:
     bpm: float
     beats_per_bar: int = 4
     subdivision: float = DEFAULT_SUBDIVISION
+    #: Quarter notes per beat (Phase 34): 1.0 is simple time; 1.5 a dotted
+    #: quarter (6/8), 0.75 a dotted eighth (12/16). Positions and note values
+    #: are always in quarter notes; only the beat and the meter change.
+    beat_quarters: float = 1.0
 
     def __post_init__(self) -> None:
         # A time signature needs at least one beat per bar. Zero reached
@@ -94,10 +98,20 @@ class BeatGrid:
             raise ValueError(
                 f"beats_per_bar must be at least 1, got {self.beats_per_bar}"
             )
+        if self.beat_quarters <= 0:
+            raise ValueError(
+                f"beat_quarters must be positive, got {self.beat_quarters}"
+            )
         if self.subdivision <= 0:
             raise ValueError(
                 f"subdivision must be positive, got {self.subdivision}"
             )
+
+    @property
+    def sec_per_quarter(self) -> float:
+        """Seconds per quarter note: `bpm` counts BEATS, which are dotted in
+        compound time, and positions are always in quarter notes."""
+        return 60.0 / (self.bpm if self.bpm > 0 else FALLBACK_BPM) / self.beat_quarters
 
     @property
     def is_empty(self) -> bool:
@@ -518,7 +532,7 @@ def quantised_to_transcription(
     """
     from transcriber.events import Transcription
 
-    period = 60.0 / (grid.bpm if grid.bpm > 0 else FALLBACK_BPM)
+    period = grid.sec_per_quarter
     notes = [
         NoteEvent(
             pitch=q.pitch,

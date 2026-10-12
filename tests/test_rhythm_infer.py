@@ -204,3 +204,29 @@ def test_rescaling_is_off_by_default(monkeypatch):
                                               rhythm_quantise(notes, _tiny(), rescale=False)[1]]
     assert [q.start_beats for q in plain] != [q.start_beats for q in
                                               rhythm_quantise(notes, _tiny(), rescale=True)[1]]
+
+
+# --- compound meter (Phase 34) ----------------------------------------------------
+#
+# A dotted scale (0.75 / 1.5 quarters per tracked beat) means the beat IS a
+# dotted value (12/16, 6/8). Writing it on a quarter beat put four compound
+# pieces' meter wrong (benchmark factor 4/3, rhythm ~0%). So the beat stays on
+# the tracked beat and the grid records its length in quarters.
+
+def test_a_dotted_scale_keeps_the_beat_on_the_dotted_value(monkeypatch):
+    import rhythm.infer as ri
+    notes = _notes(40)
+    g1, q1 = rhythm_quantise(notes, _tiny())
+    monkeypatch.setattr(ri, "written_scale_from_gaps", lambda d: 1.5)
+    g2, q2 = rhythm_quantise(notes, _tiny(), rescale=True)
+    assert g2.beat_quarters == 1.5 and g1.beat_quarters == 1.0
+    assert g2.beats == pytest.approx(g1.beats)                 # same beat times
+    assert g2.beats_per_bar == g1.beats_per_bar               # bar in beats
+    assert [q.start_beats * 1.5 for q in q1] == pytest.approx([q.start_beats for q in q2])
+
+
+def test_a_simple_scale_still_puts_the_beat_on_quarters(monkeypatch):
+    import rhythm.infer as ri
+    monkeypatch.setattr(ri, "written_scale_from_gaps", lambda d: 0.5)
+    g, _ = rhythm_quantise(_notes(40), _tiny(), rescale=True)
+    assert g.beat_quarters == 1.0

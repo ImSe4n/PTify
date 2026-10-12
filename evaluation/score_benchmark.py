@@ -222,8 +222,14 @@ def evaluate_piece(*, label: str, row: str,
                    grid_beats: list[float], beats_per_bar: int,
                    perf_notes: list[NoteEvent], perf_map: BeatMap,
                    ref_beats: list[float], ref_downbeats: list[float],
-                   score: list[ScoreNote]) -> PieceResult:
-    """Every column for one piece. All times are in PERFORMANCE seconds."""
+                   score: list[ScoreNote],
+                   beat_quarters: float = 1.0) -> PieceResult:
+    """Every column for one piece. All times are in PERFORMANCE seconds.
+
+    Our positions and values are in quarter notes; `factor` is score beats per
+    OUR beat, which is `beat_quarters` long (1.5 in 6/8, Phase 34). So
+    positions are compared through score beats per quarter.
+    """
     if len(ours) != len(our_staffs):
         raise ValueError("ours and our_staffs must be the same length")
     perf_to_score = align_to_score(perf_notes, perf_map, score)
@@ -236,8 +242,8 @@ def evaluate_piece(*, label: str, row: str,
         factor_raw=raw, factor=factor,
         beat_f=_beat_f(ref_beats, grid_beats),
         downbeat_f=_beat_f(ref_downbeats, grid_beats[::beats_per_bar]),
-        duration=duration_accuracy(chained, factor),
-        rhythm=rhythm_accuracy(chained, factor),
+        duration=duration_accuracy(chained, factor / beat_quarters),
+        rhythm=rhythm_accuracy(chained, factor / beat_quarters),
         staff=staff_accuracy(chained),
     )
 

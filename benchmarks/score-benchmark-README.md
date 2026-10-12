@@ -224,3 +224,24 @@ Fixes the Schumann Toccata (0% -> 68% / 75%) but collapses four compound or
 triplet-pulse pieces (Bach fugue 873 96.7% -> 0%, prelude 858 92.2% -> 0.3%,
 Liszt TE 3 86.4% -> 0%, Beethoven 18-4 85.6% -> 0%), where it picks a 0.75/1.5
 scale. A trade-off, so it stays off.
+
+## Phase 34 — compound meter for dotted scales: criteria NOT met (2026-10-12)
+
+With `--rhythm-rescale`, a dotted scale (0.75 / 1.5) now keeps the beat on the
+dotted value and prints compound time (x/8, x/16, tempo on the dotted beat).
+`score-benchmark-rhythm-run6-compound.json`:
+
+| from audio | run 6 default | rescale | rescale + compound |
+|---|---|---|---|
+| rhythm | **64.3%** | 63.9% | 62.2% |
+| durations | 47.7% | **49.4%** | 46.1% |
+| beat level right | 16/38 | 21/38 | 21/38 |
+
+Fixed the truly compound Bach fugue 873 (0 -> 96.7%) and Beethoven 18-4 (0 ->
+85.6%), but turned the Schumann Toccata (2/4, tracker locked on 3-sixteenth
+groups) back to 0%; Bach preludes 858/873 and Liszt TE 3 never take the
+compound path (the tracker sits on a plain sub-pulse there). A dotted pulse is
+compound meter in some pieces and a tracker artefact in others, and the gaps
+cannot tell which. Rescaling stays OFF; the compound machinery
+(`BeatGrid.beat_quarters`, `time_signature_for`, dotted tempo mark,
+`sec_per_quarter`) is only reached with rescaling on.

@@ -1,3 +1,90 @@
+# Phase 34 -- compound meter (BUILT 2026-10-12; criteria NOT met, rescale stays off)
+
+## Why
+
+Decode-time rescaling (`--rhythm-rescale`) gets the beat level right in 21/38
+pieces (pipeline 19, current default 16), lifts durations 47.7 -> 49.4% and fixes
+the Schumann Toccata (0% -> 68/75%). It is held back by four compound pieces
+(Bach fugue 873, preludes 858/873, Liszt TE 3, Beethoven 18-4): their beat is a
+DOTTED value, rescaling writes the right note values but on a QUARTER beat, so
+meter, bar lines and beaming are wrong (benchmark factor 4/3 -> rhythm ~0%).
+
+## Requirements
+
+- When the decoded scale is dotted (0.75 or 1.5 quarters per tracked beat), the
+  score keeps the beat on the dotted value: compound time signature, bars of
+  whole dotted beats, tempo mark referring to the dotted beat.
+- Simple-meter output is unchanged (identical notes, bars, signature, tempo).
+- Positions and note values stay in quarter notes (music21's unit) everywhere.
+
+## Success criteria (benchmark, from audio, run 6 + on-beat + grid choice + rescale)
+
+- The four collapsed pieces recover to within 2 points of their unscaled rhythm.
+- Overall rhythm >= 64.3% (current default) and beat level >= 21/38.
+- Every simple-meter piece's row identical to `run6-rescale`.
+- A 12/16 and a 6/8 case round-trip through MusicXML with that signature.
+- If all hold, rescaling becomes the web app default.
+
+## Files touched
+
+- `notation/quantise.py`: `BeatGrid.beat_quarters: float = 1.0` (quarters per
+  beat). Default keeps every existing grid as it is.
+- `rhythm/infer.py`: `_written_scale` -- for a dotted scale, keep the tracked
+  beat times, set `beat_quarters = scale`, keep the bar in beats.
+- `notation/score.py`: time signature from (beats per bar, beat_quarters);
+  MetronomeMark with a dotted referent; chord-symbol bar index from bar length
+  in quarters; `ScoreStats.time_signature`.
+- `evaluation/score_benchmark.py` (+ `tools/score_benchmark.py`): our positions
+  converted quarters -> our beats (divide by beat_quarters) before the factor,
+  since the factor is score beats per OUR beat.
+- `api/pipeline.py`: `rhythm_rescale=True` only if the criteria hold.
+- Tests in `tests/test_quantise*.py`, `tests/test_notation.py`,
+  `tests/test_rhythm_infer.py`, `tests/test_score_benchmark.py`.
+
+## Decisions for the USER
+
+1. Dotted-8th beats (scale 0.75, e.g. the Toccata-like 3-sixteenth groups):
+   print as x/16 (12/16, 6/16) with 16ths, or double everything to x/8 with
+   8ths? (Recommend x/16: it keeps the note values the rule chose.)
+2. Tempo mark for compound time: dotted-beat referent ("dotted quarter = 80"),
+   as published scores do? (Recommend yes.)
+
+## Not doing
+
+- No compound detection for the rule pipeline (`grid` mode) or the CLI.
+- No new meters beyond what the scale gives (no 5/8, 7/8, no 3/4-vs-6/8
+  disambiguation by accent).
+- No retraining.
+
+## Verification
+
+Unit tests first; then one full benchmark with rescale on; MusicXML round-trip
+of two compound cases. Level: replayed against real recordings and scores.
+
+## Steps
+
+- [x] 1. BeatGrid.beat_quarters (default 1.0) + compound `_written_scale`.
+- [x] 2. score.py: `time_signature_for`, dotted tempo mark, chord bar index,
+      ScoreStats.beats_per_bar/beat_quarters; MusicXML round-trip of 6/8, 12/16.
+      Also fixed: MIDI export and staccato used sec-per-BEAT on quarter-note
+      positions (would be 1.5x slow in 6/8) -> `BeatGrid.sec_per_quarter`.
+- [x] 3. Benchmark: positions / beat_quarters before the factor; tool takes
+      beats per bar from stats, not the signature numerator.
+- [x] 4. 1484 tests pass. Benchmark `run6-compound`: rhythm 62.2% (< 64.3%),
+      durations 46.1%, beat level 21/38. Bach fugue 873 0 -> 96.7%, Beethoven
+      18-4 0 -> 85.6%, but Schumann Toccata 68/75% -> 0% (2/4; the dotted pulse
+      is the tracker's) and preludes 858/873, Liszt TE 3 never go compound.
+- [ ] 5. NOT DONE: criteria fail, rescale stays off.
+
+## Results / next
+
+A dotted pulse is compound meter in some pieces and a tracker artefact in
+others; gaps alone cannot tell. Next would need a separate cue (e.g. do
+predicted downbeats / accents recur every 3 tracked sub-beats?), chosen on
+validation.
+
+---
+
 # Phase 33 -- rhythm on the page: a baseline, then our own model
 
 ## Why
@@ -206,6 +293,16 @@ model has a number to beat.
    0.177, four compound pieces collapse to ~0%. USER to weigh the trade-off.
    Open: a compound-aware rule that validation supports (the obvious 8th
    target for triple pulses scored LOWER on validation: 31.8% vs 41.4%).
+   FOUND (2026-10-12): the four collapses all have raw factor 4/3 (1.32-1.34),
+   which FACTORS lacks, so it snaps to 1.5 and every gap fails. They are
+   dotted-beat pieces (12/16, 6/8-type): rescaling writes the right note values
+   but on a QUARTER beat, so meter, bar lines and beaming are wrong. On
+   validation dotted scales are often right (65/140 dotted picks are truly
+   0.75), so the fix is NOT to forbid them but to write COMPOUND METER: when
+   the scale is 0.75/1.5 keep the beat on the dotted value and print x/8 or
+   x/16. Touches notation (BeatGrid / build_score / time signature, all
+   quarter-based today) and the benchmark's beat units. Needs a plan + USER
+   decisions on compound notation before building.
 2. Bar lines: soft decoding failed; next is retraining with the downbeat loss
    weighted.
 3. The Toccata: the model writes even 16th runs as triplets. Needs training

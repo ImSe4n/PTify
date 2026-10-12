@@ -522,3 +522,69 @@ def test_unknown_division_is_refused():
     with pytest.raises(ValueError):
         transcription_to_score(_triplets(), grid_from_tempo(60.0, 14.0),
                                division="sometimes")
+
+
+# --- compound meter (Phase 34) ----------------------------------------------------
+#
+# A beat that is a dotted value prints as compound time: a dotted-quarter beat
+# as x/8, a dotted-eighth beat as x/16 (user decision 2026-10-12: keep the
+# 16ths the decoder chose), with the tempo mark on the dotted beat.
+
+from notation.quantise import QuantisedNote  # noqa: E402
+from notation.score import time_signature_for  # noqa: E402
+
+
+def _eighths(n, value=0.5):
+    return [QuantisedNote(pitch=72 + (i % 5), start_beats=i * value, length_beats=value)
+            for i in range(n)]
+
+
+def test_time_signature_follows_the_beat():
+    assert time_signature_for(4, 1.0) == "4/4"
+    assert time_signature_for(2, 1.5) == "6/8"
+    assert time_signature_for(4, 1.5) == "12/8"
+    assert time_signature_for(4, 0.75) == "12/16"
+    with pytest.raises(ValueError):
+        time_signature_for(4, 0.6)
+
+
+def _roundtrip(sc, tmp_path):
+    from music21 import converter
+    path = tmp_path / "s.musicxml"
+    sc.write("musicxml", fp=str(path))
+    return converter.parse(str(path))
+
+
+def test_six_eight_roundtrips_with_a_dotted_quarter_tempo(tmp_path):
+    from music21 import meter, tempo
+    sc = build_score(_eighths(12), bpm=60.0, beats_per_bar=2, beat_quarters=1.5)
+    back = _roundtrip(sc, tmp_path)
+    assert {t.ratioString for t in back.recurse().getElementsByClass(meter.TimeSignature)} == {"6/8"}
+    measures = back.parts[0].getElementsByClass("Measure")
+    assert len(measures) == 2                                  # 12 eighths = two 6/8 bars
+    mm = next(iter(sc.recurse().getElementsByClass(tempo.MetronomeMark)))
+    assert mm.referent.quarterLength == 1.5 and mm.number == 60
+
+
+def test_twelve_sixteen_roundtrips(tmp_path):
+    from music21 import meter
+    sc = build_score(_eighths(24, value=0.25), bpm=90.0, beats_per_bar=4, beat_quarters=0.75)
+    back = _roundtrip(sc, tmp_path)
+    assert {t.ratioString for t in back.recurse().getElementsByClass(meter.TimeSignature)} == {"12/16"}
+    assert len(back.parts[0].getElementsByClass("Measure")) == 2
+
+
+def test_simple_time_is_unchanged():
+    from music21 import meter, tempo
+    sc = build_score(_eighths(8), bpm=100.0)
+    assert {t.ratioString for t in sc.recurse().getElementsByClass(meter.TimeSignature)} == {"4/4"}
+    mm = next(iter(sc.recurse().getElementsByClass(tempo.MetronomeMark)))
+    assert mm.referent.quarterLength == 1.0
+
+
+def test_stats_report_the_compound_signature():
+    from dataclasses import replace
+    tr = Transcription(notes=_scale(), duration=4.0, engine="test")
+    g = replace(grid_from_tempo(120.0, 4.0, 2), beat_quarters=1.5)
+    _, stats = transcription_to_score(tr, g)
+    assert stats.time_signature == "6/8"

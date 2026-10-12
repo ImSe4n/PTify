@@ -81,6 +81,11 @@ class ScoreStats:
     n_trills: int = 0
     n_staccato: int = 0
     time_signature: str = "4/4"
+    #: The grid's beat (Phase 34): how many per bar, and its length in quarter
+    #: notes (1.5 in 6/8). Carried because "6/8" alone does not say whether the
+    #: bar has 2 beats or 6.
+    beats_per_bar: int = 4
+    beat_quarters: float = 1.0
 
 
 def _split_point(notes: list[QuantisedNote]) -> int:
@@ -336,6 +341,19 @@ def _fill_part(part, notes: list[QuantisedNote], clef_obj,
         part.insert(start, el)
 
 
+#: Beat length (quarter notes) -> how a beat is counted in the signature.
+#: Phase 34: a dotted-eighth beat prints as x/16 (user decision 2026-10-12).
+_BEAT_UNITS = {1.0: (1, 4), 1.5: (3, 8), 0.75: (3, 16)}
+
+
+def time_signature_for(beats_per_bar: int, beat_quarters: float = 1.0) -> str:
+    """'4/4', or compound time for a dotted beat: 2 x 1.5 -> '6/8', 4 x 0.75 -> '12/16'."""
+    if beat_quarters not in _BEAT_UNITS:
+        raise ValueError(f"no time signature for a beat of {beat_quarters} quarters")
+    per_beat, denominator = _BEAT_UNITS[beat_quarters]
+    return f"{beats_per_bar * per_beat}/{denominator}"
+
+
 def build_score(
     notes: list[QuantisedNote],
     bpm: float,
@@ -348,14 +366,20 @@ def build_score(
     staccato: set = None,
     dynamics_marks: list = None,
     chord_symbols: list = None,
+    beat_quarters: float = 1.0,
 ):
     """Assemble a two-staff piano score from quantised notes.
+
+    `beat_quarters` is the beat's length in quarter notes (Phase 34): 1.5 or
+    0.75 print compound time with the tempo mark on the dotted beat. Note
+    positions and values are in quarter notes either way.
 
     The optional arguments carry `notation.analysis` results. All default to
     off, so a caller that does no analysis gets exactly the previous score.
     """
     from music21 import clef, instrument, key as m21key, layout, metadata, \
         meter, stream, tempo
+    from music21 import duration
 
     sc = stream.Score()
     sc.insert(0, metadata.Metadata())
@@ -371,14 +395,16 @@ def build_score(
 
     # A real meter string, so 6/8 and 2/2 are expressible. The denominator used
     # to be hardcoded to /4, which silently turned 6/8 into 6/4.
-    ts_string = time_signature or f"{beats_per_bar}/4"
+    ts_string = time_signature or time_signature_for(beats_per_bar, beat_quarters)
     rh.insert(0, meter.TimeSignature(ts_string))
     lh.insert(0, meter.TimeSignature(ts_string))
     # ROUNDED TO A WHOLE NUMBER. A tracked tempo is an estimate with far
     # less precision than two decimals implies, and the page printed
     # "120.19" -- which reads as a measurement nobody made. Published
     # scores print an integer.
-    rh.insert(0, tempo.MetronomeMark(number=int(round(bpm))))
+    # On the beat as felt: "dotted quarter = 60" in 6/8, as published scores do.
+    rh.insert(0, tempo.MetronomeMark(number=int(round(bpm)),
+                                     referent=duration.Duration(beat_quarters)))
 
     # Inserted on BOTH staves: a key signature on one staff of a grand staff is
     # a malformed score. music21 respells accidentals from this, which is what
@@ -421,7 +447,7 @@ def build_score(
 
         measures = list(rh.getElementsByClass("Measure"))
         for sym in chord_symbols:
-            index = int(sym.start_beats // beats_per_bar)
+            index = int(sym.start_beats // (beats_per_bar * beat_quarters))
             if index >= len(measures):
                 continue
             try:
@@ -563,6 +589,7 @@ def transcription_to_score(
         staccato=staccato_ids,
         dynamics_marks=dynamics_marks,
         chord_symbols=chord_syms,
+        beat_quarters=grid.beat_quarters,
     )
 
     n_measures = 0
@@ -588,6 +615,9 @@ def transcription_to_score(
         key=key_estimate,
         n_trills=len(ornaments),
         n_staccato=len(staccato_ids),
-        time_signature=time_signature or f"{grid.beats_per_bar}/4",
+        time_signature=time_signature or time_signature_for(grid.beats_per_bar,
+                                                            grid.beat_quarters),
+        beats_per_bar=grid.beats_per_bar,
+        beat_quarters=grid.beat_quarters,
     )
     return sc, stats

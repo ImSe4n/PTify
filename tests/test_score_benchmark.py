@@ -197,3 +197,22 @@ def test_chain_matches_one_pitch_at_a_time_like_the_full_matching():
 
     got = chain(ours, ["upper"] * len(ours), perf, perf_to_score, score)
     assert sorted((c.score.start_beat, c.ours.start_beats) for c in got) == want
+
+
+def test_a_compound_piece_written_in_compound_time_scores_full_marks():
+    # Phase 34: in 6/8 the score's beat is a dotted quarter, and so is ours,
+    # but our positions are in QUARTER notes (an eighth = 0.5). Dividing by the
+    # beat length puts them in our beats before the beat-level factor applies.
+    eighth_beats = 1 / 3                                 # an eighth, in dotted-quarter beats
+    score = [ScoreNote(60 + i % 5, i * eighth_beats, eighth_beats, "upper") for i in range(9)]
+    perf = [NoteEvent(60 + i % 5, i * eighth_beats, i * eighth_beats + 0.3) for i in range(9)]
+    ours = [QuantisedNote(p.pitch, i * 0.5, 0.5, source=p) for i, p in enumerate(perf)]
+    common = dict(label="x", row="audio", ours=ours, our_staffs=["upper"] * 9,
+                  grid_beats=[0.0, 1.0, 2.0, 3.0], beats_per_bar=2,
+                  perf_notes=perf, perf_map=PERF_MAP, ref_beats=[0.0, 1.0, 2.0],
+                  ref_downbeats=[0.0, 2.0], score=score)
+    r = evaluate_piece(**common, beat_quarters=1.5)
+    assert r.factor == 1.0
+    assert r.rhythm == (8, 8) and r.duration == (9, 9)
+    # Read as quarter beats, the same notes are wrong: what the old code did.
+    assert evaluate_piece(**common).rhythm[0] == 0

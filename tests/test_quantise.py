@@ -517,3 +517,24 @@ def test_too_little_evidence_keeps_the_default():
 
 def test_no_notes_keeps_the_default():
     assert estimate_subdivision([], grid_from_tempo(60.0, 4.0)) == DEFAULT_SUBDIVISION
+
+
+def test_beat_grid_beat_is_a_quarter_unless_told_otherwise():
+    # Phase 34: compound meter. Every existing grid keeps a quarter-note beat.
+    from notation.quantise import BeatGrid
+    assert BeatGrid(beats=[0.0, 0.5], bpm=120.0).beat_quarters == 1.0
+    assert BeatGrid(beats=[0.0, 0.5], bpm=120.0, beat_quarters=1.5).beat_quarters == 1.5
+    with pytest.raises(ValueError):
+        BeatGrid(beats=[0.0, 0.5], bpm=120.0, beat_quarters=0.0)
+
+
+def test_quantised_notes_export_at_quarter_note_speed_in_compound_time():
+    # Phase 34: positions are quarter notes, bpm counts DOTTED beats in 6/8.
+    # 60 dotted-quarter beats a minute = 1 s per beat = 2/3 s per quarter.
+    from notation.quantise import BeatGrid, QuantisedNote, quantised_to_transcription
+    g = BeatGrid(beats=[0.0, 1.0, 2.0], bpm=60.0, beats_per_bar=2, beat_quarters=1.5)
+    assert g.sec_per_quarter == pytest.approx(2 / 3)
+    tr = quantised_to_transcription([QuantisedNote(60, 1.5, 0.5)], g)
+    assert tr.notes[0].onset == pytest.approx(1.0)          # one dotted beat in
+    assert tr.notes[0].offset - tr.notes[0].onset == pytest.approx(1 / 3)
+    assert BeatGrid(beats=[0.0, 0.5], bpm=120.0).sec_per_quarter == pytest.approx(0.5)

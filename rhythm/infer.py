@@ -117,15 +117,24 @@ def written_scale_from_gaps(gaps) -> float:
     return float(min(GRID_SCALES, key=lambda s: abs(np.log(mode * s / WRITTEN_MODE_QUARTERS))))
 
 
+#: Scales whose beat is a dotted value: a dotted quarter or a dotted eighth.
+DOTTED_SCALES = (0.75, 1.5)
+
+
 def _written_scale(starts, beat_times, bar: int, scale: float):
     """Tracked-beat positions -> written quarter notes (`scale` per beat).
 
-    Positions are multiplied; beats are re-placed on whole quarter notes by
-    interpolating the tracked beat times; the bar keeps its length in time
-    when that is a whole number of quarters, else falls back to 4.
+    Returns (positions, beat times, beats per bar, quarters per beat).
+    Positions are always multiplied. A DOTTED scale means the beat itself is a
+    dotted value (compound time, Phase 34): the beat stays on the tracked beat
+    and the bar keeps its beats. Otherwise beats are re-placed on whole quarter
+    notes by interpolating the tracked beat times, and the bar keeps its length
+    in time when that is a whole number of quarters, else falls back to 4.
     """
     if scale == 1.0:
-        return starts, beat_times, bar
+        return starts, beat_times, bar, 1.0
+    if scale in DOTTED_SCALES:
+        return np.asarray(starts, dtype=float) * scale, list(beat_times), bar, scale
     tracked = np.asarray(beat_times, dtype=float)
     idx = np.arange(len(tracked))
     n_q = int(np.floor((len(tracked) - 1) * scale)) + 1
@@ -135,7 +144,7 @@ def _written_scale(starts, beat_times, bar: int, scale: float):
                      tracked[-1] + (q - idx[-1]) * slope)
     bar_q = bar * scale
     bar_q = int(round(bar_q)) if abs(bar_q - round(bar_q)) < 1e-9 and round(bar_q) >= 1 else 4
-    return np.asarray(starts, dtype=float) * scale, list(times), bar_q
+    return np.asarray(starts, dtype=float) * scale, list(times), bar_q, 1.0
 
 
 def _prepend_beats(beats: list[float], k: int) -> list[float]:
@@ -207,16 +216,18 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
         # and durations 47.7 -> 49.4%, but rhythm 64.3 -> 63.9% and downbeat F
         # 0.207 -> 0.177; four compound/triplet pieces collapse (scale 0.75/1.5).
         scale = written_scale_from_gaps(gaps) if rescale else 1.0
-        starts, beat_times, bar = _written_scale(
+        starts, beat_times, bar, beat_quarters = _written_scale(
             d.start_beats, d.beat_times, d.beats_per_bar, scale)
         lengths = lengths * scale
         subdivision = BeatGrid.__dataclass_fields__["subdivision"].default  # as measured in run 5
     else:
         starts, beat_times, bar = _hybrid(ordered, p, grid, bars)
+        beat_quarters = 1.0
         subdivision = grid.subdivision
     ibis = np.diff(beat_times)
     out_grid = BeatGrid(beats=list(beat_times), bpm=float(60.0 / np.median(ibis)),
-                        beats_per_bar=bar, subdivision=subdivision)
+                        beats_per_bar=bar, subdivision=subdivision,
+                        beat_quarters=beat_quarters)
     qnotes = [QuantisedNote(pitch=n.pitch, start_beats=float(s),
                             length_beats=float(l),
                             velocity=n.velocity,

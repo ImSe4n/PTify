@@ -216,7 +216,8 @@ def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=No
            choose_grid: bool = False, rescale: bool = False):
     """The product's notation path.
 
-    Returns (quantised notes, staff per note, beat times used, beats per bar):
+    Returns (quantised notes, staff per note, beat times used, beats per bar,
+    quarters per beat):
     with the rhythm model the grid is the model's, not the tracker's, and the
     meter and beat columns must score the one the notes were placed on.
     """
@@ -236,8 +237,7 @@ def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=No
     treble, _, _ = _assign_staves(stats.notes, stats.split_point)
     upper = {id(q) for q in treble}
     staffs = ["upper" if id(q) in upper else "lower" for q in stats.notes]
-    bpb = int(stats.time_signature.split("/")[0]) if stats.time_signature else grid.beats_per_bar
-    return stats.notes, staffs, stats.grid_beats, bpb
+    return stats.notes, staffs, stats.grid_beats, stats.beats_per_bar, stats.beat_quarters
 
 
 def _score_tracks(path: Path) -> list[list[NoteEvent]]:
@@ -287,11 +287,12 @@ def run_piece(row: dict, meta, engine: str, served: str,
         score=score)
     out = []
     for name, tr in (("audio", est), ("perfect_midi", perf)):
-        ours, staffs, used_beats, bpb = notate(tr, grid, auto_division, rhythm_model,
+        ours, staffs, used_beats, bpb, beat_q = notate(tr, grid, auto_division, rhythm_model,
                                                rhythm_mode, rhythm_bars, choose_grid,
                                                rescale)
         out.append(evaluate_piece(row=name, ours=ours, our_staffs=staffs,
-                                  grid_beats=used_beats, beats_per_bar=bpb, **common))
+                                  grid_beats=used_beats, beats_per_bar=bpb,
+                                  beat_quarters=beat_q, **common))
     return out
 
 

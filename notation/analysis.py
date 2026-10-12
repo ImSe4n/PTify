@@ -300,7 +300,7 @@ def detect_staccato(qnotes, grid) -> set[int]:
     derived from an estimate is a claim the audio does not support.
     """
     out: set[int] = set()
-    period = 60.0 / (grid.bpm if grid.bpm > 0 else 120.0)
+    period = grid.sec_per_quarter      # notated lengths are in quarter notes
 
     for idx, q in enumerate(qnotes):
         if q.duration_uncertain or q.source is None:
