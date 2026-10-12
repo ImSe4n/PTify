@@ -195,3 +195,32 @@ Files: `score-benchmark-rhythm-run5-phase.json`, `score-benchmark-rhythm-run6-ph
 (both with grid choice). Default weights are now `checkpoints/rhythm-run6.pt`
 (sha256 in `rhythm/weights.py`). Engraving time is unchanged (7.0 s on the
 8-minute piece with a typed tempo): the exact-fraction path was not the cost.
+
+## Phase 33 C — a learned written scale (run 7), dropped (2026-10-11)
+
+A fifth head predicting written quarter notes per tracked beat (the
+`grid_scale` label) reached 79% on training windows but only 32.6% on
+validation, where always guessing ½ scores 30%, and it cost the other heads a
+little (gaps 79.7 → 79.0%, durations 50.1 → 48.4%). Not benchmarked; run 6
+stays the default. Log: `training/rhythm-run7.jsonl`.
+
+## Phase 33 C — written scale chosen at decode time: opt-in, not default (2026-10-12)
+
+`--rhythm-rescale` (`rhythm_quantise(rescale=True)`): write at the GRID_SCALES
+value that makes the piece's most common gap a 16th. Chosen on validation (scale
+right 41.4% of windows from the model's own gaps, against 22.8% unscaled; the
+alternatives tried there -- powers of 2 only, an 8th target for triple pulses --
+scored lower). `score-benchmark-rhythm-run6-rescale.json`:
+
+| from audio | pipeline | run 6 (default) | run 6 + rescale |
+|---|---|---|---|
+| beat level right | 19/38 | 16/38 | **21/38** |
+| durations | 43.5% | 47.7% | **49.4%** |
+| rhythm | 58.3% | **64.3%** | 63.9% |
+| downbeat F | 0.175 | **0.207** | 0.177 |
+| beat F | **0.489** | 0.432 | 0.394 |
+
+Fixes the Schumann Toccata (0% -> 68% / 75%) but collapses four compound or
+triplet-pulse pieces (Bach fugue 873 96.7% -> 0%, prelude 858 92.2% -> 0.3%,
+Liszt TE 3 86.4% -> 0%, Beethoven 18-4 85.6% -> 0%), where it picks a 0.75/1.5
+scale. A trade-off, so it stays off.

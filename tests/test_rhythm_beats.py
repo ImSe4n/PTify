@@ -71,3 +71,21 @@ def test_fast_fft_gives_the_same_beats_and_leaves_librosa_as_it_was():
     import rhythm.beats as rb
     slow = rb._track(onsets, vel)              # the plain numpy-FFT path
     np.testing.assert_array_equal(fast, slow)
+
+
+def test_tempo_in_chunks_is_librosas_tempo():
+    # Phase 33: librosa builds the whole tempogram (800 lags x every 10 ms
+    # frame, ~3 GB at its FFT on a 21-minute piece) only to average it. The
+    # average built chunk by chunk must give librosa's tempo exactly, or the
+    # beats -- and so the model's inputs -- would change.
+    import librosa
+    from rhythm.beats import ENVELOPE_SR, _tempo_in_chunks
+
+    rng = np.random.default_rng(5)
+    for period in (0.43, 0.61, 0.29):
+        env = np.zeros(int(90 * ENVELOPE_SR))
+        hits = np.arange(0, 89, period) + rng.normal(0, 0.01, len(np.arange(0, 89, period)))
+        env[(hits * ENVELOPE_SR).astype(int)] = rng.uniform(0.3, 1.0, len(hits))
+        env = np.convolve(env, np.hanning(7), mode="same")
+        want = librosa.feature.tempo(onset_envelope=env, sr=ENVELOPE_SR, hop_length=1)
+        assert _tempo_in_chunks(env, chunk=1000) == pytest.approx(float(want[0]), abs=0)

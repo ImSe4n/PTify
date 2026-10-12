@@ -19,7 +19,7 @@ from notation.quantise import BeatGrid, QuantisedNote, _in_pedal
 from rhythm.decode import _bar, anchor_positions, decode, phase_consistent_deltas
 from rhythm.features import TICKS_PER_BEAT
 from rhythm.beats import beat_positions, inputs_from_positions, track_beats_from_notes
-from rhythm.features import DURATION_TICKS, LOWEST_KEY, continuous
+from rhythm.features import DURATION_TICKS, GRID_SCALES, LOWEST_KEY, continuous
 from rhythm.model import RhythmTransformer
 from transcriber.events import NoteEvent, PedalEvent
 
@@ -98,6 +98,46 @@ def predict(model: RhythmTransformer, notes: list[NoteEvent],
 BARS = ("model", "grid")
 
 
+#: The written value the most common gap should become (quarter notes). Real
+#: scores' most common gap is a 16th in 49% of training windows and 44% of
+#: validation windows; making it so picks the right scale in 44.5% of
+#: validation windows against 22.8% for writing in tracked beats (Phase 33).
+WRITTEN_MODE_QUARTERS = 0.25
+
+
+def written_scale_from_gaps(gaps) -> float:
+    """Written quarter notes per tracked beat: the GRID_SCALES value that makes
+    the most common (non-chord) gap a WRITTEN_MODE_QUARTERS note."""
+    g = np.asarray(gaps, dtype=np.int64)[1:]
+    g = g[g > 0]
+    if not len(g):
+        return 1.0
+    values, counts = np.unique(g, return_counts=True)
+    mode = values[counts.argmax()] / TICKS_PER_BEAT
+    return float(min(GRID_SCALES, key=lambda s: abs(np.log(mode * s / WRITTEN_MODE_QUARTERS))))
+
+
+def _written_scale(starts, beat_times, bar: int, scale: float):
+    """Tracked-beat positions -> written quarter notes (`scale` per beat).
+
+    Positions are multiplied; beats are re-placed on whole quarter notes by
+    interpolating the tracked beat times; the bar keeps its length in time
+    when that is a whole number of quarters, else falls back to 4.
+    """
+    if scale == 1.0:
+        return starts, beat_times, bar
+    tracked = np.asarray(beat_times, dtype=float)
+    idx = np.arange(len(tracked))
+    n_q = int(np.floor((len(tracked) - 1) * scale)) + 1
+    q = np.arange(max(n_q, 2)) / scale
+    slope = tracked[-1] - tracked[-2] if len(tracked) > 1 else 0.5
+    times = np.where(q <= idx[-1], np.interp(q, idx, tracked),
+                     tracked[-1] + (q - idx[-1]) * slope)
+    bar_q = bar * scale
+    bar_q = int(round(bar_q)) if abs(bar_q - round(bar_q)) < 1e-9 and round(bar_q) >= 1 else 4
+    return np.asarray(starts, dtype=float) * scale, list(times), bar_q
+
+
 def _prepend_beats(beats: list[float], k: int) -> list[float]:
     """`k` extra beats before the first, at the first beat's length."""
     ibi = beats[1] - beats[0]
@@ -128,7 +168,7 @@ def _hybrid(ordered, p, grid: BeatGrid, bars: str):
 def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
                     pedals: list[PedalEvent] | None = None,
                     grid: BeatGrid | None = None, bars: str = "model",
-                    choose_grid: bool = False,
+                    choose_grid: bool = False, rescale: bool = False,
                     ) -> tuple[BeatGrid, list[QuantisedNote]]:
     """The model's alternative to `quantise_notes`: (grid, written notes).
 
@@ -156,14 +196,20 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
     else:
         p = predict(model, notes, beats=None if grid is None else grid.beats)
     ordered = [notes[i] for i in p["order"]]
-    lengths = p["duration_ticks"] / TICKS_PER_BEAT
+    lengths = np.maximum(p["duration_ticks"], 1) / TICKS_PER_BEAT  # never zero-length
     if grid is None:
         # Gaps chosen to keep the running position on the tracked beat: one
         # argmax slip used to shift every later note (Phase 33).
-        d = decode([n.onset for n in ordered],
-                   phase_consistent_deltas(p["delta_logits"], p["beat_pos"]),
+        gaps = phase_consistent_deltas(p["delta_logits"], p["beat_pos"])
+        d = decode([n.onset for n in ordered], gaps,
                    p["duration_ticks"], p["downbeat_prob"])
-        starts, beat_times, bar = d.start_beats, d.beat_times, d.beats_per_bar
+        # OFF by default (Phase 33, 2026-10-12 benchmark): beat level 16 -> 21/38
+        # and durations 47.7 -> 49.4%, but rhythm 64.3 -> 63.9% and downbeat F
+        # 0.207 -> 0.177; four compound/triplet pieces collapse (scale 0.75/1.5).
+        scale = written_scale_from_gaps(gaps) if rescale else 1.0
+        starts, beat_times, bar = _written_scale(
+            d.start_beats, d.beat_times, d.beats_per_bar, scale)
+        lengths = lengths * scale
         subdivision = BeatGrid.__dataclass_fields__["subdivision"].default  # as measured in run 5
     else:
         starts, beat_times, bar = _hybrid(ordered, p, grid, bars)
@@ -172,7 +218,7 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
     out_grid = BeatGrid(beats=list(beat_times), bpm=float(60.0 / np.median(ibis)),
                         beats_per_bar=bar, subdivision=subdivision)
     qnotes = [QuantisedNote(pitch=n.pitch, start_beats=float(s),
-                            length_beats=float(max(l, 1 / TICKS_PER_BEAT)),
+                            length_beats=float(l),
                             velocity=n.velocity,
                             duration_uncertain=_in_pedal(n.offset, pedals or []),
                             source=n)

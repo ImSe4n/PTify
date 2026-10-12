@@ -180,9 +180,32 @@ model has a number to beat.
   (`checkpoints/rhythm-run6.pt`).
 - Engraving speed did NOT improve from fewer fractions (7.0 s either way).
 
+- Memory/speed: note beat tracking computes librosa's tempo from a CHUNKED
+  tempogram (`beats._tempo_in_chunks`): peak ~3 GB -> ~210 MB on 20+ minute
+  pieces (likely cause of the low-memory kills), beats IDENTICAL on 37/37
+  pieces checked against the training-time path (the 5 longest not compared:
+  the old path needs the 3 GB). Wanderer Fantasy model path 60.9 -> 53.2 s.
+- What is left of the cost is BEAT LEVEL: on the Wanderer the model writes 1375
+  bars to the pipeline's 526 (beat ~2.6x too fast), and music21's time scales
+  with bars (makeNotation 30.3 s vs 6.7 s). Cause: since run 5 labels are in
+  TRACKED-beat units (`grid_scale`), so the model never learns the written
+  scale. Benchmark factors: mostly 0.5 / 0.33 for both pipeline and model.
+
 ## Next
 
-1. Speed: profile again; fractions were not the cost (7.0 s with or without).
+1. Beat level. TRIED (2026-10-11, run 7): a `scale` head predicting written
+   quarters per tracked beat from the `grid_scale` label. Val scale accuracy
+   peaked at 32.6% (always guessing 0.5 scores 30%) while train reached 79%:
+   it memorises each piece's notation and does not generalise; gaps 79.7 ->
+   79.0%, durations 50.1 -> 48.4% (best epoch). NOT benchmarked, NOT kept.
+   Patch: `var/patches/2026-10-11-scale-head.patch`; log
+   `benchmarks/training/rhythm-run7.jsonl`.
+   THEN (2026-10-12) decode-time scale: most common gap -> 16th. Opt-in
+   (`rescale=True`, `--rhythm-rescale`). Beat level 16 -> 21/38, durations
+   47.7 -> 49.4%, Toccata fixed; but rhythm 64.3 -> 63.9%, downbeat F 0.207 ->
+   0.177, four compound pieces collapse to ~0%. USER to weigh the trade-off.
+   Open: a compound-aware rule that validation supports (the obvious 8th
+   target for triple pulses scored LOWER on validation: 31.8% vs 41.4%).
 2. Bar lines: soft decoding failed; next is retraining with the downbeat loss
    weighted.
 3. The Toccata: the model writes even 16th runs as triplets. Needs training

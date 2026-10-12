@@ -34,6 +34,36 @@ FALLBACK_SEC_PER_BEAT = 0.5
 _EPS_BEATS = 1e-2
 
 
+#: Frames of the onset curve per tempogram chunk (~50 MB at librosa's 800 lags).
+TEMPO_CHUNK_FRAMES = 4096
+
+
+def _tempo_in_chunks(env: np.ndarray, chunk: int = TEMPO_CHUNK_FRAMES) -> float:
+    """librosa's default tempo estimate for `env`, without its whole tempogram.
+
+    MEMORY. `librosa.feature.tempo` builds a tempogram of 800 lags x every
+    frame and its FFT (~3 GB on a 21-minute piece) only to average it over
+    frames. This builds the same windowed, normalised autocorrelations a chunk
+    of frames at a time and sums them; the average then goes through librosa's
+    own tempo choice. Same arguments as `beat_track`'s call: sr = ENVELOPE_SR,
+    hop 1, librosa's defaults otherwise.
+    """
+    import librosa
+
+    win = int(librosa.time_to_frames(8.0, sr=ENVELOPE_SR, hop_length=1))  # ac_size
+    n = env.shape[-1]
+    padded = np.pad(env, (win // 2, win // 2), mode="linear_ramp", end_values=[0, 0])
+    frames = librosa.util.frame(padded, frame_length=win, hop_length=1)[:, :n]
+    window = librosa.filters.get_window("hann", win, fftbins=True)[:, None]
+    total = np.zeros(win)
+    for a in range(0, n, chunk):
+        ac = librosa.autocorrelate(frames[:, a:a + chunk] * window, axis=-2)
+        total += librosa.util.normalize(ac, norm=np.inf, axis=-2).sum(axis=-1)
+    tg = (total / n)[:, None]
+    return float(librosa.feature.tempo(tg=tg, sr=ENVELOPE_SR, hop_length=1,
+                                       aggregate=None)[0])
+
+
 def _track(onsets: np.ndarray, velocities) -> np.ndarray:
     """librosa's beat tracker on an onset curve built from the notes."""
     import librosa
@@ -44,7 +74,8 @@ def _track(onsets: np.ndarray, velocities) -> np.ndarray:
         env[max(int(t * ENVELOPE_SR), 0)] += v / 127.0
     env = np.convolve(env, np.hanning(7), mode="same")
     _, beats = librosa.beat.beat_track(onset_envelope=env, sr=ENVELOPE_SR,
-                                       hop_length=1, units="time")
+                                       hop_length=1, units="time",
+                                       bpm=_tempo_in_chunks(env))
     return np.asarray(beats, dtype=float)
 
 

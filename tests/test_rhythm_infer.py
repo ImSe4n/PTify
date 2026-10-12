@@ -156,3 +156,51 @@ def test_the_model_path_decodes_gaps_on_the_beat(monkeypatch):
                         lambda *a, **k: calls.append(1) or real(*a, **k))
     rhythm_quantise(_notes(20), _tiny())
     assert calls
+
+
+# --- the written scale, chosen at decode time (Phase 33, beat level) --------------
+#
+# The model writes in TRACKED beats, which were 2x-3x too fast in most benchmark
+# pieces. A learned scale head did not generalise (run 7: 32.6% on validation).
+# Real scores' most common gap is a 16th (49% of training windows, 44% of
+# validation), so the scale is the one that makes the most common written gap a
+# 16th: right in 44.5% of validation windows against 22.8% for no rescaling.
+
+def test_scale_makes_the_most_common_gap_a_sixteenth():
+    from rhythm.infer import written_scale_from_gaps
+    assert written_scale_from_gaps(np.array([0, 12, 12, 12, 24, 0, 12])) == 0.5
+    assert written_scale_from_gaps(np.array([0, 6, 6, 6, 12])) == 1.0
+    assert written_scale_from_gaps(np.array([0, 24, 24, 48])) == 0.25
+
+
+def test_chords_do_not_count_and_no_gaps_means_no_rescaling():
+    from rhythm.infer import written_scale_from_gaps
+    assert written_scale_from_gaps(np.array([0, 0, 0, 12, 0, 0, 12])) == 0.5
+    assert written_scale_from_gaps(np.array([0, 0, 0])) == 1.0
+
+
+def test_the_written_scale_multiplies_positions_values_and_beats(monkeypatch):
+    import rhythm.infer as ri
+    notes = _notes(40)
+    def at(scale):
+        monkeypatch.setattr(ri, "written_scale_from_gaps", lambda d: scale)
+        return rhythm_quantise(notes, _tiny(), rescale=True)
+    g1, q1 = at(1.0)
+    g2, q2 = at(0.5)
+    assert [q.start_beats * 0.5 for q in q1] == pytest.approx([q.start_beats for q in q2])
+    assert [q.length_beats * 0.5 for q in q1] == pytest.approx([q.length_beats for q in q2])
+    # Written beat k is tracked beat 2k: same times, half as many beats.
+    assert g2.beats == pytest.approx(g1.beats[::2][:len(g2.beats)])
+    assert len(g2.beats) == pytest.approx(len(g1.beats) / 2, abs=1)
+
+
+
+def test_rescaling_is_off_by_default(monkeypatch):
+    import rhythm.infer as ri
+    monkeypatch.setattr(ri, "written_scale_from_gaps", lambda d: 0.5)
+    notes = _notes(40)
+    plain = rhythm_quantise(notes, _tiny())[1]
+    assert [q.start_beats for q in plain] == [q.start_beats for q in
+                                              rhythm_quantise(notes, _tiny(), rescale=False)[1]]
+    assert [q.start_beats for q in plain] != [q.start_beats for q in
+                                              rhythm_quantise(notes, _tiny(), rescale=True)[1]]
