@@ -168,3 +168,36 @@ def test_train_accepts_the_downbeat_weight():
     assert build_parser().parse_args(
         ["--data", "d", "--out", "o", "--downbeat-pos-weight", "4"]).downbeat_pos_weight == 4.0
     assert build_parser().parse_args(["--data", "d", "--out", "o"]).downbeat_pos_weight == 1.0
+
+
+# --- extra training data (Phase 35, PDMX shards) ----------------------------------
+
+def test_extra_shards_are_appended_without_crossing_pieces(tmp_path):
+    from rhythm.train import load_training
+    a = pack([encode_pair(_piece(20)), encode_pair(_piece(12, seed=1))])
+    b = pack([encode_pair(_piece(16, seed=2))])
+    np.savez_compressed(tmp_path / "train.npz", **a)
+    np.savez_compressed(tmp_path / "pdmx-train-000.npz", **b)
+    got = load_training(tmp_path, "pdmx-train-*.npz")
+    assert got["offsets"].tolist() == [0, 20, 32, 48]
+    assert got["pitch"].tolist() == a["pitch"].tolist() + b["pitch"].tolist()
+    assert all(b2 <= 48 for _, b2 in Windows(got, length=8, stride=8).spans)
+    assert load_training(tmp_path, None)["offsets"].tolist() == [0, 20, 32]
+
+
+def test_train_accepts_an_extra_glob():
+    from rhythm.train import build_parser
+    a = build_parser().parse_args(["--data", "d", "--out", "o", "--extra-glob", "pdmx-train-*.npz"])
+    assert a.extra_glob == "pdmx-train-*.npz"
+    assert build_parser().parse_args(["--data", "d", "--out", "o"]).extra_glob is None
+
+
+def test_training_data_out_of_range_fails_on_the_cpu(tmp_path):
+    # A bad index reached the GPU as an unreadable CUDA assert (run 8). Check
+    # every input and label range when the data is loaded instead.
+    from rhythm.train import load_training
+    bad = pack([encode_pair(_piece(20))])
+    bad["pitch"][3] = 95
+    np.savez_compressed(tmp_path / "train.npz", **bad)
+    with pytest.raises(ValueError, match="pitch"):
+        load_training(tmp_path, None)

@@ -29,7 +29,7 @@ import numpy as np
 import torch
 
 from rhythm.beats import inputs_from_positions
-from rhythm.features import (ARRAY_KEYS, IGNORE, IGNORE_TICK, N_INPUT,
+from rhythm.features import (ARRAY_KEYS, IGNORE, IGNORE_TICK, N_INPUT, N_KEYS,
                              TICKS_PER_BEAT, continuous, deltas, duration_class,
                              grid_scale)
 from rhythm.model import HEADS, RhythmTransformer, rhythm_loss
@@ -116,6 +116,40 @@ def collate(windows: list[dict], device: str = "cpu") -> dict[str, torch.Tensor]
     return {k: v.to(device) for k, v in out.items()}
 
 
+def check_ranges(packed: dict) -> None:
+    """Every index the model embeds or classifies is in range -- checked on
+    the CPU, because on the GPU a bad one is an unreadable CUDA assert (run 8:
+    PDMX notes outside the 88 keys)."""
+    limits = {"pitch": N_KEYS, **{k: n for k, n in HEADS.items()}}
+    for key, n in limits.items():
+        if key not in packed:
+            continue
+        v = packed[key]
+        bad = (v != IGNORE) & ((v < 0) | (v >= n)) if key in HEADS else (v < 0) | (v >= n)
+        if bad.any():
+            raise ValueError(f"{key}: {int(bad.sum())} values outside [0, {n}), "
+                             f"e.g. {v[bad][:5].tolist()}")
+
+
+def load_training(data: Path, extra_glob: str | None) -> dict:
+    """`train.npz`, plus every file in `data` matching `extra_glob` appended
+    (Phase 35: PDMX synthetic shards). Pieces never merge: offsets shift."""
+    parts = [load(data / "train.npz")]
+    if extra_glob:
+        parts += [load(p) for p in sorted(data.glob(extra_glob))]
+    for p in parts:
+        check_ranges(p)
+    if len(parts) == 1:
+        return parts[0]
+    out = {k: np.concatenate([p[k] for p in parts]) for k in parts[0] if k != "offsets"}
+    offsets, base = [np.zeros(1, dtype=np.int64)], 0
+    for p in parts:
+        offsets.append(p["offsets"][1:] + base)
+        base += int(p["offsets"][-1])
+    out["offsets"] = np.concatenate(offsets)
+    return out
+
+
 def load(path: Path) -> dict:
     with np.load(path) as z:
         return {k: z[k] for k in z.files}
@@ -165,6 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="stop early; for a smoke run")
     ap.add_argument("--downbeat-pos-weight", type=float, default=1.0,
                     help="loss weight of the 'is a downbeat' class (1 = plain)")
+    ap.add_argument("--extra-glob", default=None,
+                    help="more training shards in --data, e.g. 'pdmx-train-*.npz'")
     ap.add_argument("--seed", type=int, default=13)
     return ap
 
@@ -178,8 +214,10 @@ def main(argv: list[str] | None = None) -> int:
           + (f" ({torch.cuda.get_device_name(0)})" if device == "cuda" else ""),
           flush=True)
 
-    train = Windows(load(args.data / "train.npz"))
-    val = Windows(load(args.data / "val.npz"))
+    train = Windows(load_training(args.data, args.extra_glob))
+    val_packed = load(args.data / "val.npz")
+    check_ranges(val_packed)
+    val = Windows(val_packed)
     print(f"windows: train {len(train.spans)}, val {len(val.spans)}", flush=True)
     # A fixed, UNAUGMENTED sample of training windows, scored every epoch next to
     # validation: run 2 could not be diagnosed from its log because only the

@@ -207,12 +207,16 @@ def encode_pair(pair: dict) -> dict[str, np.ndarray]:
         q = t.get("start_quarter")
         start_tick[i] = round((s if q is None else q) * TICKS_PER_BEAT)
         lq = t.get("length_quarters")
-        length = t["length_beats"] if lq is None else lq
-        length_tick[i] = round(length * TICKS_PER_BEAT)
-        duration[i] = duration_class(length)
+        length = t.get("length_beats") if lq is None else lq
+        # Synthetic pairs (Phase 35) know positions but not written values.
+        if length is not None:
+            length_tick[i] = round(length * TICKS_PER_BEAT)
+            duration[i] = duration_class(length)
         on_beat = abs(s - round(s)) < 1e-6
         downbeat[i] = int(on_beat and round(s) in down_idx)
-        hand[i] = 0 if t["staff"] == "upper" else 1
+        # Synthetic pairs (Phase 35) come from MIDI, which has no staves.
+        if t.get("staff") is not None:
+            hand[i] = 0 if t["staff"] == "upper" else 1
 
     return {
         "pitch": np.array([x["pitch"] - LOWEST_KEY for x in notes], dtype=np.int16),

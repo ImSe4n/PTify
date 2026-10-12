@@ -1,3 +1,98 @@
+# Phase 35 -- synthetic performances from PDMX (DONE 2026-10-12: run 8 is the default)
+
+## Why
+
+Two rhythm problems need data ASAP cannot give: (1) the Schumann Toccata's even
+16th runs read as triplets (0% rhythm), and (2) whether a dotted pulse means
+compound meter -- ASAP validation has only 4 scores with a dotted pick, too few
+to choose a cue. PDMX (250K public-domain MuseScore scores, Zenodo v9) supplies
+thousands of piano scores with known rhythms and time signatures. User chose it
+2026-10-12 (non-commercial project; NC data acceptable).
+
+## Requirements
+
+- Training pairs in the existing format (`evaluation.rhythm_pairs` /
+  `rhythm.features.encode_pair`): notes with onset/offset/velocity and written
+  targets (start/length in quarters and in beats, downbeats, time signatures).
+- Performances simulate what the model sees at inference: tempo drift, timing
+  jitter, chord spread, velocity accents, varied articulation; transcription
+  misses are already simulated by `train.augment` (dropped notes).
+- Hand/staff unlabelled for synthetic pairs (MIDI loses staves): the hand head
+  trains on ASAP only.
+- PDMX scores split train / held-out BY SCORE; nothing PDMX touches the score
+  benchmark (real recordings) or ASAP validation, which stay the judges.
+
+## Success criteria
+
+- Run 8 (real + synthetic) on the score benchmark, from audio, same decoding as
+  the default: rhythm >= 64.3% (run 6) AND durations >= 47.7%, staff unchanged.
+- Schumann Toccata rhythm > 0% (both performances).
+- ASAP validation gaps/durations not more than 1 point below run 6
+  (79.7% / 50.1%): synthetic data must not pull the model away from real playing.
+- PDMX held-out gives >= 200 pieces with a dotted pick, enough to choose a
+  compound-meter cue (Phase 34 follow-up) -- reported, not required to pass.
+
+## Files
+
+- new `evaluation/pdmx.py`: CSV filter + MIDI -> written notes / beats /
+  downbeats / time signatures (pretty_midi; quarter = MIDI beat).
+- new `rhythm/synth.py`: score -> synthetic performance (seeded).
+- new `tools/export_pdmx_pairs.py`: download check, filter, split, write
+  `var/pdmx-pairs/{train,heldout}.jsonl` + `.npz` (same packer).
+- `rhythm/features.py`: `staff` may be None -> hand IGNORE.
+- `rhythm/train.py`: `--extra-data DIR` (more train.npz to concatenate).
+- `tools/kaggle_rhythm.py`: ship the extra npz in the private dataset.
+- Tests for each new module first (hand-built MIDI with known answers).
+
+## Decisions for the USER (recommendations first)
+
+1. Download: `PDMX.csv` (225 MB) + `mid.tar.gz` (214 MB) into `var/pdmx/`
+   (gitignored), NOT the 1.9 GB MusicXML. MuseScore's MIDI keeps exact written
+   positions and time signatures; staves are lost (hand head unaffected).
+2. Filter: one part whose track name is piano, `subset:deduplicated` AND
+   `subset:no_license_conflict`, 200-20,000 notes, a time signature present;
+   cap 10,000 scores (seeded sample). About 4x ASAP's notes; Kaggle T4 run
+   ~2 h instead of ~30 min.
+3. Mix: all of ASAP train + all synthetic in one training set; model selection
+   stays on ASAP validation (real performances).
+
+## Not doing
+
+- No MusicXML parsing, no audio rendering (the model reads notes, not audio).
+- No change to decoding or defaults until run 8 is benchmarked.
+- No ornament/staccato work (the old PDMX deferral reason still applies there).
+
+## Verification
+
+Unit tests on hand-built MIDI; a sample of converted pairs spot-checked
+against their MIDI; one Kaggle run; one score-benchmark run. Level: replayed
+against real recordings and published scores.
+
+## Steps
+
+- [x] 1. Downloaded PDMX.csv + mid.tar.gz (md5 match Zenodo); filter: 254,077
+      -> deduplicated 102,635 -> no licence conflict 77,354 -> piano-only 1-2
+      tracks 39,066 -> 200-20,000 notes 21,438; seeded sample 10,000.
+- [x] 2. `evaluation/pdmx.py` (7 tests). MEASURED: MuseScore writes each bar's
+      actual length as a time signature (pickups "1/4" then "4/4"); note ends
+      are PLAYED lengths (0.6% on a value grid) -> lengths never claimed;
+      97.8% of starts on a 16th/triplet grid -> those are claimed.
+- [x] 3. `rhythm/synth.py` (10 tests). Fixed: staff None was labelled "lower".
+- [x] 4. Export (`tools/export_pdmx_pairs.py`, sharded, 3 workers): train
+      8,884 pieces / 5.51M notes, held-out 965 / 0.63M; 151 failed (145 not
+      piano in the file). Labels vs ASAP: 97% vs 94% labelled, downbeat share
+      0.20 vs 0.16, simpler gaps (more 8ths/quarters). `--extra-glob` in train;
+      Kaggle prepare ships shards only when asked.
+- [x] 5. Run 8 (first attempt crashed: 269 notes outside the 88 keys; fixed with
+      `read_score` filtering + `train.check_ranges`). ASAP val: gaps 80.1 ->
+      83.5%, durations 50.6 -> 57.7%, downbeat F1 0.397 -> 0.388, hand 84.0 ->
+      83.7%. Passed.
+- [x] 6. Benchmark: rhythm 67.1% (>= 64.3 PASS), durations 49.5% (>= 47.7
+      PASS), Toccata 0% (FAIL). 23 better / 7 worse. USER chose to switch:
+      run 8 is the default (`checkpoints/rhythm-run8.pt`).
+
+---
+
 # Phase 34 -- compound meter (BUILT 2026-10-12; criteria NOT met, rescale stays off)
 
 ## Why

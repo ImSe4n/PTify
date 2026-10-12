@@ -245,3 +245,26 @@ compound meter in some pieces and a tracker artefact in others, and the gaps
 cannot tell which. Rescaling stays OFF; the compound machinery
 (`BeatGrid.beat_quarters`, `time_signature_for`, dotted tempo mark,
 `sec_per_quarter`) is only reached with rescaling on.
+
+## Phase 35 — run 8 with synthetic PDMX performances: the default (2026-10-12)
+
+Run 8 = run 6's settings, 15 epochs, trained on ASAP plus 8,884 synthetic
+performances of PDMX piano scores (5.5M notes; positions, bar lines and meter
+labelled, note values and hands not). Validation (real ASAP playing): gaps
+80.1 -> 83.5%, durations 50.6 -> 57.7%, downbeat F1 0.397 -> 0.388.
+`score-benchmark-rhythm-run8.json` (grid choice, on-the-beat decoder, no rescale):
+
+| from audio | pipeline | run 6 | **run 8** |
+|---|---|---|---|
+| rhythm | 58.3% | 64.3% | **67.1%** |
+| durations | 43.5% | 47.7% | **49.5%** |
+| staff | 89.1% | 89.1% | 89.1% |
+| downbeat F (mean) | 0.175 | 0.207 | **0.223** |
+| beat F (mean) | **0.489** | 0.432 | 0.461 |
+| beat level right | **19/38** | 16/38 | 17/38 |
+
+Better on 23 pieces, worse on 7 (Chopin Polonaise 53 +19.5, Beethoven 8-3
++12.8; Rachmaninoff 23/6 -8.9, Liszt S145/2 -6.1). The Schumann Toccata stays at
+0%, so one of the three plan criteria failed; the user chose to switch anyway
+since run 6 is also 0% there. Weights `checkpoints/rhythm-run8.pt`, sha256 in
+`rhythm/weights.py`. Training log `training/rhythm-run8.jsonl`.

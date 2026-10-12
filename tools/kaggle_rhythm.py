@@ -25,6 +25,8 @@ ROOT = Path("var/kaggle")
 DATASET_SLUG = "ptify-rhythm-pairs"
 KERNEL_SLUG = "ptify-rhythm-train"
 PAIRS = Path("var/rhythm-pairs")
+#: Phase 35 synthetic shards; shipped only when the run asks for them.
+PDMX_PAIRS = Path("var/pdmx-pairs")
 RUN_OUT = Path("var/rhythm-run")
 
 KERNEL_SCRIPT = '''\
@@ -69,6 +71,14 @@ def prepare(train_args: list[str]) -> None:
         d.mkdir(parents=True)
     for name in ("train.npz", "val.npz"):
         shutil.copy2(PAIRS / name, ds / name)
+    if "--extra-glob" in train_args:
+        pattern = train_args[train_args.index("--extra-glob") + 1]
+        shards = sorted(PDMX_PAIRS.glob(pattern))
+        if not shards:
+            sys.exit(f"error: --extra-glob {pattern!r} matches nothing in {PDMX_PAIRS}")
+        for shard in shards:
+            shutil.copy2(shard, ds / shard.name)
+        print(f"shipping {len(shards)} extra shards ({pattern})")
     shutil.copytree("rhythm", ds / "rhythm",
                     ignore=shutil.ignore_patterns("__pycache__"))
     (ds / "dataset-metadata.json").write_text(json.dumps({

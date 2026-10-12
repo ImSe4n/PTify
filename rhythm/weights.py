@@ -18,11 +18,12 @@ from pathlib import Path
 
 RHYTHM_MODEL_ENV = "PTIFY_RHYTHM_MODEL"
 RHYTHM_MODE_ENV = "PTIFY_RHYTHM"
-RHYTHM_MODEL_NAME = "rhythm-run6.pt"
-#: sha256 of the Phase 33 run-6 weights (downbeat loss weighted 4x) that produced
-#: `benchmarks/score-benchmark-rhythm-run6-phase.json`. Run 5 (sha256
-#: 687f35e3...2243) was the default from 2026-10-10 to 2026-10-11.
-RHYTHM_RUN6_SHA256 = "7a5be4b2c99024911067cab88ff0040e984590d0b73a0d61056e13a7924c7d21"
+RHYTHM_MODEL_NAME = "rhythm-run8.pt"
+#: sha256 of the Phase 35 run-8 weights (ASAP + 8,884 synthetic PDMX
+#: performances, downbeat loss weighted 4x) that produced
+#: `benchmarks/score-benchmark-rhythm-run8.json`. Earlier defaults: run 5
+#: (687f35e3...2243) 2026-10-10 to 10-11; run 6 (7a5be4b2...7d21) 2026-10-11 to 10-12.
+RHYTHM_RUN8_SHA256 = "691c47e7905252bf0848b33d8719fe76b105ac924809032f5d4b1472eb6ea474"
 
 MODES = ("grid", "model", "hybrid")
 #: What the web app uses when PTIFY_RHYTHM is unset. Changed only on the
@@ -31,7 +32,9 @@ MODES = ("grid", "model", "hybrid")
 #: 43.5% -> 47.0% (38 pieces, from audio), staff unchanged; it places the beat
 #: level right in 16/38 pieces against the grid's 19/38. Since 2026-10-11, run 6
 #: with the on-the-beat decoder: rhythm 64.3%, durations 47.7%, downbeat F 0.21
-#: (pipeline 0.17), beat F 0.43, beat level 16/38. Without weights on disk
+#: (pipeline 0.17), beat F 0.43, beat level 16/38. Since 2026-10-12, run 8:
+#: rhythm 67.1%, durations 49.5%, downbeat F 0.22, beat F 0.46, beat level
+#: 17/38 (the Schumann Toccata still 0%). Without weights on disk
 #: the app falls back to "grid" by itself. PTIFY_RHYTHM=grid reverts.
 DEFAULT_MODE = "model"
 
