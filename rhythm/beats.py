@@ -64,8 +64,14 @@ def _tempo_in_chunks(env: np.ndarray, chunk: int = TEMPO_CHUNK_FRAMES) -> float:
                                        aggregate=None)[0])
 
 
-def _track(onsets: np.ndarray, velocities) -> np.ndarray:
-    """librosa's beat tracker on an onset curve built from the notes."""
+#: Tempo factors tried by `track_beat_candidates` (Phase 35 follow-up). 1.0
+#: first: candidate 0 is always the plain tracked beat.
+TEMPO_FACTORS = (1.0, 4 / 3, 3 / 4, 2 / 3, 3 / 2, 2.0, 0.5)
+
+
+def _track(onsets: np.ndarray, velocities, factors=(1.0,)) -> list[np.ndarray]:
+    """librosa's beat tracker on an onset curve built from the notes, once per
+    tempo factor (the tempo itself estimated once)."""
     import librosa
 
     n = int(np.ceil(onsets.max() * ENVELOPE_SR)) + 2 * ENVELOPE_SR
@@ -73,10 +79,13 @@ def _track(onsets: np.ndarray, velocities) -> np.ndarray:
     for t, v in zip(onsets, velocities):
         env[max(int(t * ENVELOPE_SR), 0)] += v / 127.0
     env = np.convolve(env, np.hanning(7), mode="same")
-    _, beats = librosa.beat.beat_track(onset_envelope=env, sr=ENVELOPE_SR,
-                                       hop_length=1, units="time",
-                                       bpm=_tempo_in_chunks(env))
-    return np.asarray(beats, dtype=float)
+    bpm = _tempo_in_chunks(env)
+    out = []
+    for f in factors:
+        _, beats = librosa.beat.beat_track(onset_envelope=env, sr=ENVELOPE_SR,
+                                           hop_length=1, units="time", bpm=bpm * f)
+        out.append(np.asarray(beats, dtype=float))
+    return out
 
 
 def track_beats_from_notes(onsets: np.ndarray, velocities: np.ndarray) -> np.ndarray:
@@ -89,8 +98,18 @@ def track_beats_from_notes(onsets: np.ndarray, velocities: np.ndarray) -> np.nda
     librosa's FFT choice is global and the audio tracker uses it too, so it is
     switched only for this call and always restored.
     """
+    return _candidates(onsets, velocities, (1.0,))[0]
+
+
+def track_beat_candidates(onsets: np.ndarray, velocities: np.ndarray) -> list[np.ndarray]:
+    """Beats at every TEMPO_FACTORS multiple of the tracked tempo; [0] is
+    `track_beats_from_notes` exactly."""
+    return _candidates(onsets, velocities, TEMPO_FACTORS)
+
+
+def _candidates(onsets, velocities, factors) -> list[np.ndarray]:
     onsets = np.asarray(onsets, dtype=float)
-    beats = np.array([])
+    found = [np.array([]) for _ in factors]
     if len(onsets) >= 2:
         import librosa
         import scipy.fft
@@ -98,14 +117,13 @@ def track_beats_from_notes(onsets: np.ndarray, velocities: np.ndarray) -> np.nda
         previous = librosa.get_fftlib()
         librosa.set_fftlib(scipy.fft)
         try:
-            beats = _track(onsets, velocities)
+            found = _track(onsets, velocities, factors)
         finally:
             librosa.set_fftlib(previous)
-    if len(beats) < 2:
-        start = float(onsets.min()) if len(onsets) else 0.0
-        span = float(onsets.max() - start) if len(onsets) else 0.0
-        beats = start + FALLBACK_SEC_PER_BEAT * np.arange(int(span / FALLBACK_SEC_PER_BEAT) + 2)
-    return beats
+    start = float(onsets.min()) if len(onsets) else 0.0
+    span = float(onsets.max() - start) if len(onsets) else 0.0
+    fallback = start + FALLBACK_SEC_PER_BEAT * np.arange(int(span / FALLBACK_SEC_PER_BEAT) + 2)
+    return [b if len(b) >= 2 else fallback for b in found]
 
 
 def _positions(onsets: np.ndarray, beats: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

@@ -279,6 +279,11 @@ def _build_score(spec: JobSpec, tr):
             # Phase 33: the model also reads the audio's beats and keeps the
             # more confident reading. A typed or default tempo is no evidence.
             rhythm_choose_grid=audio_grid,
+            # Phase 35: also try 6 multiples of the note tracker's tempo and keep
+            # the most confident reading. Benchmark: rhythm 67.1 -> 76.9%,
+            # durations 49.5 -> 58.8%, Schumann Toccata 0 -> 95%; beat level
+            # 17 -> 10/38 (more pieces written at x2 / x1/2 values). +~2 s/job.
+            rhythm_try_tempi=audio_grid,
             beats_per_bar=spec.beats_per_bar,
             title=spec.title or Path(spec.original_name or "score").stem,
             composer=spec.composer,

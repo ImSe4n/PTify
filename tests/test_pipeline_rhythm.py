@@ -104,9 +104,12 @@ def test_the_audio_grid_is_offered_to_the_model(monkeypatch, tmp_path):
     seen = _spy(monkeypatch)
     _build_score(JobSpec(input_path=str(tmp_path / "a.wav")), _tr())
     assert seen["rhythm_choose_grid"] is True
+    # Tempo candidates ride on grid choice (rhythm 67.1 -> 76.9%, Toccata 0 -> 95%).
+    assert seen["rhythm_try_tempi"] is True
 
 
 def test_a_typed_tempo_is_not_offered_to_the_model(monkeypatch):
     seen = _spy(monkeypatch)
     _build_score(JobSpec(tempo=120.0), _tr())
     assert seen["rhythm_choose_grid"] is False
+    assert seen["rhythm_try_tempi"] is False

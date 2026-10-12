@@ -69,7 +69,7 @@ def test_fast_fft_gives_the_same_beats_and_leaves_librosa_as_it_was():
     assert librosa.get_fftlib() is before
 
     import rhythm.beats as rb
-    slow = rb._track(onsets, vel)              # the plain numpy-FFT path
+    slow = rb._track(onsets, vel)[0]           # the plain numpy-FFT path
     np.testing.assert_array_equal(fast, slow)
 
 
@@ -89,3 +89,19 @@ def test_tempo_in_chunks_is_librosas_tempo():
         env = np.convolve(env, np.hanning(7), mode="same")
         want = librosa.feature.tempo(onset_envelope=env, sr=ENVELOPE_SR, hop_length=1)
         assert _tempo_in_chunks(env, chunk=1000) == pytest.approx(float(want[0]), abs=0)
+
+
+def test_tempo_candidates_start_with_the_tracked_beats():
+    # Phase 35 follow-up: the model reads the notes on beats at several tempo
+    # factors and keeps the most confident reading (Schumann Toccata: the tracker
+    # locked on 3-sixteenth groups; the x2 grid read even 16ths, confidence
+    # 0.97 vs 0.90). Candidate 0 must be today's beats exactly.
+    from rhythm.beats import TEMPO_FACTORS, track_beat_candidates
+
+    onsets = np.arange(0, 30, 0.25)
+    vel = np.where(np.arange(len(onsets)) % 4 == 0, 90.0, 50.0)
+    cands = track_beat_candidates(onsets, vel)
+    assert TEMPO_FACTORS[0] == 1.0 and len(cands) == len(TEMPO_FACTORS)
+    assert np.array_equal(cands[0], track_beats_from_notes(onsets, vel))
+    i2 = TEMPO_FACTORS.index(2.0)
+    assert len(cands[i2]) == pytest.approx(2 * len(cands[0]), rel=0.15)

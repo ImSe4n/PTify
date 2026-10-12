@@ -1,3 +1,35 @@
+# Tempo candidates (2026-10-12): ON in the web app
+
+Grid choice now also tries 6 multiples of the note tracker's tempo
+(`rhythm.beats.track_beat_candidates`, `rhythm_quantise(try_tempi=True)`).
+Held-out first: exact positions 33.8 -> 34.5% (ASAP val), 66.0 -> 67.6% (PDMX).
+Benchmark (run 8): rhythm 67.1 -> 76.9%, durations 49.5 -> 58.8%, Toccata
+0 -> 95%; beat level 17 -> 10/38, beat F 0.461 -> 0.429. ~+2 s per 8-min job.
+
+Next: beat level. The readings are right up to x2 / x1/2, so the open problem
+is only WHICH power-of-2 level to print. A cheap candidate: after choosing the
+reading, pick the dyadic level (x1/2, x1, x2) whose most common written value
+is a 16th or 8th -- the `written_scale_from_gaps` idea restricted to powers of
+2 (validation earlier: 33.9% exact scale, vs 22.8% unscaled), which cannot
+create the 4/3 meter failures that dotted scales did.
+
+---
+
+# Meter cue on PDMX held-out (2026-10-12): FAILED, rescale stays off
+
+Run 8 on the 965 held-out PDMX pieces (synthetic performances, known time
+signatures): the rescale rule picks a dotted scale on 94; 45 of those (48%) are
+really compound. Cue = best integer-bar contrast of the model's downbeat
+log-odds on whole tracked beats. AUC 0.56; best threshold 53% vs 48% for
+"always compound". Why: "not compound" mixes TWO cases -- Toccata-like (tracker
+on 3-sixteenth groups; downbeats NOT periodic in tracked beats; fix = rescale
+to quarters) and simple-meter pieces full of triplet figures (tracked beat IS
+the beat; downbeats periodic; fix = keep triplets, no rescale). Gaps and
+downbeats make the triplet case look like compound. Not pursued further.
+Script: job scratch `heldout_cue.py` (not in the repo).
+
+---
+
 # Phase 35 -- synthetic performances from PDMX (DONE 2026-10-12: run 8 is the default)
 
 ## Why

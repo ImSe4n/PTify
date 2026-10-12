@@ -268,3 +268,26 @@ Better on 23 pieces, worse on 7 (Chopin Polonaise 53 +19.5, Beethoven 8-3
 0%, so one of the three plan criteria failed; the user chose to switch anyway
 since run 6 is also 0% there. Weights `checkpoints/rhythm-run8.pt`, sha256 in
 `rhythm/weights.py`. Training log `training/rhythm-run8.jsonl`.
+
+## Tempo candidates: on in the web app (2026-10-12)
+
+`--rhythm-try-tempi` (with grid choice): the model also reads the notes on the
+note tracker's beats at x4/3, x3/4, x2/3, x3/2, x2 and x1/2 of its tempo and keeps
+the most confident of all readings. Chosen on held-out data first (exact
+positions 33.8 -> 34.5% ASAP validation, 66.0 -> 67.6% PDMX held-out).
+`score-benchmark-rhythm-run8-tempi.json`:
+
+| from audio | run 8 | **run 8 + tempo candidates** |
+|---|---|---|
+| rhythm | 67.1% | **76.9%** |
+| durations | 49.5% | **58.8%** |
+| staff | 89.1% | 89.1% |
+| downbeat F (mean) | 0.223 | 0.226 |
+| beat F (mean) | **0.461** | 0.429 |
+| beat level right | **17/38** | 10/38 |
+
+Schumann Toccata 0% -> 95.5% / 95.6% (the tracker had locked on 3-sixteenth
+groups; the x2 reading writes the runs evenly). Liszt S145/1 +31.3, S145/2
++25.8; Beethoven 9-3 -22.1. Cost: beat level -- more pieces are written at
+double or half note values (still counted right by the factor-tolerant rhythm
+and duration columns, but visible on the page) -- and ~2 s per job.

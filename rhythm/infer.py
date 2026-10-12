@@ -18,7 +18,8 @@ import torch
 from notation.quantise import BeatGrid, QuantisedNote, _in_pedal
 from rhythm.decode import _bar, anchor_positions, decode, phase_consistent_deltas
 from rhythm.features import TICKS_PER_BEAT
-from rhythm.beats import beat_positions, inputs_from_positions, track_beats_from_notes
+from rhythm.beats import (beat_positions, inputs_from_positions, track_beat_candidates,
+                          track_beats_from_notes)
 from rhythm.features import DURATION_TICKS, GRID_SCALES, LOWEST_KEY, continuous
 from rhythm.model import RhythmTransformer
 from transcriber.events import NoteEvent, PedalEvent
@@ -178,6 +179,7 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
                     pedals: list[PedalEvent] | None = None,
                     grid: BeatGrid | None = None, bars: str = "model",
                     choose_grid: bool = False, rescale: bool = False,
+                    try_tempi: bool = False,
                     ) -> tuple[BeatGrid, list[QuantisedNote]]:
     """The model's alternative to `quantise_notes`: (grid, written notes).
 
@@ -196,10 +198,23 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
         raise ValueError("no notes to place")
     if bars not in BARS:
         raise ValueError(f"bars must be one of {BARS}, got {bars!r}")
+    if try_tempi and not choose_grid:
+        raise ValueError("try_tempi chooses among grids: it needs choose_grid")
     if choose_grid:
         if grid is None:
             raise ValueError("choose_grid needs a grid to choose against")
-        candidates = [predict(model, notes), predict(model, notes, beats=grid.beats)]
+        if try_tempi:
+            # Phase 35 follow-up: the note tracker's tempo at several factors
+            # (Toccata: locked on 3-sixteenth groups, x2 read it evenly).
+            # Validation: exact positions 33.8 -> 34.5% ASAP, 66.0 -> 67.6% PDMX.
+            ordered_on = sorted(notes, key=lambda n: (n.onset, n.pitch))
+            note_grids = track_beat_candidates(
+                np.array([n.onset for n in ordered_on]),
+                np.array([n.velocity for n in ordered_on], dtype=float))
+            candidates = [predict(model, notes, beats=b) for b in note_grids]
+        else:
+            candidates = [predict(model, notes)]
+        candidates.append(predict(model, notes, beats=grid.beats))
         p = max(candidates, key=lambda c: c["confidence"])
         grid = None                      # decode the chosen reading on its own
     else:

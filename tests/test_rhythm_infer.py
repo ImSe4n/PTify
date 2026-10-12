@@ -230,3 +230,37 @@ def test_a_simple_scale_still_puts_the_beat_on_quarters(monkeypatch):
     monkeypatch.setattr(ri, "written_scale_from_gaps", lambda d: 0.5)
     g, _ = rhythm_quantise(_notes(40), _tiny(), rescale=True)
     assert g.beat_quarters == 1.0
+
+
+# --- tempo candidates (Phase 35 follow-up) ----------------------------------------
+#
+# Validation: exact positions 33.8 -> 34.5% (ASAP, real), 66.0 -> 67.6% (PDMX
+# held-out) when the most confident of 7 tempo candidates is kept.
+
+def test_the_most_confident_tempo_candidate_is_kept(monkeypatch):
+    import rhythm.infer as ri
+    notes = _notes(40)
+    cands = [np.arange(0, 12, 0.5 * f) for f in (1.0, 2.0, 0.5)]
+    monkeypatch.setattr(ri, "track_beat_candidates", lambda on, ve: cands)
+    real_predict, real_phase = ri.predict, ri.phase_consistent_deltas
+    readings = {}
+    def fake(model, ns, beats=None):
+        p = real_predict(model, ns, beats=beats)
+        which = next((k for k, c in enumerate(cands) if beats is not None
+                      and len(beats) == len(c) and np.allclose(beats, c)), "audio")
+        p["confidence"] = 0.9 if which == 2 else 0.5
+        readings[id(p["beat_pos"])] = which
+        return p
+    used = []
+    monkeypatch.setattr(ri, "predict", fake)
+    monkeypatch.setattr(ri, "phase_consistent_deltas",
+                        lambda logits, bpos: used.append(readings[id(bpos)]) or real_phase(logits, bpos))
+    rhythm_quantise(notes, _tiny(), grid=grid_from_tempo(120.0, 12.0),
+                    choose_grid=True, try_tempi=True)
+    assert used == [2]
+    assert sorted(v for v in readings.values() if v != "audio") == [0, 1, 2]
+
+
+def test_tempo_candidates_need_grid_choice():
+    with pytest.raises(ValueError):
+        rhythm_quantise(_notes(20), _tiny(), try_tempi=True)
