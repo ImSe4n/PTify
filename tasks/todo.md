@@ -1,3 +1,15 @@
+# Beat placement (2026-10-12): start phase, ON
+
+Within the right beat level, beat F was comparable to the pipeline (0.520 vs
+0.533) except for collapses (Schubert 664-1 0.06). Cause: positions started at
+0 while the Viterbi's gaps assumed its own start phase. Fix: decode from the
+returned start phase, with START_PENALTY 4.0 (validation 28.1 -> 50.1%).
+Benchmark: beat F 0.418 -> 0.495 (pipeline 0.489), rhythm/downbeat unchanged,
+durations 58.8 -> 58.7. Open: Bach fugue 891 0.98 -> 0.01 (tracker on its
+off-beats; the old bug cancelled it).
+
+---
+
 # Printed level: halve fast 8ths (2026-10-12): ON in the web app
 
 Held-out: a fixed "most common gap -> 16th" rule helps ASAP (12.6 -> 19.0%) but

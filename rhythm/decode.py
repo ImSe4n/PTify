@@ -87,6 +87,10 @@ def _beat_times(pos: np.ndarray, onsets: np.ndarray) -> list[float]:
 #: unit of the model's log-probabilities). Tuned on the validation split
 #: (89 pieces, 128-note windows): position within the beat right 36.1% -> 51.0%,
 #: exactly right 22.6% -> 31.1%, against the plain running sum of argmax gaps.
+#: Cost (nats) of starting the piece off the tracked beat. Tuned on the
+#: validation split: position-in-beat right 49.6% (free) -> 50.1% (4.0); Bach
+#: fugue 891 had been put half a beat off by its lone opening voice.
+START_PENALTY = 4.0
 PHASE_SIGMA_BEATS = 0.15
 PHASE_COST_CAP = 0.3
 
@@ -101,7 +105,8 @@ def _phase_cost(beat_pos: np.ndarray, sigma: float, cap: float) -> np.ndarray:
 
 def phase_consistent_deltas(delta_logits, beat_pos,
                             sigma: float = PHASE_SIGMA_BEATS,
-                            cap: float = PHASE_COST_CAP) -> np.ndarray:
+                            cap: float = PHASE_COST_CAP, return_start: bool = False,
+                            start_penalty: float = 0.0):
     """Gaps (ticks) whose running sum stays in step with the tracked beat.
 
     Positions are the running sum of gaps, so one triplet-sized slip used to
@@ -116,7 +121,8 @@ def phase_consistent_deltas(delta_logits, beat_pos,
     n = len(logits)
     out = np.zeros(n, dtype=np.int64)
     if n < 2:
-        return out
+        start = int(round((float(np.asarray(beat_pos)[0]) % 1.0) * TICKS_PER_BEAT)) % TICKS_PER_BEAT if n else 0
+        return (out, start) if return_start else out
     P = TICKS_PER_BEAT
     logp = logits - logits.max(-1, keepdims=True)
     logp = logp - np.log(np.exp(logp).sum(-1, keepdims=True))
@@ -129,6 +135,7 @@ def phase_consistent_deltas(delta_logits, beat_pos,
     step = (np.arange(P)[None, :] - np.arange(P)[:, None]) % P  # [from, to] -> residue
 
     cost = emit[0].copy()
+    cost[1:] += start_penalty            # starting off the beat must be earned
     back = np.zeros((n, P), dtype=np.int64)
     for i in range(1, n):
         total = cost[:, None] - best[i][step]                   # [from, to]
@@ -140,15 +147,22 @@ def phase_consistent_deltas(delta_logits, beat_pos,
         res = (state - prev) % P
         out[i] = res + P * int(best_k[i, res])
         state = prev
-    return out
+    # `state` is now the first note's place in the tracked beat, in ticks.
+    return (out, state) if return_start else out
 
 
-def decode(onsets, delta_ticks, duration_ticks, downbeat_prob) -> Decoded:
-    """Per-note predictions (sorted by onset) -> positions, values, grid, bar."""
+def decode(onsets, delta_ticks, duration_ticks, downbeat_prob,
+           start_tick: int = 0) -> Decoded:
+    """Per-note predictions (sorted by onset) -> positions, values, grid, bar.
+
+    `start_tick` is where the first note sits in its beat (from
+    `phase_consistent_deltas(..., return_start=True)`): a piece that opens
+    off the beat is not shifted onto it.
+    """
     onsets = np.asarray(onsets, dtype=float)
     delta = np.maximum(np.asarray(delta_ticks, dtype=np.int64), 0)
     delta[0] = 0                     # the first note starts the piece
-    ticks = np.cumsum(delta)
+    ticks = int(start_tick) + np.cumsum(delta)
     bar, shift = _bar(ticks, np.asarray(downbeat_prob, dtype=float))
     pos = ticks / TICKS_PER_BEAT + shift
     return Decoded(

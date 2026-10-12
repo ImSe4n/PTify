@@ -254,7 +254,8 @@ def test_the_most_confident_tempo_candidate_is_kept(monkeypatch):
     used = []
     monkeypatch.setattr(ri, "predict", fake)
     monkeypatch.setattr(ri, "phase_consistent_deltas",
-                        lambda logits, bpos: used.append(readings[id(bpos)]) or real_phase(logits, bpos))
+                        lambda logits, bpos, **kw: used.append(readings[id(bpos)])
+                        or real_phase(logits, bpos, **kw))
     rhythm_quantise(notes, _tiny(), grid=grid_from_tempo(120.0, 12.0),
                     choose_grid=True, try_tempi=True)
     assert used == [2]
@@ -279,7 +280,10 @@ def _even_notes(n, step):
 
 
 def _gaps_of(ticks):
-    return lambda logits, bpos: np.r_[0, np.full(len(bpos) - 1, ticks)]
+    def stub(logits, bpos, return_start=False, **_):
+        gaps = np.r_[0, np.full(len(bpos) - 1, ticks)]
+        return (gaps, 0) if return_start else gaps       # starts on the beat
+    return stub
 
 
 def test_fast_eighths_are_written_as_sixteenths(monkeypatch):
@@ -303,3 +307,13 @@ def test_slow_eighths_and_fast_sixteenths_are_left_alone(monkeypatch):
     fast16 = _even_notes(48, 0.075)                   # 16ths, beat 0.3 s
     _, b = rhythm_quantise(fast16, _tiny(), halve_fast_eighths=True)
     assert b[1].start_beats - b[0].start_beats == pytest.approx(0.25)
+
+
+def test_the_model_path_starts_at_the_decoded_phase(monkeypatch):
+    import rhythm.infer as ri
+    monkeypatch.setattr(ri, "phase_consistent_deltas",
+                        lambda logits, bpos, return_start=False, **_:
+                        (np.r_[0, np.full(len(bpos) - 1, 24)], 12) if return_start
+                        else np.r_[0, np.full(len(bpos) - 1, 24)])
+    _, q = rhythm_quantise(_even_notes(16, 0.5), _tiny())
+    assert q[0].start_beats % 1 == pytest.approx(0.5)

@@ -16,7 +16,8 @@ import numpy as np
 import torch
 
 from notation.quantise import BeatGrid, QuantisedNote, _in_pedal
-from rhythm.decode import _bar, anchor_positions, decode, phase_consistent_deltas
+from rhythm.decode import (START_PENALTY, _bar, anchor_positions, decode,
+                           phase_consistent_deltas)
 from rhythm.features import TICKS_PER_BEAT
 from rhythm.beats import (beat_positions, inputs_from_positions, track_beat_candidates,
                           track_beats_from_notes)
@@ -243,9 +244,14 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
     if grid is None:
         # Gaps chosen to keep the running position on the tracked beat: one
         # argmax slip used to shift every later note (Phase 33).
-        gaps = phase_consistent_deltas(p["delta_logits"], p["beat_pos"])
+        # Gaps chosen to keep the running position on the tracked beat, and the
+        # first note's own place in its beat: 48 of 89 ASAP validation pieces
+        # start off the beat (position-in-beat right 28.1 -> 49.6%).
+        gaps, start = phase_consistent_deltas(p["delta_logits"], p["beat_pos"],
+                                              return_start=True,
+                                              start_penalty=START_PENALTY)
         d = decode([n.onset for n in ordered], gaps,
-                   p["duration_ticks"], p["downbeat_prob"])
+                   p["duration_ticks"], p["downbeat_prob"], start_tick=start)
         # OFF by default (Phase 33, 2026-10-12 benchmark): beat level 16 -> 21/38
         # and durations 47.7 -> 49.4%, but rhythm 64.3 -> 63.9% and downbeat F
         # 0.207 -> 0.177; four compound/triplet pieces collapse (scale 0.75/1.5).

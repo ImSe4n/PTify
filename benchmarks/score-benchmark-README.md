@@ -315,3 +315,25 @@ chosen on held-out data: exact written positions 12.6 -> 19.1% ASAP val, 47.4 ->
 | beat F (mean) | **0.429** | 0.418 |
 
 Files: `score-benchmark-rhythm-run8-tempi-f2.json`, `score-benchmark-rhythm-run8-halve.json`.
+
+## Beat placement: decode from the first note's own phase (2026-10-12)
+
+The decoder put the first note on a beat but chose every later gap assuming the
+Viterbi's own start phase, so the two disagreed whenever a piece opened off the
+tracked beat (48 of 89 ASAP validation performances): every position and beat
+time shifted by that fraction. Now the start phase is used, with a start-on-
+beat preference (`START_PENALTY` 4.0, tuned on validation: position-in-beat
+right 28.1% -> 50.1%). `score-benchmark-rhythm-run8-startphase.json`:
+
+| from audio | pipeline | before | **now** |
+|---|---|---|---|
+| rhythm | 58.3% | 76.9% | 76.9% |
+| durations | 43.5% | 58.8% | 58.7% |
+| beat F (mean) | 0.489 | 0.418 | **0.495** |
+| downbeat F (mean) | 0.175 | 0.215 | 0.215 |
+| beat level right | 19/38 | 19/38 | 19/38 |
+
+11 pieces' beat F up sharply (Schubert 664-1 0.06 -> 0.81, Bach fugue 858 0.02
+-> 0.66), 3 down; Bach fugue 891 0.98 -> 0.01 (the old inconsistency happened
+to cancel a tracker locked on its off-beats; not the start phase -- the
+preference does not change it). Known case.

@@ -207,3 +207,58 @@ def test_first_gap_is_zero_and_empty_is_fine():
     assert phase_consistent_deltas(_logits([{6: 5.0}]), np.array([0.3])).tolist() == [0]
     assert len(phase_consistent_deltas(np.zeros((0, N_DELTA_CLASSES)), np.zeros(0))) == 0
     assert TICKS_PER_BEAT == 24
+
+
+# --- where the first note sits in the beat ---------------------------------------
+#
+# The first note used to be put ON a beat. 48 of 89 ASAP validation performances
+# start off the tracked beat (a pickup 8th, say), which shifted every position
+# and every beat time: position within the beat right 28.1% -> 49.6% when the
+# Viterbi's own start phase is used. Schubert 664-1's beat F was 0.06.
+
+def test_a_pickup_starts_off_the_beat():
+    onsets, delta = _quarters(9)
+    onsets = onsets - 0.25                      # an 8th-note pickup before beat 0
+    d = decode(onsets, delta, np.full(9, 24), np.zeros(9), start_tick=12)
+    assert d.start_beats[0] % 1 == pytest.approx(0.5)
+    assert all(abs(s - round(s) - 0.5) < 1e-9 or abs(s - round(s) + 0.5) < 1e-9
+               for s in d.start_beats)
+    # Beat times interpolate between the notes, half a quarter after each.
+    assert d.beat_times[1] - d.beat_times[0] == pytest.approx(0.5)
+
+
+def test_start_tick_zero_is_the_old_behaviour():
+    onsets, delta = _quarters(8)
+    a = decode(onsets, delta, np.full(8, 24), np.zeros(8))
+    b = decode(onsets, delta, np.full(8, 24), np.zeros(8), start_tick=0)
+    assert a.start_beats.tolist() == b.start_beats.tolist() and a.beat_times == b.beat_times
+
+
+def test_phase_decoder_reports_where_the_first_note_sits():
+    from rhythm.decode import phase_consistent_deltas
+    from rhythm.features import N_DELTA_CLASSES
+    logits = np.full((8, N_DELTA_CLASSES), -10.0)
+    logits[:, 24] = 5.0
+    pos = 0.5 + np.arange(8)                    # every note half a beat in
+    gaps, start = phase_consistent_deltas(logits, pos, return_start=True)
+    assert start == 12 and gaps[1:].tolist() == [24] * 7
+
+
+def test_starting_off_the_beat_must_be_earned():
+    # Bach fugue 891 (one voice entering alone) was put half a beat off and its
+    # beat F fell 0.98 -> 0.01. A start penalty, tuned on validation (4.0: 50.1%
+    # position-in-beat right vs 49.6% free), keeps weak evidence on the beat.
+    from rhythm.decode import START_PENALTY, phase_consistent_deltas
+    from rhythm.features import N_DELTA_CLASSES
+    logits = np.full((8, N_DELTA_CLASSES), -10.0)
+    logits[:, 24] = 5.0
+    weak = np.r_[0.5, np.arange(1, 8, dtype=float)]     # only the first note is off
+    _, start = phase_consistent_deltas(logits, weak, return_start=True,
+                                       start_penalty=START_PENALTY)
+    assert start == 0
+    strong = 0.5 + np.arange(40, dtype=float)            # the whole piece says so
+    logits40 = np.full((40, N_DELTA_CLASSES), -10.0)
+    logits40[:, 24] = 5.0
+    _, start = phase_consistent_deltas(logits40, strong, return_start=True,
+                                       start_penalty=START_PENALTY)
+    assert start == 12
