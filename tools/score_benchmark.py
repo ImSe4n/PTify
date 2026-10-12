@@ -81,6 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="model mode: write at the scale that makes the most common gap a 16th")
     ap.add_argument("--rhythm-try-tempi", action="store_true",
                     help="with grid choice: also try 6 multiples of the tracked tempo")
+    ap.add_argument("--rhythm-halve-fast-eighths", action="store_true",
+                    help="write fast 8th-note readings (beat > 160 bpm) as 16ths")
     ap.add_argument("--rhythm-bars", choices=("model", "grid"), default="model",
                     help="hybrid only: bar lines from the model or from the grid")
     ap.add_argument("--subdivision", choices=("fixed", "auto"), default="auto",
@@ -215,7 +217,8 @@ def _transcribe(engine_name: str, served: str, audio: Path,
 
 def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=None,
            rhythm_mode: str = "model", rhythm_bars: str = "model",
-           choose_grid: bool = False, rescale: bool = False, try_tempi: bool = False):
+           choose_grid: bool = False, rescale: bool = False, try_tempi: bool = False,
+           halve: bool = False):
     """The product's notation path.
 
     Returns (quantised notes, staff per note, beat times used, beats per bar,
@@ -233,7 +236,8 @@ def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=No
                                       rhythm_bars=rhythm_bars,
                                       rhythm_choose_grid=choose_grid,
                                       rhythm_rescale=rescale,
-                                      rhythm_try_tempi=try_tempi)
+                                      rhythm_try_tempi=try_tempi,
+                                      rhythm_halve_fast_eighths=halve)
     if stats.subdivision != grid.subdivision:
         print(f"          {tr.engine or 'midi'}: subdivision {stats.subdivision:.3f}",
               flush=True)
@@ -257,7 +261,8 @@ def run_piece(row: dict, meta, engine: str, served: str,
               cache_dir: Path, auto_division: bool = False,
               rhythm_model=None, rhythm_mode: str = "model",
               rhythm_bars: str = "model", choose_grid: bool = False,
-              rescale: bool = False, try_tempi: bool = False) -> list:
+              rescale: bool = False, try_tempi: bool = False,
+              halve: bool = False) -> list:
     from notation.quantise import BeatGrid
 
     audio, maestro_midi = fetch_track(meta, AUDIO_DIR)
@@ -292,7 +297,7 @@ def run_piece(row: dict, meta, engine: str, served: str,
     for name, tr in (("audio", est), ("perfect_midi", perf)):
         ours, staffs, used_beats, bpb, beat_q = notate(tr, grid, auto_division, rhythm_model,
                                                rhythm_mode, rhythm_bars, choose_grid,
-                                               rescale, try_tempi)
+                                               rescale, try_tempi, halve)
         out.append(evaluate_piece(row=name, ours=ours, our_staffs=staffs,
                                   grid_beats=used_beats, beats_per_bar=bpb,
                                   beat_quarters=beat_q, **common))
@@ -361,7 +366,8 @@ def main(argv: list[str] | None = None) -> int:
                                      args.subdivision == "auto",
                                      rhythm_model, args.rhythm_mode,
                                      args.rhythm_bars, args.rhythm_choose_grid,
-                                     args.rhythm_rescale, args.rhythm_try_tempi))
+                                     args.rhythm_rescale, args.rhythm_try_tempi,
+                                     args.rhythm_halve_fast_eighths))
         except ValueError as exc:
             print(f"          SKIPPED: {exc}", flush=True)
             skipped.append({"piece": row["folder"], "reason": str(exc)})
@@ -383,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
             "rhythm_choose_grid": args.rhythm_choose_grid,
             "rhythm_rescale": args.rhythm_rescale,
             "rhythm_try_tempi": args.rhythm_try_tempi,
+            "rhythm_halve_fast_eighths": args.rhythm_halve_fast_eighths,
             "corpus": "ASAP x MAESTRO v3 test split, one performance per score",
             "license_note": "ASAP and MAESTRO are CC BY-NC-SA; evaluation only",
             "pooled": {row: pool([r for r in results if r.row == row])

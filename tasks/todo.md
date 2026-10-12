@@ -1,3 +1,16 @@
+# Printed level: halve fast 8ths (2026-10-12): ON in the web app
+
+Held-out: a fixed "most common gap -> 16th" rule helps ASAP (12.6 -> 19.0%) but
+hurts PDMX (47.4 -> 32.0%): 8th-mode readings are 16ths-at-double-speed in
+ASAP (median 191 bpm) but real 8ths in PDMX (111 bpm). Tempo separates them:
+halve only above 160 bpm -> 19.1% / 48.7% (both up). Benchmark first showed
+rhythm 76.9 -> 71.1% -- all from three compound pieces whose factor became 4/3,
+missing from FACTORS. User added 3/4 and 4/3 (dotted relationship in every
+octave); re-scored: rhythm 76.9 / durations 58.8 unchanged, beat level 10 ->
+19/38, downbeat F 0.226 -> 0.215. Enabled (`rhythm_halve_fast_eighths=True`).
+
+---
+
 # Tempo candidates (2026-10-12): ON in the web app
 
 Grid choice now also tries 6 multiples of the note tracker's tempo

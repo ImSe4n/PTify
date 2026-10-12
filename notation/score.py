@@ -497,6 +497,7 @@ def transcription_to_score(
     rhythm_choose_grid: bool = False,
     rhythm_rescale: bool = False,
     rhythm_try_tempi: bool = False,
+    rhythm_halve_fast_eighths: bool = False,
 ):
     """`Transcription` -> (score, stats), quantising against `grid`.
 
@@ -557,7 +558,8 @@ def transcription_to_score(
             grid=grid if (rhythm == "hybrid" or rhythm_choose_grid) else None,
             bars=rhythm_bars, choose_grid=rhythm_choose_grid and rhythm == "model",
             rescale=rhythm_rescale,
-            try_tempi=rhythm_try_tempi and rhythm_choose_grid and rhythm == "model")
+            try_tempi=rhythm_try_tempi and rhythm_choose_grid and rhythm == "model",
+            halve_fast_eighths=rhythm_halve_fast_eighths)
     else:
         qnotes = quantise_notes(notes_for_grid, grid, tr.pedals)
 

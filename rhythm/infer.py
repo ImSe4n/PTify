@@ -118,6 +118,25 @@ def written_scale_from_gaps(gaps) -> float:
     return float(min(GRID_SCALES, key=lambda s: abs(np.log(mode * s / WRITTEN_MODE_QUARTERS))))
 
 
+#: Above this many beats a minute, a reading whose most common gap is an 8th
+#: is 16ths read at double speed (held out: ASAP 8th-mode readings run at a
+#: median 191 bpm, PDMX's real 8ths at 111). Chosen on held-out data: exact
+#: written positions 12.6 -> 19.1% (ASAP val), 47.4 -> 48.7% (PDMX).
+FAST_EIGHTHS_BPM = 160.0
+
+
+def _fast_eighths(gaps, beat_times) -> bool:
+    """Most common (non-chord) gap is half a beat and the beat is fast."""
+    g = np.asarray(gaps, dtype=np.int64)[1:]
+    g = g[g > 0]
+    if not len(g) or len(beat_times) < 2:
+        return False
+    values, counts = np.unique(g, return_counts=True)
+    if values[counts.argmax()] != TICKS_PER_BEAT // 2:
+        return False
+    return 60.0 / float(np.median(np.diff(beat_times))) > FAST_EIGHTHS_BPM
+
+
 #: Scales whose beat is a dotted value: a dotted quarter or a dotted eighth.
 DOTTED_SCALES = (0.75, 1.5)
 
@@ -179,7 +198,7 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
                     pedals: list[PedalEvent] | None = None,
                     grid: BeatGrid | None = None, bars: str = "model",
                     choose_grid: bool = False, rescale: bool = False,
-                    try_tempi: bool = False,
+                    try_tempi: bool = False, halve_fast_eighths: bool = False,
                     ) -> tuple[BeatGrid, list[QuantisedNote]]:
     """The model's alternative to `quantise_notes`: (grid, written notes).
 
@@ -231,6 +250,8 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
         # and durations 47.7 -> 49.4%, but rhythm 64.3 -> 63.9% and downbeat F
         # 0.207 -> 0.177; four compound/triplet pieces collapse (scale 0.75/1.5).
         scale = written_scale_from_gaps(gaps) if rescale else 1.0
+        if halve_fast_eighths and scale == 1.0 and _fast_eighths(gaps, d.beat_times):
+            scale = 0.5
         starts, beat_times, bar, beat_quarters = _written_scale(
             d.start_beats, d.beat_times, d.beats_per_bar, scale)
         lengths = lengths * scale

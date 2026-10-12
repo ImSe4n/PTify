@@ -284,6 +284,10 @@ def _build_score(spec: JobSpec, tr):
             # durations 49.5 -> 58.8%, Schumann Toccata 0 -> 95%; beat level
             # 17 -> 10/38 (more pieces written at x2 / x1/2 values). +~2 s/job.
             rhythm_try_tempi=audio_grid,
+            # Fast 8th-note readings (beat > 160 bpm) are 16ths at double speed:
+            # print them as 16ths. Beat level 10 -> 19/38, rhythm and durations
+            # unchanged (76.9% / 58.8%); downbeat F 0.226 -> 0.215.
+            rhythm_halve_fast_eighths=True,
             beats_per_bar=spec.beats_per_bar,
             title=spec.title or Path(spec.original_name or "score").stem,
             composer=spec.composer,

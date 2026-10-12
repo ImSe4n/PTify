@@ -291,3 +291,27 @@ groups; the x2 reading writes the runs evenly). Liszt S145/1 +31.3, S145/2
 +25.8; Beethoven 9-3 -22.1. Cost: beat level -- more pieces are written at
 double or half note values (still counted right by the factor-tolerant rhythm
 and duration columns, but visible on the page) -- and ~2 s per job.
+
+## Benchmark change + printed level: halve fast 8ths, on (2026-10-12)
+
+**FACTORS change (user decision):** the beat-level factors now include 3/4 and
+4/3. The list had 2/3 and 3/2 (a quarter beat against a dotted-quarter beat)
+and 3 and 1/3, but not the same relationship one octave over, so 12/16-type
+pieces written with a quarter beat snapped to 1.5 and scored ~0%. Results
+before this date used the old list; the two rows below use the new one.
+
+**Halving:** a reading whose most common gap is an 8th with the beat above
+160 bpm is 16ths read at double speed, so it is printed as 16ths (threshold
+chosen on held-out data: exact written positions 12.6 -> 19.1% ASAP val, 47.4 ->
+48.7% PDMX held-out).
+
+| from audio | run 8 + tempo candidates | **+ halve fast 8ths** |
+|---|---|---|
+| rhythm | 76.9% | 76.9% |
+| durations | 58.8% | 58.8% |
+| staff | 89.1% | 89.1% |
+| beat level right | 10/38 | **19/38** |
+| downbeat F (mean) | **0.226** | 0.215 |
+| beat F (mean) | **0.429** | 0.418 |
+
+Files: `score-benchmark-rhythm-run8-tempi-f2.json`, `score-benchmark-rhythm-run8-halve.json`.

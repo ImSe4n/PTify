@@ -56,7 +56,9 @@ ALIGN_TOL_BEATS = 0.25
 DURATION_TOL_BEATS = 1 / 48
 
 #: Ratios a beat tracker can plausibly lock onto, relative to the written beat.
-FACTORS = (1 / 4, 1 / 3, 1 / 2, 2 / 3, 1.0, 3 / 2, 2.0, 3.0, 4.0)
+#: Score beats per one of our beats. 3/4 and 4/3 added 2026-10-12 (user
+#: decision): the dotted relationship 2/3 and 3/2 one octave over.
+FACTORS = (1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4, 1.0, 4 / 3, 3 / 2, 2.0, 3.0, 4.0)
 
 ONSET_TOL_SEC = 0.05
 BEAT_F_WINDOW_SEC = 0.07

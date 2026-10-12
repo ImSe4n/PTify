@@ -216,3 +216,14 @@ def test_a_compound_piece_written_in_compound_time_scores_full_marks():
     assert r.rhythm == (8, 8) and r.duration == (9, 9)
     # Read as quarter beats, the same notes are wrong: what the old code did.
     assert evaluate_piece(**common).rhythm[0] == 0
+
+
+def test_meter_factor_knows_the_dotted_relationship_in_every_octave():
+    # 2026-10-12 (user decision): FACTORS had 2/3 and 3/2 (a quarter-note beat
+    # against a dotted-quarter beat) and 3, 1/3, but not 4/3 and 3/4 -- the same
+    # relationship one octave over -- so 12/16 pieces written with a quarter
+    # beat snapped to 1.5 and scored ~0% rhythm.
+    _, snapped = meter_factor([0.0, 0.75, 1.5, 2.25, 3.0], PERF_MAP)
+    assert snapped == pytest.approx(3 / 4)
+    _, snapped = meter_factor([0.0, 4 / 3, 8 / 3], PERF_MAP)
+    assert snapped == pytest.approx(4 / 3)

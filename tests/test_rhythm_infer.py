@@ -264,3 +264,42 @@ def test_the_most_confident_tempo_candidate_is_kept(monkeypatch):
 def test_tempo_candidates_need_grid_choice():
     with pytest.raises(ValueError):
         rhythm_quantise(_notes(20), _tiny(), try_tempi=True)
+
+
+# --- printed level: halve fast 8th-note readings (Phase 35 follow-up) -------------
+#
+# After the tempo choice, readings are right up to x2. Held out: when the most
+# common gap reads as an 8th AND the beat runs above 160 bpm, it is really 16ths
+# read at double speed (ASAP 8th-mode readings: median 191 bpm; PDMX, real 8ths:
+# 111 bpm). Halving those: exact written positions 12.6 -> 19.1% (ASAP val),
+# 47.4 -> 48.7% (PDMX held-out).
+
+def _even_notes(n, step):
+    return [NoteEvent(60 + i % 5, i * step, i * step + step * 0.8, 70) for i in range(n)]
+
+
+def _gaps_of(ticks):
+    return lambda logits, bpos: np.r_[0, np.full(len(bpos) - 1, ticks)]
+
+
+def test_fast_eighths_are_written_as_sixteenths(monkeypatch):
+    import rhythm.infer as ri
+    monkeypatch.setattr(ri, "phase_consistent_deltas", _gaps_of(12))
+    notes = _even_notes(48, 0.15)                     # beat = 2 notes = 0.3 s = 200 bpm
+    g1, q1 = rhythm_quantise(notes, _tiny())
+    g2, q2 = rhythm_quantise(notes, _tiny(), halve_fast_eighths=True)
+    assert q1[1].start_beats - q1[0].start_beats == pytest.approx(0.5)
+    assert q2[1].start_beats - q2[0].start_beats == pytest.approx(0.25)
+    assert len(g2.beats) == pytest.approx(len(g1.beats) / 2, abs=1)
+
+
+def test_slow_eighths_and_fast_sixteenths_are_left_alone(monkeypatch):
+    import rhythm.infer as ri
+    monkeypatch.setattr(ri, "phase_consistent_deltas", _gaps_of(12))
+    slow = _even_notes(48, 0.4)                       # beat 0.8 s = 75 bpm
+    _, a = rhythm_quantise(slow, _tiny(), halve_fast_eighths=True)
+    assert a[1].start_beats - a[0].start_beats == pytest.approx(0.5)
+    monkeypatch.setattr(ri, "phase_consistent_deltas", _gaps_of(6))
+    fast16 = _even_notes(48, 0.075)                   # 16ths, beat 0.3 s
+    _, b = rhythm_quantise(fast16, _tiny(), halve_fast_eighths=True)
+    assert b[1].start_beats - b[0].start_beats == pytest.approx(0.25)

@@ -106,6 +106,8 @@ def test_the_audio_grid_is_offered_to_the_model(monkeypatch, tmp_path):
     assert seen["rhythm_choose_grid"] is True
     # Tempo candidates ride on grid choice (rhythm 67.1 -> 76.9%, Toccata 0 -> 95%).
     assert seen["rhythm_try_tempi"] is True
+    # Beat level 10 -> 19/38 at equal rhythm/durations (2026-10-12).
+    assert seen["rhythm_halve_fast_eighths"] is True
 
 
 def test_a_typed_tempo_is_not_offered_to_the_model(monkeypatch):
