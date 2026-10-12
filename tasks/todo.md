@@ -1,3 +1,98 @@
+# Meter (bar) -- the weakest column (found 2026-10-12)
+
+End-to-end check through `api.pipeline.run` (saved Modal transcriptions):
+Toccata printed 1/4 (fixed: `_written_bar`), Rachmaninoff 23/6 (4/4) printed
+3/4. New benchmark column `bar_ok`: web app 10/38, old rules 11/38 (5 both, 5
+only model, 6 only rules). Old rules re-scored under the new FACTORS: rhythm
+55.5%, durations 42.2% (not 58.3 / 43.5). Next candidate: the bar length.
+The model's bar comes from `_bar` (downbeat head > 0.5, most common spacing);
+soft decoding failed on downbeat F before -- measure on `bar_ok` this time,
+and choose on validation (ASAP val has time signatures in val.jsonl; PDMX
+held-out has them too).
+
+---
+
+# Phase 36 -- PDMX MusicXML: written note values and hands (DONE 2026-10-12: criteria NOT met, run 8 stays)
+
+## Why
+
+After Phase 35 the weakest columns are durations (58.7%) and staff (89.1%,
+unchanged all along). PDMX's MIDI could label neither: no staves, and note ends
+are PLAYED lengths (0.6% on a value grid). Even unlabelled, the synthetic data
+lifted ASAP-validation durations 50.6 -> 57.7%. PDMX's MusicXML has both written
+values and staves for the same scores.
+
+## Requirements
+
+- Synthetic pairs whose targets include WRITTEN note values (ties merged) and
+  the STAFF of every note, from the same 10,000 selected scores and the same
+  train/held-out split (by the score's path).
+- Everything Phase 35 labels (positions, bar lines, pickups, meter) still
+  labelled, now from the score itself (measures, not MIDI bar-length events).
+- Grace notes and other zero-length notes get no position/value target.
+- Performance simulation unchanged (`rhythm.synth`); repeats NOT unfolded.
+
+## Success criteria
+
+- ASAP validation (real playing), run 9 vs run 8: durations above 57.7%, hand
+  above 83.7%, gaps not more than 1 point below 83.5%.
+- Score benchmark, web-app settings: durations above 58.7% and staff above
+  89.1%, rhythm not below 76.9%, beat level not below 19/38.
+- If both hold, run 9 becomes the default.
+
+## Files
+
+- new `evaluation/pdmx_mxl.py`: MusicXML -> `WrittenScore` with
+  `known_length=True` and a staff per note (music21: `stripTies`, PartStaff).
+- `rhythm/synth.py`: `WrittenNote.staff` -> target "upper"/"lower".
+- `tools/export_pdmx_pairs.py`: `--source mxl` (default stays `mid`).
+- Tests first, on hand-built MusicXML (ties, two staves, pickup, grace note).
+
+## Decisions for the USER
+
+1. Download `mxl.tar.gz` (1.9 GB) into `var/pdmx/` (gitignored).
+2. Parser: music21 (installed). Step 1 measures its speed on 50 files; if the
+   10,000-score export would take more than ~4 h with 4 workers, I stop and ask
+   before adding another dependency.
+
+## Not doing
+
+- No change to decoding or defaults until run 9 is benchmarked.
+- No dynamics/articulation labels (the model has no head for them).
+
+## Steps
+
+- [x] 1. mxl.tar.gz downloaded (md5 49ffd75e... matches Zenodo), extracted to
+      var/pdmx/extract/mxl. 50/50 parse; 37/50 two staves; 96.1% of notes with
+      a written length; 0.56 s/score.
+- [x] 2. `evaluation/pdmx_mxl.py` (5 tests); bar logic shared with the MIDI
+      reader (`pdmx.beats_from_bars`; usual bar = most common length).
+- [~] 3. synth staff + `--source mxl` done (tested). Export to
+      var/pdmx-mxl-pairs was STOPPED by Claude Code's low-memory reaper at
+      7,500/10,000: 12 complete train shards (6,000 pieces, 3.0M notes) + 1
+      held-out shard, all range-checked. User is restarting Claude Code with
+      CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1. To resume (full re-export,
+      ~1 h; it overwrites the partial shards):
+          rm var/pdmx-mxl-pairs/pdmx-*.npz
+          python -m tools.export_pdmx_pairs --source mxl --out var/pdmx-mxl-pairs --workers 3
+      then run 9:
+          python -m tools.kaggle_rhythm --extra-dir var/pdmx-mxl-pairs prepare --             --d-model 192 --layers 3 --dropout 0.2 --weight-decay 0.05 --epochs 15             --downbeat-pos-weight 4 --extra-glob "pdmx-train-*.npz"
+      Note: the local uvicorn server (api.app) predates today's changes; restart
+      it to serve run 8 + tempo candidates + halving + start phase.
+- [x] 4. Run 9 = run 8 settings + 6,000 MusicXML pieces (the partial export;
+      written values + hands labelled). ASAP val vs run 8: durations 57.7 ->
+      57.6% (FAIL: must beat 57.7), hand 83.7 -> 84.0%, gaps 83.5 -> 83.4%,
+      downbeat F1 0.388 -> 0.402. Not benchmarked; run 8 stays the default.
+      Likely why: `rhythm.synth` holds every note for one random share of its
+      written value per piece, so "played length -> written value" in synthetic
+      data is a mapping real playing (phrasing, pedal) does not follow. Run 8's
+      duration gain (50.6 -> 57.7%) came without length labels at all.
+      Next idea if revisited: per-note articulation in synth (staccato/legato
+      by context, pedal-extended offsets) before more labels.
+- [ ] 5. Not run (criteria failed at step 4).
+
+---
+
 # Beat placement (2026-10-12): start phase, ON
 
 Within the right beat level, beat F was comparable to the pipeline (0.520 vs

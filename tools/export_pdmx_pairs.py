@@ -32,15 +32,24 @@ def is_heldout(mid: str) -> bool:
     return int(hashlib.sha1(mid.encode("utf-8")).hexdigest(), 16) % 100 < HELDOUT_PERCENT
 
 
-def _one(job: tuple[int, str, str]):
-    """(index, csv mid path, midi root) -> (split, encoded arrays) or (None, reason)."""
-    from evaluation.pdmx import read_score
+def _one(job: tuple[int, str, str, str, str]):
+    """(index, csv mid path, score path, root, source) -> (split, encoded) or (None, reason).
+
+    The split always hashes the MIDI path, so a score stays on the same side
+    whichever file it is read from (Phase 36 reads the MusicXML).
+    """
     from rhythm.features import encode_pair
     from rhythm.synth import perform, sample_style
 
-    index, mid, root = job
+    index, mid, score_path, root, source = job
     try:
-        score = read_score(Path(root) / mid.lstrip("./"))
+        path = Path(root) / score_path.lstrip("./")
+        if source == "mxl":
+            from evaluation.pdmx_mxl import read_mxl
+            score = read_mxl(path)
+        else:
+            from evaluation.pdmx import read_score
+            score = read_score(path)
         rng = np.random.default_rng([SEED, index])
         pair = perform(score, sample_style(rng), rng)
         enc = encode_pair(pair)
@@ -48,6 +57,8 @@ def _one(job: tuple[int, str, str]):
         return ("heldout" if is_heldout(mid) else "train"), enc
     except (ValueError, KeyError, IndexError, OSError, EOFError) as exc:
         return None, str(exc).split(":")[0][:60]
+    except Exception as exc:  # noqa: BLE001 -- music21 raises many types on bad files
+        return None, f"{type(exc).__name__}"[:60]
 
 
 def _flush(out: Path, split: str, k: int, encoded: list[dict]) -> None:
@@ -65,6 +76,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--cap", type=int, default=10_000)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--shard", type=int, default=500)
+    ap.add_argument("--source", choices=("mid", "mxl"), default="mid",
+                    help="mxl (Phase 36): written values and staves; mid: positions only")
     return ap
 
 
@@ -74,7 +87,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
     rows = select_rows(args.csv, cap=args.cap)
-    jobs = [(i, r["mid"], str(args.midi_root)) for i, r in enumerate(rows)]
+    jobs = [(i, r["mid"], r[args.source], str(args.midi_root), args.source)
+            for i, r in enumerate(rows)]
     print(f"{len(jobs)} scores selected", flush=True)
 
     buffers = {"train": [], "heldout": []}
@@ -100,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             _flush(args.out, split, shard_no[split], buf)
 
     (args.out / "summary.json").write_text(json.dumps({
-        "source": "PDMX v9 (Zenodo 15571083): PDMX.csv + mid.tar.gz",
+        "source": f"PDMX v9 (Zenodo 15571083): PDMX.csv + {args.source}",
         "selected": len(jobs), "pieces": dict(pieces), "notes": dict(notes),
         "failed": dict(failed),
         "first_signatures": {f"{s}:{t}": n for (s, t), n in signatures.most_common(40)},

@@ -78,6 +78,44 @@ def _bars(signatures: list[tuple[float, str]], end_q: float):
     return bars
 
 
+def beats_from_bars(bars: list[tuple[float, float, str]]) -> tuple[list[float], list[float]]:
+    """(beats, downbeats), in quarters, from [(bar start, length, signature)].
+
+    A first bar shorter than the piece's usual bar is a pickup: no downbeat, and
+    its beats are counted back from the first bar line. Shared by the MIDI and
+    MusicXML readers so both label bar lines the same way.
+    """
+    usual = Counter()
+    for _, length, ts in bars:
+        usual[ts] += length
+    nominal = usual.most_common(1)[0][0]
+    # The usual bar's length is the most common one: in MusicXML a pickup bar
+    # carries the piece's own signature and is merely shorter.
+    nominal_len = Counter(round(length, 9) for _, length, ts in bars
+                          if ts == nominal).most_common(1)[0][0]
+    beat_len = beat_quarters_of(nominal)
+
+    beats, downbeats = [], []
+    for k, (start, length, ts) in enumerate(bars):
+        end = start + length
+        if k == 0 and length < nominal_len - 1e-9:          # a pickup
+            b = end - beat_len
+            inside = []
+            while b > start - 1e-9:
+                inside.append(b)
+                b -= beat_len
+            beats += sorted(inside)
+            continue
+        step = beat_quarters_of(ts) if ts.split("/")[0] in {"2", "3", "4", "6", "9", "12"} else beat_len
+        downbeats.append(start)
+        b = start
+        while b < end - 1e-9:
+            beats.append(b)
+            b += step
+    return (sorted(set(round(b, 9) for b in beats)),
+            [round(d, 9) for d in downbeats])
+
+
 def read_score(path: str | Path) -> WrittenScore:
     import pretty_midi
 
@@ -109,32 +147,7 @@ def read_score(path: str | Path) -> WrittenScore:
             for t in m.time_signature_changes]
     end_q = max(n.start_q + n.length_q for n in notes)
     bars = _bars(sigs, end_q)
-    usual = Counter()
-    for _, length, ts in bars:
-        usual[ts] += length
-    nominal = usual.most_common(1)[0][0]
-    nominal_len = next(length for _, length, ts in bars if ts == nominal)
-    beat_len = beat_quarters_of(nominal)
-
-    beats, downbeats = [], []
-    for k, (start, length, ts) in enumerate(bars):
-        end = start + length
-        if k == 0 and length < nominal_len - 1e-9:          # a pickup
-            b = end - beat_len
-            inside = []
-            while b > start - 1e-9:
-                inside.append(b)
-                b -= beat_len
-            beats += sorted(inside)
-            continue
-        step = beat_quarters_of(ts) if ts.split("/")[0] in {"2", "3", "4", "6", "9", "12"} else beat_len
-        downbeats.append(start)
-        b = start
-        while b < end - 1e-9:
-            beats.append(b)
-            b += step
-    beats = sorted(set(round(b, 9) for b in beats))
-    downbeats = [round(d, 9) for d in downbeats]
+    beats, downbeats = beats_from_bars(bars)
 
     times, tempi = m.get_tempo_changes()
     tempo = [(quarter(t), float(bpm)) for t, bpm in zip(times, tempi)] or [(0.0, 120.0)]

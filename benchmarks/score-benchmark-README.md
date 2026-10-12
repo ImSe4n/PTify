@@ -337,3 +337,30 @@ right 28.1% -> 50.1%). `score-benchmark-rhythm-run8-startphase.json`:
 -> 0.66), 3 down; Bach fugue 891 0.98 -> 0.01 (the old inconsistency happened
 to cancel a tracker locked on its off-beats; not the start phase -- the
 preference does not change it). Known case.
+
+## A bar column, and the 1/4 bug it would have caught (2026-10-12)
+
+An end-to-end run of the app's `api.pipeline.run` on real recordings (saved
+Modal transcriptions, real audio for the beat grid) printed the Schumann
+Toccata in 1/4 with 580 bars: halving turned a 2-beat bar into 1 beat. Fixed
+(`rhythm.infer._written_bar`: doubled until a whole number of quarters >= 2;
+the Toccata now prints 2/4, 290 bars). No column measured the time signature,
+so a new one does: `bar_ok` -- our bar, in score beats through the beat-level
+factor, equals the median number of annotated beats between ASAP downbeats.
+
+| from audio (current FACTORS) | old rules | web app (run 8 ...) |
+|---|---|---|
+| bar right | 11/38 | 10/38 |
+| beat level right | 18/38 | 19/38 |
+| rhythm | 55.5% | 76.9% |
+| durations | 42.2% | 58.7% |
+| beat F (mean) | 0.49 | 0.50 |
+| downbeat F (mean) | 0.17 | 0.22 |
+| staff | 89.1% | 89.1% |
+
+The old rules' rhythm/durations here (55.5 / 42.2%) are LOWER than the 58.3 /
+43.5% quoted earlier: under the FACTORS that include 3/4 and 4/3, a few of their
+pieces with a beat-level ratio near 0.7 now snap to 3/4 instead of 2/3. Same
+yardstick for both columns above. Bars are right on 5 pieces for both, 5 only
+for the model, 6 only for the rules. Files: `score-benchmark-rhythm-run8-bar.json`,
+`score-benchmark-rules-bar.json`.

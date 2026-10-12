@@ -56,3 +56,42 @@ def test_the_split_is_by_score_and_stable():
     assert is_heldout("./mid/a.mid") == is_heldout("./mid/a.mid")
     share = np.mean([is_heldout(f"./mid/{i}.mid") for i in range(2000)])
     assert 0.07 < share < 0.13
+
+
+def test_mxl_source_labels_values_and_hands_on_the_same_split(tmp_path):
+    # Phase 36: MusicXML gives written values and staves. The split must stay
+    # the one the MIDI export used (hash of the MIDI path), so no score moves
+    # between train and held-out across runs.
+    from music21 import clef, meter, note, stream
+
+    root = tmp_path / "extract"
+    rows = []
+    for i in range(4):
+        rh, lh = stream.PartStaff(), stream.PartStaff()
+        for part, c, p in ((rh, clef.TrebleClef(), "C5"), (lh, clef.BassClef(), "C3")):
+            for b in range(60):
+                m = stream.Measure(number=b + 1)
+                if b == 0:
+                    m.append([c, meter.TimeSignature("4/4")])
+                m.append([note.Note(p, quarterLength=1.0) for _ in range(4)])
+                part.append(m)
+        path = root / "mxl" / f"s{i}.mxl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stream.Score([rh, lh]).write("mxl", fp=str(path))
+        rows.append([f"./mid/s{i}.mid", f"./mxl/s{i}.mxl", "0-0", "480", "True", "True"])
+    csv_path = tmp_path / "PDMX.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["mid", "mxl", "tracks", "n_notes", "subset:deduplicated",
+                    "subset:no_license_conflict"])
+        w.writerows(rows)
+    out = tmp_path / "pairs"
+    assert main(["--csv", str(csv_path), "--midi-root", str(root), "--out", str(out),
+                 "--cap", "10", "--workers", "1", "--shard", "10", "--source", "mxl"]) == 0
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["source"].endswith("mxl")
+    n_train = sum(1 for i in range(4) if not is_heldout(f"./mid/s{i}.mid"))
+    assert summary["pieces"].get("train", 0) == n_train
+    if n_train:
+        with np.load(sorted(out.glob("pdmx-train-*.npz"))[0]) as z:
+            assert (z["hand"] != -100).all() and (z["duration"] != -100).all()

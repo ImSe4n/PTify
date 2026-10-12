@@ -317,3 +317,17 @@ def test_the_model_path_starts_at_the_decoded_phase(monkeypatch):
                         else np.r_[0, np.full(len(bpos) - 1, 24)])
     _, q = rhythm_quantise(_even_notes(16, 0.5), _tiny())
     assert q[0].start_beats % 1 == pytest.approx(0.5)
+
+
+def test_halving_never_writes_a_one_beat_bar():
+    # End-to-end check (2026-10-12): the Schumann Toccata came out in 1/4 with
+    # 580 bars -- a 2-beat bar on the fast reading, halved. The benchmark has no
+    # time-signature column, so it never showed. A bar is doubled until it is a
+    # whole number of beats and at least 2.
+    from rhythm.infer import _written_scale
+    beats = list(np.arange(0, 20, 0.25))
+    assert _written_scale(np.zeros(3), beats, 2, 0.5)[2] == 2      # 2 fast beats -> 2/4, not 1/4
+    assert _written_scale(np.zeros(3), beats, 3, 0.5)[2] == 3      # 1.5 quarters -> 3/4, not 4/4
+    assert _written_scale(np.zeros(3), beats, 4, 0.5)[2] == 2
+    assert _written_scale(np.zeros(3), beats, 6, 0.5)[2] == 3
+    assert _written_scale(np.zeros(3), beats, 4, 2.0)[2] == 4      # 8 quarters -> 4/4

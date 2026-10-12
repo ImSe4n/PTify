@@ -310,13 +310,13 @@ def _rate(pair) -> str:
 
 
 def report(results: list) -> str:
-    head = (f"{'piece':<34}{'row':<13}{'chain':>7}{'meter':>6}{'beatF':>7}"
+    head = (f"{'piece':<34}{'row':<13}{'chain':>7}{'meter':>6}{'bar':>6}{'beatF':>7}"
             f"{'dbF':>6}{'dur':>8}{'rhythm':>8}{'staff':>8}")
     lines = [head, "-" * len(head)]
     for r in results:
         lines.append(
             f"{r.label[:33]:<34}{r.row:<13}{_rate((r.n_chained, r.n_score)):>7}"
-            f"{r.factor:>6.2g}{r.beat_f:>7.2f}{r.downbeat_f:>6.2f}"
+            f"{r.factor:>6.2g}{'ok' if r.bar_ok else '-':>6}{r.beat_f:>7.2f}{r.downbeat_f:>6.2f}"
             f"{_rate(r.duration):>8}{_rate(r.rhythm):>8}{_rate(r.staff):>8}")
     lines.append("-" * len(head))
     for row in ("audio", "perfect_midi"):
@@ -328,6 +328,7 @@ def report(results: list) -> str:
         lines.append(
             f"{'ALL (pooled notes)':<34}{row:<13}{_rate(p['chained']):>7}"
             f"{f'{ok_meter}/{len(sub)}':>6}"
+            f"{f'{sum(r.bar_ok for r in sub)}/{len(sub)}':>6}"
             f"{sum(r.beat_f for r in sub) / len(sub):>7.2f}"
             f"{sum(r.downbeat_f for r in sub) / len(sub):>6.2f}"
             f"{_rate(p['duration']):>8}{_rate(p['rhythm']):>8}"

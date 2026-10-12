@@ -37,6 +37,7 @@ class WrittenNote:
     length_q: float          # as written, or as the source played it
     known_start: bool = True     # False: no written-position target
     known_length: bool = True    # False: no written-value target
+    staff: str | None = None     # "upper" / "lower"; None: no hand target
 
 
 @dataclass(frozen=True)
@@ -134,7 +135,7 @@ def perform(score: WrittenScore, style: PerformanceStyle,
         target = None
         if n.known_start:
             target = {"start_beat": start_b, "start_quarter": n.start_q,
-                      "length_beats": None, "length_quarters": None, "staff": None}
+                      "length_beats": None, "length_quarters": None, "staff": n.staff}
             if n.known_length:
                 target["length_beats"] = float(beat_of(n.start_q + n.length_q)) - start_b
                 target["length_quarters"] = n.length_q

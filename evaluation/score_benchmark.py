@@ -214,9 +214,20 @@ class PieceResult:
     duration: tuple[int, int]
     rhythm: tuple[int, int]
     staff: tuple[int, int]
+    #: Our bar, in score beats (through `factor`), equals the score's bar
+    #: (median beats between annotated downbeats). Added 2026-10-12.
+    bar_ok: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def score_beats_per_bar(ref_beats: list[float], ref_downbeats: list[float]) -> float:
+    """Median number of annotated beats between consecutive downbeats."""
+    beats = np.asarray(ref_beats, dtype=float)
+    counts = [int(((beats >= a - 1e-6) & (beats < b - 1e-6)).sum())
+              for a, b in zip(ref_downbeats, ref_downbeats[1:])]
+    return float(median(counts)) if counts else math.nan
 
 
 def evaluate_piece(*, label: str, row: str,
@@ -247,6 +258,8 @@ def evaluate_piece(*, label: str, row: str,
         duration=duration_accuracy(chained, factor / beat_quarters),
         rhythm=rhythm_accuracy(chained, factor / beat_quarters),
         staff=staff_accuracy(chained),
+        bar_ok=bool(abs(beats_per_bar * factor
+                        - score_beats_per_bar(ref_beats, ref_downbeats)) < 1e-6),
     )
 
 

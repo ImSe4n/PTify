@@ -227,3 +227,32 @@ def test_meter_factor_knows_the_dotted_relationship_in_every_octave():
     assert snapped == pytest.approx(3 / 4)
     _, snapped = meter_factor([0.0, 4 / 3, 8 / 3], PERF_MAP)
     assert snapped == pytest.approx(4 / 3)
+
+
+# --- the bar (2026-10-12) -----------------------------------------------------
+#
+# The end-to-end check found the Schumann Toccata printed in 1/4 and Rachmaninoff
+# 23/6 (4/4 in ASAP) in 3/4, and no column showed either. `bar_ok`: our bar,
+# counted in score beats through the beat-level factor, equals the score's
+# (beats between ASAP's annotated downbeats).
+
+def _bar_case(beats_per_bar, grid_beats, ref_downbeats):
+    return evaluate_piece(
+        label="demo", row="audio", ours=_ours(), our_staffs=STAFFS,
+        grid_beats=grid_beats, beats_per_bar=beats_per_bar,
+        perf_notes=_perf(), perf_map=PERF_MAP,
+        ref_beats=[float(t) for t in range(0, 9)], ref_downbeats=ref_downbeats,
+        score=_score())
+
+
+def test_the_right_bar_is_counted():
+    assert _bar_case(4, [float(t) for t in range(9)], [0.0, 4.0, 8.0]).bar_ok
+
+
+def test_a_wrong_bar_is_not():
+    assert not _bar_case(3, [float(t) for t in range(9)], [0.0, 4.0, 8.0]).bar_ok
+
+
+def test_the_bar_is_compared_through_the_beat_level():
+    # Our beats at twice the score's rate (factor 1/2): 8 of ours = 4 of theirs.
+    assert _bar_case(8, [t / 2 for t in range(17)], [0.0, 4.0, 8.0]).bar_ok

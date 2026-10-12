@@ -163,9 +163,22 @@ def _written_scale(starts, beat_times, bar: int, scale: float):
     slope = tracked[-1] - tracked[-2] if len(tracked) > 1 else 0.5
     times = np.where(q <= idx[-1], np.interp(q, idx, tracked),
                      tracked[-1] + (q - idx[-1]) * slope)
-    bar_q = bar * scale
-    bar_q = int(round(bar_q)) if abs(bar_q - round(bar_q)) < 1e-9 and round(bar_q) >= 1 else 4
-    return np.asarray(starts, dtype=float) * scale, list(times), bar_q, 1.0
+    return np.asarray(starts, dtype=float) * scale, list(times), _written_bar(bar * scale), 1.0
+
+
+def _written_bar(quarters: float) -> int:
+    """A printable bar from a rescaled one: doubled until it is a whole number
+    of quarters and at least 2, halved while above 6, else 4. Halving a 2-beat
+    bar used to print the Schumann Toccata in 1/4 (580 bars)."""
+    q = float(quarters)
+    for _ in range(4):
+        if q >= 2 and abs(q - round(q)) < 1e-9:
+            break
+        q *= 2
+    while q > 6 and abs(q / 2 - round(q / 2)) < 1e-9:
+        q /= 2
+    q = int(round(q))
+    return q if q in (2, 3, 4, 6) else 4
 
 
 def _prepend_beats(beats: list[float], k: int) -> list[float]:

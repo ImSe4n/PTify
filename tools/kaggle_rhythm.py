@@ -62,7 +62,7 @@ def _kaggle(*args: str, cwd: Path | None = None) -> int:
                            cwd=str(cwd) if cwd else None)
 
 
-def prepare(train_args: list[str]) -> None:
+def prepare(train_args: list[str], extra_dir: Path = PDMX_PAIRS) -> None:
     user = _username()
     ds, kn = ROOT / "dataset", ROOT / "kernel"
     for d in (ds, kn):
@@ -73,9 +73,9 @@ def prepare(train_args: list[str]) -> None:
         shutil.copy2(PAIRS / name, ds / name)
     if "--extra-glob" in train_args:
         pattern = train_args[train_args.index("--extra-glob") + 1]
-        shards = sorted(PDMX_PAIRS.glob(pattern))
+        shards = sorted(Path(extra_dir).glob(pattern))
         if not shards:
-            sys.exit(f"error: --extra-glob {pattern!r} matches nothing in {PDMX_PAIRS}")
+            sys.exit(f"error: --extra-glob {pattern!r} matches nothing in {extra_dir}")
         for shard in shards:
             shutil.copy2(shard, ds / shard.name)
         print(f"shipping {len(shards)} extra shards ({pattern})")
@@ -103,13 +103,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("action", choices=("prepare", "push-data", "push-kernel",
                                        "status", "fetch"))
     ap.add_argument("--message", default="update")
+    ap.add_argument("--extra-dir", type=Path, default=PDMX_PAIRS,
+                    help="where --extra-glob shards come from (Phase 36: var/pdmx-mxl-pairs)")
     ap.add_argument("train_args", nargs=argparse.REMAINDER,
                     help="after --, passed to rhythm.train (prepare only)")
     args = ap.parse_args(argv)
     train_args = [a for a in args.train_args if a != "--"]
 
     if args.action == "prepare":
-        prepare(train_args)
+        prepare(train_args, args.extra_dir)
         return 0
     user = _username()
     if args.action == "push-data":
