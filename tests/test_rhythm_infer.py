@@ -136,3 +136,23 @@ def test_choose_grid_keeps_the_more_confident_reading(monkeypatch):
                                 choose_grid=True)
     assert calls == [True, False]                       # both grids were read
     assert len(qnotes) == 30
+
+
+# --- gaps that stay on the beat (Phase 33) --------------------------------------
+
+def test_predict_exposes_what_the_phase_decoder_needs():
+    from rhythm.features import N_DELTA_CLASSES
+    p = predict(_tiny(), _notes(20))
+    assert p["delta_logits"].shape == (20, N_DELTA_CLASSES)
+    assert p["beat_pos"].shape == (20,)
+    assert (p["delta"] == p["delta_logits"].argmax(-1)).all()
+
+
+def test_the_model_path_decodes_gaps_on_the_beat(monkeypatch):
+    import rhythm.infer as ri
+    calls = []
+    real = ri.phase_consistent_deltas
+    monkeypatch.setattr(ri, "phase_consistent_deltas",
+                        lambda *a, **k: calls.append(1) or real(*a, **k))
+    rhythm_quantise(_notes(20), _tiny())
+    assert calls

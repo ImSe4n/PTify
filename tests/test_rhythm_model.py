@@ -129,3 +129,42 @@ def test_window_labels_are_in_tracked_beat_units():
     assert win["delta"][1:].tolist() == [6] * 15
     from rhythm.features import DURATION_TICKS
     assert all(DURATION_TICKS[d] == 6 for d in win["duration"])
+
+
+# --- downbeat class weight (Phase 33) --------------------------------------------
+#
+# Only ~16% of labelled notes are downbeats, so the plain loss leaves the head
+# saying "no" almost everywhere (val F1 0.18 at argmax). A positive-class weight
+# makes a missed downbeat cost more. Weight 1 must be the old loss exactly.
+
+def _down_logits_and_batch(labels):
+    logits = {"downbeat": torch.zeros(1, len(labels), 2)}
+    logits["downbeat"][..., 0] = 1.0                   # always says "not a downbeat"
+    return logits, {"downbeat": torch.tensor([labels])}
+
+
+def test_downbeat_weight_one_is_the_old_loss():
+    logits, batch = _down_logits_and_batch([1, 0, 0, 0])
+    assert float(rhythm_loss(logits, batch)[0]) == pytest.approx(
+        float(rhythm_loss(logits, batch, downbeat_pos_weight=1.0)[0]))
+
+
+def test_downbeat_weight_makes_a_missed_downbeat_cost_more():
+    logits, batch = _down_logits_and_batch([1, 0, 0, 0])
+    plain = float(rhythm_loss(logits, batch)[0])
+    assert float(rhythm_loss(logits, batch, downbeat_pos_weight=4.0)[0]) > plain
+
+
+def test_downbeat_weight_leaves_the_other_heads_alone():
+    logits = {"hand": torch.zeros(1, 4, 2)}
+    logits["hand"][..., 0] = 1.0
+    batch = {"hand": torch.tensor([[1, 0, 0, 0]])}
+    assert float(rhythm_loss(logits, batch, downbeat_pos_weight=4.0)[0]) == pytest.approx(
+        float(rhythm_loss(logits, batch)[0]))
+
+
+def test_train_accepts_the_downbeat_weight():
+    from rhythm.train import build_parser
+    assert build_parser().parse_args(
+        ["--data", "d", "--out", "o", "--downbeat-pos-weight", "4"]).downbeat_pos_weight == 4.0
+    assert build_parser().parse_args(["--data", "d", "--out", "o"]).downbeat_pos_weight == 1.0

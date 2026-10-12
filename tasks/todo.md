@@ -169,10 +169,20 @@ model has a number to beat.
   Toccata: confidence ties (0.922 vs 0.922) and the model scores 11% even
   anchored to the audio grid, so it misreads the 16th runs itself (data gap).
 
+## 2026-10-11 evening
+
+- On-the-beat decoder (`phase_consistent_deltas`): Viterbi over position in the
+  beat, tuned on validation (36.1 -> 51.0% phase right). Fixed positions drifting
+  by a triplet slip forever. Fraction-valued notes 2082 -> 108 on one piece.
+- Run 6 (downbeat loss weight 4): val downbeat F1 0.18 -> 0.40.
+- Benchmark, run 6 + on-beat + grid choice: rhythm 64.3%, durations 47.7%,
+  downbeat F 0.207 (pipeline 0.175), beat F 0.43. NOW THE DEFAULT
+  (`checkpoints/rhythm-run6.pt`).
+- Engraving speed did NOT improve from fewer fractions (7.0 s either way).
+
 ## Next
 
-1. Speed: music21 engraving of the model's finer rhythms (pass exact
-   fractions?). Beat tracking done.
+1. Speed: profile again; fractions were not the cost (7.0 s with or without).
 2. Bar lines: soft decoding failed; next is retraining with the downbeat loss
    weighted.
 3. The Toccata: the model writes even 16th runs as triplets. Needs training

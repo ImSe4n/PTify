@@ -49,19 +49,27 @@ class RhythmTransformer(nn.Module):
 
 
 def rhythm_loss(logits: dict[str, torch.Tensor],
-                batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict]:
+                batch: dict[str, torch.Tensor],
+                downbeat_pos_weight: float = 1.0) -> tuple[torch.Tensor, dict]:
     """Sum of per-head cross-entropies over labelled notes only.
 
     A head with no labelled note in the batch contributes 0, not NaN
     (`cross_entropy` averages over zero items otherwise).
+
+    `downbeat_pos_weight` weights the "is a downbeat" class (~16% of labelled
+    notes): above 1, a missed downbeat costs more. 1.0 is the plain loss.
     """
     total = torch.zeros((), device=next(iter(logits.values())).device)
     parts = {}
     for k, out in logits.items():
         target = batch[k]
         if (target != IGNORE).any():
+            weight = None
+            if k == "downbeat" and downbeat_pos_weight != 1.0:
+                weight = torch.tensor([1.0, downbeat_pos_weight], device=out.device)
             loss = F.cross_entropy(out.reshape(-1, out.shape[-1]),
-                                   target.reshape(-1), ignore_index=IGNORE)
+                                   target.reshape(-1), weight=weight,
+                                   ignore_index=IGNORE)
             total = total + loss
             parts[k] = float(loss.detach())
         else:

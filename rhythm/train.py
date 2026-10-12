@@ -163,6 +163,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--weight-decay", type=float, default=0.01)
     ap.add_argument("--max-steps", type=int, default=None,
                     help="stop early; for a smoke run")
+    ap.add_argument("--downbeat-pos-weight", type=float, default=1.0,
+                    help="loss weight of the 'is a downbeat' class (1 = plain)")
     ap.add_argument("--seed", type=int, default=13)
     return ap
 
@@ -206,7 +208,8 @@ def main(argv: list[str] | None = None) -> int:
                     for j in order[i:i + args.batch_size]]
             batch = collate(wins, device)
             total, parts = rhythm_loss(
-                model(batch["pitch"], batch["cont"], batch["pad"]), batch)
+                model(batch["pitch"], batch["cont"], batch["pad"]), batch,
+                downbeat_pos_weight=args.downbeat_pos_weight)
             opt.zero_grad()
             total.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

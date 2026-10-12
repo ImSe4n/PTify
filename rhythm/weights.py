@@ -18,17 +18,20 @@ from pathlib import Path
 
 RHYTHM_MODEL_ENV = "PTIFY_RHYTHM_MODEL"
 RHYTHM_MODE_ENV = "PTIFY_RHYTHM"
-RHYTHM_MODEL_NAME = "rhythm-run5.pt"
-#: sha256 of the Phase 33 run-5 weights that produced
-#: `benchmarks/score-benchmark-rhythm-model-run5.json`.
-RHYTHM_RUN5_SHA256 = "687f35e358cc933b0a9b6bc377ca6095ca3ec20bf8577ab1c5fab439413a2243"
+RHYTHM_MODEL_NAME = "rhythm-run6.pt"
+#: sha256 of the Phase 33 run-6 weights (downbeat loss weighted 4x) that produced
+#: `benchmarks/score-benchmark-rhythm-run6-phase.json`. Run 5 (sha256
+#: 687f35e3...2243) was the default from 2026-10-10 to 2026-10-11.
+RHYTHM_RUN6_SHA256 = "7a5be4b2c99024911067cab88ff0040e984590d0b73a0d61056e13a7924c7d21"
 
 MODES = ("grid", "model", "hybrid")
 #: What the web app uses when PTIFY_RHYTHM is unset. Changed only on the
 #: score benchmark's evidence; see `benchmarks/score-benchmark-README.md`.
 #: "model" since 2026-10-10: run 5 lifts rhythm 58.3% -> 63.3% and durations
 #: 43.5% -> 47.0% (38 pieces, from audio), staff unchanged; it places the beat
-#: level right in 16/38 pieces against the grid's 19/38. Without weights on disk
+#: level right in 16/38 pieces against the grid's 19/38. Since 2026-10-11, run 6
+#: with the on-the-beat decoder: rhythm 64.3%, durations 47.7%, downbeat F 0.21
+#: (pipeline 0.17), beat F 0.43, beat level 16/38. Without weights on disk
 #: the app falls back to "grid" by itself. PTIFY_RHYTHM=grid reverts.
 DEFAULT_MODE = "model"
 

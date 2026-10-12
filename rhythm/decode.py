@@ -82,6 +82,67 @@ def _beat_times(pos: np.ndarray, onsets: np.ndarray) -> list[float]:
     return out
 
 
+#: How far (in beats) a note may sit from where the tracked beat puts it before
+#: its gap is doubted, and the most one note's mismatch can cost (in nats, the
+#: unit of the model's log-probabilities). Tuned on the validation split
+#: (89 pieces, 128-note windows): position within the beat right 36.1% -> 51.0%,
+#: exactly right 22.6% -> 31.1%, against the plain running sum of argmax gaps.
+PHASE_SIGMA_BEATS = 0.15
+PHASE_COST_CAP = 0.3
+
+
+def _phase_cost(beat_pos: np.ndarray, sigma: float, cap: float) -> np.ndarray:
+    """(notes, TICKS_PER_BEAT): cost of each note sitting at each tick of a beat."""
+    ticks = np.arange(TICKS_PER_BEAT) / TICKS_PER_BEAT
+    d = (ticks[None, :] - np.asarray(beat_pos, dtype=float)[:, None] % 1.0) % 1.0
+    d = np.minimum(d, 1.0 - d)
+    return np.minimum(0.5 * (d / sigma) ** 2, cap)
+
+
+def phase_consistent_deltas(delta_logits, beat_pos,
+                            sigma: float = PHASE_SIGMA_BEATS,
+                            cap: float = PHASE_COST_CAP) -> np.ndarray:
+    """Gaps (ticks) whose running sum stays in step with the tracked beat.
+
+    Positions are the running sum of gaps, so one triplet-sized slip used to
+    move every later note off the beat. Viterbi over where each note falls
+    within a beat (TICKS_PER_BEAT states): a gap costs its negative log
+    probability under the model, and a note costs how far that state is from
+    where the tracked beat puts it (`beat_pos`, in beats; only its fraction is
+    used, so a tracker locked onto the off-beat costs nothing). Phase cannot
+    tell 6 ticks from 30, so whole beats are always the model's own choice.
+    """
+    logits = np.asarray(delta_logits, dtype=float)
+    n = len(logits)
+    out = np.zeros(n, dtype=np.int64)
+    if n < 2:
+        return out
+    P = TICKS_PER_BEAT
+    logp = logits - logits.max(-1, keepdims=True)
+    logp = logp - np.log(np.exp(logp).sum(-1, keepdims=True))
+    # Best gap per residue mod P: the transition only depends on the residue.
+    pad = (-logits.shape[1]) % P
+    by_res = np.concatenate([logp, np.full((n, pad), -np.inf)], 1).reshape(n, -1, P)
+    best_k = by_res.argmax(1)                                  # (n, P): which multiple
+    best = np.take_along_axis(by_res, best_k[:, None, :], 1)[:, 0, :]
+    emit = _phase_cost(beat_pos, sigma, cap)
+    step = (np.arange(P)[None, :] - np.arange(P)[:, None]) % P  # [from, to] -> residue
+
+    cost = emit[0].copy()
+    back = np.zeros((n, P), dtype=np.int64)
+    for i in range(1, n):
+        total = cost[:, None] - best[i][step]                   # [from, to]
+        back[i] = total.argmin(0)
+        cost = total[back[i], np.arange(P)] + emit[i]
+    state = int(cost.argmin())
+    for i in range(n - 1, 0, -1):
+        prev = int(back[i, state])
+        res = (state - prev) % P
+        out[i] = res + P * int(best_k[i, res])
+        state = prev
+    return out
+
+
 def decode(onsets, delta_ticks, duration_ticks, downbeat_prob) -> Decoded:
     """Per-note predictions (sorted by onset) -> positions, values, grid, bar."""
     onsets = np.asarray(onsets, dtype=float)

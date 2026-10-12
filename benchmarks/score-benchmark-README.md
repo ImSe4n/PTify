@@ -166,3 +166,32 @@ Same command as run 5, plus a flag per row.
   to the audio grid it scored 11% (hybrid run). The model itself misreads the
   piece's 16th-note runs as triplets. That is a training-data gap, not a grid
   problem.
+
+## Phase 33 C — notes kept on the beat; run 6 is the default (2026-10-11)
+
+**The bug.** The decoder placed each note at the running sum of the model's
+argmax gaps, so one triplet-sized slip moved every later note off the beat (in
+one 8-minute piece, 2082 of 2394 notes landed at 1/6-beat offsets). Now
+`rhythm.decode.phase_consistent_deltas` picks the gaps by Viterbi over where
+each note falls within the beat: the model's gap log-probabilities against the
+note's place on the tracked beat (sigma 0.15 beats, cost cap 0.3, tuned on the
+VALIDATION split: position within the beat 36.1% -> 51.0%, exact 22.6% -> 31.1%).
+Whole beats stay the model's choice.
+
+**Run 6** = run 5's settings with `--downbeat-pos-weight 4` (downbeats are ~16% of
+notes). Validation downbeat F1 0.18 -> 0.40; gaps 80.0 -> 79.7%, durations 50.8 ->
+50.1%. Log: `training/rhythm-run6.jsonl`.
+
+| from audio, 38 pieces | pipeline | run 5 + grid choice | run 5 + on-beat | **run 6 + on-beat** |
+|---|---|---|---|---|
+| rhythm | 58.3% | 64.0% | 64.0% | **64.3%** |
+| durations | 43.5% | 47.5% | 47.2% | **47.7%** |
+| staff | 89.1% | 89.1% | 89.1% | 89.1% |
+| beat F (mean) | 0.489 | 0.295 | 0.428 | 0.432 |
+| downbeat F (mean) | 0.175 | 0.137 | 0.191 | **0.207** |
+| beat level right | 19/38 | 16/38 | 17/38 | 16/38 |
+
+Files: `score-benchmark-rhythm-run5-phase.json`, `score-benchmark-rhythm-run6-phase.json`
+(both with grid choice). Default weights are now `checkpoints/rhythm-run6.pt`
+(sha256 in `rhythm/weights.py`). Engraving time is unchanged (7.0 s on the
+8-minute piece with a typed tempo): the exact-fraction path was not the cost.

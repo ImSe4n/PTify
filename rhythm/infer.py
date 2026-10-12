@@ -16,7 +16,7 @@ import numpy as np
 import torch
 
 from notation.quantise import BeatGrid, QuantisedNote, _in_pedal
-from rhythm.decode import _bar, anchor_positions, decode
+from rhythm.decode import _bar, anchor_positions, decode, phase_consistent_deltas
 from rhythm.features import TICKS_PER_BEAT
 from rhythm.beats import beat_positions, inputs_from_positions, track_beats_from_notes
 from rhythm.features import DURATION_TICKS, LOWEST_KEY, continuous
@@ -88,6 +88,8 @@ def predict(model: RhythmTransformer, notes: list[NoteEvent],
         "confidence": confidence,
         "order": order,
         "delta": mean["delta"].argmax(-1),
+        "delta_logits": mean["delta"],
+        "beat_pos": bpos,
         "duration_ticks": np.array(DURATION_TICKS)[mean["duration"].argmax(-1)],
         "downbeat_prob": down[:, 1] / down.sum(-1),
     }
@@ -156,8 +158,11 @@ def rhythm_quantise(notes: list[NoteEvent], model: RhythmTransformer,
     ordered = [notes[i] for i in p["order"]]
     lengths = p["duration_ticks"] / TICKS_PER_BEAT
     if grid is None:
-        d = decode([n.onset for n in ordered], p["delta"], p["duration_ticks"],
-                   p["downbeat_prob"])
+        # Gaps chosen to keep the running position on the tracked beat: one
+        # argmax slip used to shift every later note (Phase 33).
+        d = decode([n.onset for n in ordered],
+                   phase_consistent_deltas(p["delta_logits"], p["beat_pos"]),
+                   p["duration_ticks"], p["downbeat_prob"])
         starts, beat_times, bar = d.start_beats, d.beat_times, d.beats_per_bar
         subdivision = BeatGrid.__dataclass_fields__["subdivision"].default  # as measured in run 5
     else:
