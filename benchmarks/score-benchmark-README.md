@@ -364,3 +364,39 @@ pieces with a beat-level ratio near 0.7 now snap to 3/4 instead of 2/3. Same
 yardstick for both columns above. Bars are right on 5 pieces for both, 5 only
 for the model, 6 only for the rules. Files: `score-benchmark-rhythm-run8-bar.json`,
 `score-benchmark-rules-bar.json`.
+
+## Bar length from relative downbeat evidence: on (2026-10-13)
+
+**Cause.** Run 8's downbeat head (trained with pos weight 4) puts a median 70% of
+beats over 0.5. `rhythm.decode._bar` took the most common spacing between those
+beats, so it chose a 2-beat bar for 86 of 89 ASAP validation pieces.
+
+**Fix.** The bar is the (length, phase) in {2, 3, 4, 6} whose downbeats stand out
+most from every other beat, by Welch's t on each beat's strongest downbeat
+probability. No tuned parameter. Chosen on ASAP validation with this benchmark's
+bar definition (`tools/bar_validation.py`, 89 performances):
+
+| validation rule | bar right | downbeat F |
+|---|---|---|
+| old: spacing of beats over 0.5 | 9/89 | 0.244 |
+| difference of means | 22/89 | 0.202 |
+| **Welch's t** | **25/89** | 0.213 |
+| with 8 and 12 beats allowed (any variant) | <= 17/89 | lower |
+| "prefer a divisor within a margin" variants | 14-19/89 | 0.23-0.24 |
+
+Downbeat F favours short bars (a downbeat every 2 beats catches every real one),
+which is why `bar_ok` decided it. On validation the true bar is 8 or 12 TRACKED
+beats in 25/89 pieces (the tracker counts eighths), so it is out of reach for any
+choice in {2, 3, 4, 6}. That is a beat-level problem, not a bar problem.
+
+Test set, web-app settings (`score-benchmark-rhythm-run8-tbar.json`):
+
+| from audio | before | **after** |
+|---|---|---|
+| bar right | 10/38 | **15/38** |
+| downbeat F (mean) | 0.218 | **0.233** |
+| rhythm / durations / staff | 76.9 / 58.7 / 89.1% | unchanged |
+| beat F / beat level right | 0.495 / 19/38 | unchanged |
+
+Newly right: Bach prelude 862, Beethoven 12-1 and 3-1, Chopin op. 10/12, Liszt TE 3.
+None got worse.

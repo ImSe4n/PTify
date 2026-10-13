@@ -122,10 +122,12 @@ def test_first_note_snaps_to_the_grid():
 
 # --- bar lines -----------------------------------------------------------------
 #
-# Phase 33 tried choosing the bar from ALL downbeat probabilities (soft
-# evidence). On the 38-piece benchmark it placed bar lines worse on 21 pieces
-# and better on 11 (downbeat F 0.142 -> 0.136), so only beats the model is
-# over 50% sure of count.
+# 2026-10-13: the bar is the (length, phase) whose downbeats stand out most
+# from the other beats (Welch's t), not the spacing of beats over 0.5. Run 8's
+# downbeat head (trained with pos weight 4) puts 70% of beats over 0.5, so the
+# old rule chose a 2-beat bar for 86 of 89 ASAP validation pieces (bar right
+# 9/89 -> 25/89). The earlier soft attempt (Phase 33) was judged on downbeat F,
+# which favours short bars.
 
 def test_one_noisy_note_does_not_move_the_bar_lines():
     onsets, delta = _quarters(24)
@@ -262,3 +264,18 @@ def test_starting_off_the_beat_must_be_earned():
     _, start = phase_consistent_deltas(logits40, strong, return_start=True,
                                        start_penalty=START_PENALTY)
     assert start == 12
+
+
+def test_a_head_that_fires_on_most_beats_still_finds_three_four():
+    # Run 8's head: most beats over 0.5, downbeats only relatively higher.
+    onsets, delta = _quarters(24)
+    down = np.array([0.9 if i % 3 == 0 else 0.6 for i in range(24)])
+    d = decode(onsets, delta, np.full(24, 24), down)
+    assert d.beats_per_bar == 3
+    assert all(d.start_beats[i] % 3 == 0 for i in (0, 3, 6))
+
+
+def test_flat_evidence_defaults_to_four():
+    # Every beat equally likely: nothing stands out, so the convention wins.
+    onsets, delta = _quarters(12)
+    assert decode(onsets, delta, np.full(12, 24), np.full(12, 0.7)).beats_per_bar == 4

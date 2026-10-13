@@ -10,6 +10,14 @@ soft decoding failed on downbeat F before -- measure on `bar_ok` this time,
 and choose on validation (ASAP val has time signatures in val.jsonl; PDMX
 held-out has them too).
 
+DONE 2026-10-13: bar = (length, phase) whose downbeats stand out most (Welch's t).
+Validation 9 -> 25/89; test (web app) bar right 10 -> 15/38, downbeat F 0.218 ->
+0.233, nothing else moved, no piece worse. PDMX held-out NOT used: its shards are
+encoded model inputs, not performances (needs its own decode path); the ASAP
+result was clear-cut. Remaining bar errors are mostly BEAT LEVEL: on validation
+the true bar is 8 or 12 tracked beats in 25/89 (the tracker counts eighths).
+Next candidate: beat level (19/38 right).
+
 ---
 
 # Phase 36 -- PDMX MusicXML: written note values and hands (DONE 2026-10-12: criteria NOT met, run 8 stays)

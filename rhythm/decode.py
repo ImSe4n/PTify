@@ -16,7 +16,6 @@ those this module derives:
 
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass
 
 import numpy as np
@@ -28,7 +27,6 @@ BAR_CHOICES = (2, 3, 4, 6)
 DEFAULT_BEATS_PER_BAR = 4
 #: Seconds per beat when there is nothing to measure it from (a single note).
 FALLBACK_SEC_PER_BEAT = 0.5
-DOWNBEAT_THRESHOLD = 0.5
 
 
 @dataclass(frozen=True)
@@ -39,18 +37,48 @@ class Decoded:
     beats_per_bar: int
 
 
+def _welch_t(a: np.ndarray, b: np.ndarray) -> float:
+    """How far mean(a) stands above mean(b), in standard errors. Perfect
+    separation (no spread on either side) is infinitely clear."""
+    diff = a.mean() - b.mean()
+    se = np.sqrt(a.var(ddof=1) / len(a) + b.var(ddof=1) / len(b))
+    if se > 0:
+        return float(diff / se)
+    return float(np.inf) if diff > 0 else 0.0
+
+
 def _bar(ticks: np.ndarray, downbeat_prob: np.ndarray) -> tuple[int, float]:
-    """(beats per bar, shift in beats that puts downbeats on bar lines)."""
+    """(beats per bar, shift in beats that puts downbeats on bar lines).
+
+    Each beat carrying a note gets its strongest downbeat probability. The bar
+    is the (length, phase) in BAR_CHOICES whose downbeats stand out most from
+    every other beat (Welch's t), so it is RELATIVE: run 8's head puts 70% of
+    beats over 0.5, and the old rule (most common spacing of beats over 0.5)
+    chose a 2-beat bar for 86 of 89 ASAP validation pieces. Chosen on that
+    validation split with the score benchmark's bar definition: bar right
+    9/89 -> 25/89 (`tools/bar_validation.py`). Welch's t rather than a plain
+    difference of means (22/89) because long bars have few downbeats to
+    average, and t discounts that. Adding 8 and 12 beats lost (<= 17/89).
+    """
     on_beat = ticks % TICKS_PER_BEAT == 0
-    beats = np.unique(ticks[(downbeat_prob > DOWNBEAT_THRESHOLD) & on_beat]
-                      // TICKS_PER_BEAT)
-    if len(beats) == 0:
-        return DEFAULT_BEATS_PER_BAR, 0.0
-    gaps = Counter(int(g) for g in np.diff(beats) if int(g) in BAR_CHOICES)
-    # Ties go to the conventional choice: 4, then 3, then the rest.
-    bar = (max(gaps, key=lambda g: (gaps[g], g == 4, g == 3))
-           if gaps else DEFAULT_BEATS_PER_BAR)
-    phase = Counter(int(b) % bar for b in beats).most_common(1)[0][0]
+    per_beat: dict[int, float] = {}
+    for b, p in zip(ticks[on_beat] // TICKS_PER_BEAT, downbeat_prob[on_beat]):
+        per_beat[int(b)] = max(per_beat.get(int(b), 0.0), float(p))
+    beats = np.array(sorted(per_beat), dtype=np.int64)
+    probs = np.array([per_beat[b] for b in beats])
+    best = None
+    for bar in BAR_CHOICES:
+        for phase in range(bar):
+            comb = (beats % bar) == phase
+            if comb.sum() < 2 or (~comb).sum() < 2:
+                continue
+            # Ties go to the conventional choice: 4, then 3, then the rest.
+            key = (_welch_t(probs[comb], probs[~comb]), bar == 4, bar == 3)
+            if best is None or key > best[0]:
+                best = (key, bar, phase)
+    if best is None or best[0][0] <= 0:
+        return DEFAULT_BEATS_PER_BAR, 0.0          # nothing stands out
+    _, bar, phase = best
     return bar, float((-phase) % bar)
 
 
