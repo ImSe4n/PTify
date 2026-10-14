@@ -97,3 +97,20 @@ def test_a_host_serving_the_wrong_model_is_refused_not_cached(tmp_path, monkeypa
     with pytest.raises(ValueError, match="served 'bytedance', expected 'ptify'"):
         sb._transcribe("remote", "ptify", audio, tmp_path / "cache")
     assert not list((tmp_path / "cache").rglob("*.json"))
+
+
+def test_a_piece_without_asaps_bar_map_is_left_unscored(tmp_path, monkeypatch):
+    # 81 of ASAP's 1067 entries store NaN instead of a bar map. That piece's
+    # spelling cannot be reached, so it is skipped -- it must not crash the run.
+    from tools import score_benchmark as sb
+
+    path = tmp_path / "asap.json"
+    path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(sb, "ASAP_JSON", path)
+    monkeypatch.setattr(sb, "_ASAP_JSON_CACHE", {"p.mid": {
+        "downbeats_score_map": float("nan"),
+        "midi_score_key_signatures": {"0.5": [2, 2]}}})
+    beats = [BeatAnnotation(float(t), t % 4 == 0) for t in range(8)]
+    ctx, sharps = sb.spelling_inputs({"midi_performance": "p.mid"}, beats)
+    assert ctx is None
+    assert sharps == 2

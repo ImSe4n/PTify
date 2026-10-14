@@ -222,7 +222,7 @@ def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=No
     """The product's notation path.
 
     Returns (quantised notes, staff per note, beat times used, beats per bar,
-    quarters per beat):
+    quarters per beat, the key the engraver spelled in):
     with the rhythm model the grid is the model's, not the tracker's, and the
     meter and beat columns must score the one the notes were placed on.
     """
@@ -244,7 +244,41 @@ def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=No
     treble, _, _ = _assign_staves(stats.notes, stats.split_point)
     upper = {id(q) for q in treble}
     staffs = ["upper" if id(q) in upper else "lower" for q in stats.notes]
-    return stats.notes, staffs, stats.grid_beats, stats.beats_per_bar, stats.beat_quarters
+    return (stats.notes, staffs, stats.grid_beats, stats.beats_per_bar,
+            stats.beat_quarters, stats.key)
+
+
+ASAP_JSON = Path("var/asap-repo/asap_annotations.json")
+_ASAP_JSON_CACHE: dict = {}
+
+
+def spelling_inputs(row: dict, score_anns) -> tuple:
+    """(SpellingContext, written key sharps) for one piece, or (None, None).
+
+    Needs ASAP's annotation JSON (for the score-MIDI bar -> MusicXML measure
+    map and the key signature) and the MusicXML. A piece whose bar map does
+    not have one entry per score downbeat is left unscored rather than
+    guessed.
+    """
+    from evaluation.spelling import SpellingContext, xml_measures
+
+    if not ASAP_JSON.exists():
+        return None, None
+    if not _ASAP_JSON_CACHE:
+        _ASAP_JSON_CACHE.update(json.loads(ASAP_JSON.read_text(encoding="utf-8")))
+    entry = _ASAP_JSON_CACHE.get(row["midi_performance"])
+    if entry is None:
+        return None, None
+    keys = entry.get("midi_score_key_signatures") or {}
+    sharps = (int(keys[min(keys, key=float)][1]) if keys else None)
+    downbeats = [float(i) for i, a in enumerate(score_anns) if a.downbeat]
+    score_map = entry.get("downbeats_score_map")
+    # 81 of ASAP's 1067 entries store NaN here instead of a list (no map).
+    if not isinstance(score_map, list) or len(score_map) != len(downbeats):
+        return None, sharps
+    ctx = SpellingContext(downbeats=downbeats, score_map=score_map,
+                          measures=xml_measures(_fetch_asap(row["xml_score"])))
+    return ctx, sharps
 
 
 def _score_tracks(path: Path) -> list[list[NoteEvent]]:
@@ -287,6 +321,7 @@ def run_piece(row: dict, meta, engine: str, served: str,
                     subdivision=g.subdivision)
     est = crop(_transcribe(engine, served, audio, cache_dir), start, end, shift)
 
+    spell_ctx, key_sharps = spelling_inputs(row, score_anns)
     common = dict(
         label=row["folder"],
         perf_notes=perf.notes, perf_map=BeatMap.from_annotations(perf_anns),
@@ -295,12 +330,14 @@ def run_piece(row: dict, meta, engine: str, served: str,
         score=score)
     out = []
     for name, tr in (("audio", est), ("perfect_midi", perf)):
-        ours, staffs, used_beats, bpb, beat_q = notate(tr, grid, auto_division, rhythm_model,
+        ours, staffs, used_beats, bpb, beat_q, key = notate(tr, grid, auto_division, rhythm_model,
                                                rhythm_mode, rhythm_bars, choose_grid,
                                                rescale, try_tempi, halve)
         out.append(evaluate_piece(row=name, ours=ours, our_staffs=staffs,
                                   grid_beats=used_beats, beats_per_bar=bpb,
-                                  beat_quarters=beat_q, **common))
+                                  beat_quarters=beat_q, key_estimate=key,
+                                  spelling=spell_ctx, key_sharps=key_sharps,
+                                  **common))
     return out
 
 
@@ -309,15 +346,25 @@ def _rate(pair) -> str:
     return f"{ok / n:6.1%}" if n else "   n/a"
 
 
+def _key_mark(ok) -> str:
+    return "n/a" if ok is None else ("ok" if ok else "-")
+
+
+def _key_total(results) -> str:
+    known = [r.key_ok for r in results if r.key_ok is not None]
+    return f"{sum(known)}/{len(known)}" if known else "n/a"
+
+
 def report(results: list) -> str:
     head = (f"{'piece':<34}{'row':<13}{'chain':>7}{'meter':>6}{'bar':>6}{'beatF':>7}"
-            f"{'dbF':>6}{'dur':>8}{'rhythm':>8}{'staff':>8}")
+            f"{'dbF':>6}{'dur':>8}{'rhythm':>8}{'staff':>8}{'spell':>8}{'key':>5}")
     lines = [head, "-" * len(head)]
     for r in results:
         lines.append(
             f"{r.label[:33]:<34}{r.row:<13}{_rate((r.n_chained, r.n_score)):>7}"
             f"{r.factor:>6.2g}{'ok' if r.bar_ok else '-':>6}{r.beat_f:>7.2f}{r.downbeat_f:>6.2f}"
-            f"{_rate(r.duration):>8}{_rate(r.rhythm):>8}{_rate(r.staff):>8}")
+            f"{_rate(r.duration):>8}{_rate(r.rhythm):>8}{_rate(r.staff):>8}"
+            f"{_rate(r.spelling):>8}{_key_mark(r.key_ok):>5}")
     lines.append("-" * len(head))
     for row in ("audio", "perfect_midi"):
         sub = [r for r in results if r.row == row]
@@ -332,7 +379,8 @@ def report(results: list) -> str:
             f"{sum(r.beat_f for r in sub) / len(sub):>7.2f}"
             f"{sum(r.downbeat_f for r in sub) / len(sub):>6.2f}"
             f"{_rate(p['duration']):>8}{_rate(p['rhythm']):>8}"
-            f"{_rate(p['staff']):>8}")
+            f"{_rate(p['staff']):>8}{_rate(p['spelling']):>8}"
+            f"{_key_total(sub):>5}")
     return "\n".join(lines)
 
 

@@ -43,6 +43,7 @@ from statistics import median
 import numpy as np
 
 from evaluation.asap import BeatMap, ScoreNote
+from evaluation.spelling import key_signature_ok, spelling_accuracy
 from notation.quantise import QuantisedNote
 from transcriber.events import NoteEvent
 
@@ -217,6 +218,12 @@ class PieceResult:
     #: Our bar, in score beats (through `factor`), equals the score's bar
     #: (median beats between annotated downbeats). Added 2026-10-12.
     bar_ok: bool = False
+    #: Printed pitch spelling vs the MusicXML's, over chained notes whose
+    #: written partner was found (`evaluation.spelling`). Added 2026-10-13.
+    spelling: tuple[int, int] = (0, 0)
+    #: Printed key signature has the written number of sharps/flats.
+    #: None when the score's key signature was not supplied.
+    key_ok: bool | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -236,12 +243,17 @@ def evaluate_piece(*, label: str, row: str,
                    perf_notes: list[NoteEvent], perf_map: BeatMap,
                    ref_beats: list[float], ref_downbeats: list[float],
                    score: list[ScoreNote],
-                   beat_quarters: float = 1.0) -> PieceResult:
+                   beat_quarters: float = 1.0, key_estimate=None,
+                   spelling=None, key_sharps: int | None = None) -> PieceResult:
     """Every column for one piece. All times are in PERFORMANCE seconds.
 
     Our positions and values are in quarter notes; `factor` is score beats per
     OUR beat, which is `beat_quarters` long (1.5 in 6/8, Phase 34). So
     positions are compared through score beats per quarter.
+
+    `spelling` (an `evaluation.spelling.SpellingContext`) and `key_sharps`
+    turn on the spelling and key-signature columns; `key_estimate` is the
+    key the engraver used (`ScoreStats.key`).
     """
     if len(ours) != len(our_staffs):
         raise ValueError("ours and our_staffs must be the same length")
@@ -260,13 +272,17 @@ def evaluate_piece(*, label: str, row: str,
         staff=staff_accuracy(chained),
         bar_ok=bool(abs(beats_per_bar * factor
                         - score_beats_per_bar(ref_beats, ref_downbeats)) < 1e-6),
+        spelling=(spelling_accuracy(chained, key_estimate, spelling)
+                  if spelling is not None else (0, 0)),
+        key_ok=(key_signature_ok(key_estimate, key_sharps)
+                if key_sharps is not None else None),
     )
 
 
 def pool(results: list[PieceResult]) -> dict[str, tuple[int, int]]:
     """Corpus totals for the count columns, pooled over notes."""
     out = {}
-    for col in ("duration", "rhythm", "staff"):
+    for col in ("duration", "rhythm", "staff", "spelling"):
         out[col] = (sum(getattr(r, col)[0] for r in results),
                     sum(getattr(r, col)[1] for r in results))
     out["chained"] = (sum(r.n_chained for r in results),

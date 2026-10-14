@@ -60,6 +60,20 @@ def _bar(ticks: np.ndarray, downbeat_prob: np.ndarray) -> tuple[int, float]:
     difference of means (22/89) because long bars have few downbeats to
     average, and t discounts that. Adding 8 and 12 beats lost (<= 17/89).
     """
+    t, bar, phase, _ = bar_strength(ticks, downbeat_prob)
+    if t <= 0:
+        return DEFAULT_BEATS_PER_BAR, 0.0          # nothing stands out
+    return bar, float((-phase) % bar)
+
+
+def bar_strength(ticks: np.ndarray,
+                 downbeat_prob: np.ndarray) -> tuple[float, int, int, int]:
+    """(Welch t, beats per bar, phase, beats scored) of the clearest bar.
+
+    t is -inf when there are too few beats to compare. The beat count is
+    returned because t grows with it: comparing readings of one piece at
+    different tempi needs it to normalise.
+    """
     on_beat = ticks % TICKS_PER_BEAT == 0
     per_beat: dict[int, float] = {}
     for b, p in zip(ticks[on_beat] // TICKS_PER_BEAT, downbeat_prob[on_beat]):
@@ -76,10 +90,9 @@ def _bar(ticks: np.ndarray, downbeat_prob: np.ndarray) -> tuple[int, float]:
             key = (_welch_t(probs[comb], probs[~comb]), bar == 4, bar == 3)
             if best is None or key > best[0]:
                 best = (key, bar, phase)
-    if best is None or best[0][0] <= 0:
-        return DEFAULT_BEATS_PER_BAR, 0.0          # nothing stands out
-    _, bar, phase = best
-    return bar, float((-phase) % bar)
+    if best is None:
+        return float("-inf"), DEFAULT_BEATS_PER_BAR, 0, len(beats)
+    return best[0][0], best[1], best[2], len(beats)
 
 
 def _sec_per_beat(p0, t0, p1, t1) -> float:

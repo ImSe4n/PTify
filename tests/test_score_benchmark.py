@@ -169,6 +169,34 @@ def test_evaluate_piece_reports_every_column():
     assert r.staff == (4, 4)
 
 
+def test_evaluate_piece_scores_spelling_and_key_when_given_the_score():
+    from evaluation.spelling import SpellingContext, WrittenPitch
+
+    # One 4-beat bar = measure 1: C5 D5 E5 written plain, bass C3.
+    ctx = SpellingContext(downbeats=[0.0, 4.0], score_map=[1, 2], measures={1: [
+        WrittenPitch(0.0, 72, "C", 0.0), WrittenPitch(0.25, 74, "D", 0.0),
+        WrittenPitch(0.5, 76, "E", 0.0), WrittenPitch(0.0, 48, "C", 0.0)]})
+    r = evaluate_piece(
+        label="demo", row="audio", ours=_ours(), our_staffs=STAFFS,
+        grid_beats=[0.0, 1.0, 2.0, 3.0, 4.0], beats_per_bar=4,
+        perf_notes=_perf(), perf_map=PERF_MAP,
+        ref_beats=[0.0, 1.0, 2.0, 3.0, 4.0], ref_downbeats=[0.0, 4.0],
+        score=_score(), key_estimate=None, spelling=ctx, key_sharps=0)
+    assert r.spelling == (4, 4)
+    assert r.key_ok is True
+
+
+def test_spelling_and_key_are_absent_unless_asked_for():
+    r = evaluate_piece(
+        label="demo", row="audio", ours=_ours(), our_staffs=STAFFS,
+        grid_beats=[0.0, 1.0, 2.0, 3.0, 4.0], beats_per_bar=4,
+        perf_notes=_perf(), perf_map=PERF_MAP,
+        ref_beats=[0.0, 1.0, 2.0, 3.0, 4.0], ref_downbeats=[0.0, 4.0],
+        score=_score())
+    assert r.spelling == (0, 0)
+    assert r.key_ok is None
+
+
 def test_chain_matches_one_pitch_at_a_time_like_the_full_matching():
     # Phase 33: mir_eval's matching builds all-notes x all-notes tables (~1.6 GB
     # on the Wanderer Fantasy). Only same-pitch notes can match, so matching

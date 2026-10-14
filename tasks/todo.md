@@ -1,3 +1,33 @@
+# Toward Songscription: the five-item plan (agreed 2026-10-13, "do all")
+
+1. [~] **Spelling + key signature column** (`evaluation/spelling.py`): printed
+   spelling vs the MusicXML via ASAP's bar map; key sharps vs ASAP's
+   annotation. First full run: spelling 90.6%, key 32/38, BUT only 51% of
+   notes found a written partner: ASAP's bar map is a 0-based measure
+   POSITION, not the printed number. Fixed (100% found on 3 checked pieces);
+   re-run in progress. 81/1067 ASAP entries have no bar map (NaN): unscored.
+2. [~] **Beat level** (19/38). `tools/beat_level_validation.py`, ASAP val:
+   chosen right 29/89, but SOME tempo candidate right 64/89 -> a chooser
+   problem. Failed on val: tempo prior and most-common-gap prior from the
+   TRAIN split (best 30/89); bar strength (bar_t, alone 20/89, combined <= 28).
+   Next: a learned chooser fitted on train-split candidates
+   (`--split train`, running), judged on val.
+3. [ ] **Songscription row**. USER uploads `var/songscription-upload/*.wav`
+   (7 benchmark segments, 14.0 min, inside the free 15 min/month) and exports
+   MusicXML to `var/songscription-out/` with the same file names.
+   Their XML has no performance timing, so build a SCORE-TO-SCORE path:
+   align their written notes to ASAP's score by note order + pitch, and score
+   rhythm (gaps, global factor), durations, spelling, key, bar, staff. Score
+   PTify through the SAME path for a fair row. Caveat (user accepted):
+   MAESTRO is non-commercial and this uploads it to a third party.
+4. [ ] **Model**: notes reaching the score (84% audio vs 92% perfect MIDI, quiet
+   notes, Phase 27); durations 58.7%; staff 89.1%.
+5. [ ] **Product**: notation editor (largest user-facing gap). YouTube input
+   needs a terms-of-service decision from the user. More instruments is a
+   separate project.
+
+---
+
 # Meter (bar) -- the weakest column (found 2026-10-12)
 
 End-to-end check through `api.pipeline.run` (saved Modal transcriptions):
