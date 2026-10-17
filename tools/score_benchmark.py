@@ -48,6 +48,7 @@ from transcriber.midi import read_midi
 ASAP_RAW = "https://raw.githubusercontent.com/fosfrancesco/asap-dataset/master/"
 ASAP_META = Path("var/asap-meta/metadata.csv")
 ASAP_DIR = Path("var/asap")
+ASAP_REPO_CLONE = Path("var/asap-repo")
 AUDIO_DIR = Path("recordings/asap_test")
 
 #: Below this share of ASAP notes found in MAESTRO after the shift, the
@@ -109,6 +110,11 @@ def select_rows() -> list[tuple[dict, object]]:
 
 
 def _fetch_asap(rel: str) -> Path:
+    """An ASAP file: from a local clone of the repository if there is one
+    (`var/asap-repo`, works offline), else downloaded once into `var/asap`."""
+    clone = ASAP_REPO_CLONE / rel
+    if clone.exists():
+        return clone
     dest = ASAP_DIR / rel
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -222,7 +228,8 @@ def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=No
     """The product's notation path.
 
     Returns (quantised notes, staff per note, beat times used, beats per bar,
-    quarters per beat, the key the engraver spelled in):
+    quarters per beat, the global key, and the key each note was spelled in
+    keyed by id()):
     with the rhythm model the grid is the model's, not the tracker's, and the
     meter and beat columns must score the one the notes were placed on.
     """
@@ -244,8 +251,9 @@ def notate(tr: Transcription, grid, auto_division: bool = False, rhythm_model=No
     treble, _, _ = _assign_staves(stats.notes, stats.split_point)
     upper = {id(q) for q in treble}
     staffs = ["upper" if id(q) in upper else "lower" for q in stats.notes]
+    note_keys = {id(q): k for q, k in zip(stats.notes, stats.note_keys)}
     return (stats.notes, staffs, stats.grid_beats, stats.beats_per_bar,
-            stats.beat_quarters, stats.key)
+            stats.beat_quarters, stats.key, note_keys)
 
 
 ASAP_JSON = Path("var/asap-repo/asap_annotations.json")
@@ -330,13 +338,14 @@ def run_piece(row: dict, meta, engine: str, served: str,
         score=score)
     out = []
     for name, tr in (("audio", est), ("perfect_midi", perf)):
-        ours, staffs, used_beats, bpb, beat_q, key = notate(tr, grid, auto_division, rhythm_model,
+        ours, staffs, used_beats, bpb, beat_q, key, note_keys = notate(tr, grid, auto_division, rhythm_model,
                                                rhythm_mode, rhythm_bars, choose_grid,
                                                rescale, try_tempi, halve)
         out.append(evaluate_piece(row=name, ours=ours, our_staffs=staffs,
                                   grid_beats=used_beats, beats_per_bar=bpb,
                                   beat_quarters=beat_q, key_estimate=key,
                                   spelling=spell_ctx, key_sharps=key_sharps,
+                                  note_keys=note_keys,
                                   **common))
     return out
 

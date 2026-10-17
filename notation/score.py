@@ -73,6 +73,10 @@ class ScoreStats:
     #: quantised rhythm (e.g. to MIDI) without re-running quantisation and
     #: risking a file that disagrees with the engraved page.
     notes: list[QuantisedNote] = field(default_factory=list, repr=False)
+    #: The key each of `notes` is SPELLED in (`analysis.spelling_keys`): the
+    #: local key where it is clear, else `key`. Positionally matched to
+    #: `notes`, so a benchmark can score exactly what the page prints.
+    note_keys: list = field(default_factory=list, repr=False)
 
     #: What `notation.analysis` found. `key` is None when detection was off or
     #: the material was too chromatic to call -- which is a real answer, not a
@@ -242,6 +246,39 @@ def _drop_redundant_natural(p):
     return p
 
 
+#: A note covering at least this share of the gap to the next note on its
+#: staff is written to reach it (`_legato_fill`). Tuned on ASAP validation
+#: (`tools/score_validation.py`); see the docstring for the measurement.
+LEGATO_FILL_MIN_RATIO = 0.5
+
+#: OFF: tried and failed (2026-10-14). ASAP validation durations: off 38.74%,
+#: theta 0.75 38.68%, 0.6 38.85%, 0.5 36.98%, 0.35 36.82%. Kept for reference.
+LEGATO_FILL = False
+
+
+def _legato_fill(notes: list[QuantisedNote], min_ratio: float) -> None:
+    """Write a note to the next onset on its staff when it nearly reaches it.
+
+    Scores write most notes legato: a value lasts until the next note in the
+    staff. The rhythm model predicts how long a key was HELD, which is
+    shorter. On ASAP validation pieces at the right beat level, 37% of printed
+    values were too short and 95% of those were written legato; the commonest
+    error was 3/4 of the written value. A note covering less than `min_ratio`
+    of the gap is a real detached note and keeps its rest.
+
+    One staff's notes. Mutates in place, like `_trim_staff_overlaps`.
+    """
+    starts = sorted({round(n.start_beats, 6) for n in notes})
+    from bisect import bisect_right
+    for n in notes:
+        i = bisect_right(starts, round(n.start_beats, 6))
+        if i >= len(starts):
+            continue
+        gap = starts[i] - n.start_beats
+        if min_ratio * gap <= n.length_beats < gap:
+            n.length_beats = gap
+
+
 def _trim_staff_overlaps(notes: list[QuantisedNote]) -> None:
     """Shorten notes that outlast the next differently-timed note on the staff.
 
@@ -294,7 +331,8 @@ def _trim_staff_overlaps(notes: list[QuantisedNote]) -> None:
 
 def _fill_part(part, notes: list[QuantisedNote], clef_obj,
                trill_starts: set = None, staccato: set = None,
-               key_estimate=None) -> None:
+               key_estimate=None, note_keys: dict | None = None,
+               legato_fill: bool = False) -> None:
     """Append notes to a music21 Part, inserting rests for gaps.
 
     Notes are *inserted* at explicit offsets rather than appended in sequence,
@@ -303,8 +341,11 @@ def _fill_part(part, notes: list[QuantisedNote], clef_obj,
 
     `trill_starts` is a set of grid positions carrying a trill; `staccato` is a
     set of ids() of the QuantisedNotes to mark. Both are keyed that way because
-    grouping into chords loses the original indices.
+    grouping into chords loses the original indices. `note_keys` maps id()
+    of a QuantisedNote to the key it is spelled in (`key_estimate` if absent).
     """
+    if legato_fill:
+        _legato_fill(notes, LEGATO_FILL_MIN_RATIO)
     _trim_staff_overlaps(notes)
     from music21 import articulations, chord, expressions, note as m21note
 
@@ -319,10 +360,12 @@ def _fill_part(part, notes: list[QuantisedNote], clef_obj,
         length = max(g.length_beats for g in group)
         pitches = sorted({g.pitch for g in group})
 
+        # Struck together, so one window: every member shares a spelling key.
+        spell_key = (note_keys or {}).get(id(group[0]), key_estimate)
         if len(pitches) == 1:
-            el = m21note.Note(_spell(pitches[0], key_estimate))
+            el = m21note.Note(_spell(pitches[0], spell_key))
         else:
-            el = chord.Chord([_spell(p, key_estimate) for p in pitches])
+            el = chord.Chord([_spell(p, spell_key) for p in pitches])
         el.quarterLength = length
 
         # PLAYBACK velocity only -- this exports as MusicXML <sound dynamics>,
@@ -367,6 +410,8 @@ def build_score(
     dynamics_marks: list = None,
     chord_symbols: list = None,
     beat_quarters: float = 1.0,
+    note_keys: list | None = None,
+    legato_fill: bool = False,
 ):
     """Assemble a two-staff piano score from quantised notes.
 
@@ -413,10 +458,14 @@ def build_score(
         for part in (rh, lh):
             part.insert(0, m21key.Key(key_estimate.tonic, key_estimate.mode))
 
+    # Spelling keys per note (positionally matched to `notes`), by id so they
+    # survive the split into staves.
+    key_by_id = ({id(n): k for n, k in zip(notes, note_keys)}
+                 if note_keys else None)
     _fill_part(rh, treble, clef.TrebleClef(), trill_starts, staccato,
-               key_estimate)
+               key_estimate, key_by_id, legato_fill)
     _fill_part(lh, bass, clef.BassClef(), trill_starts, staccato,
-               key_estimate)
+               key_estimate, key_by_id, legato_fill)
 
     # Dynamics belong to the piece, not to a hand. They go on the bass staff by
     # convention for piano music (printed between the staves).
@@ -581,6 +630,12 @@ def transcription_to_score(
 
         chord_syms = detect_chords(qnotes, grid, key_estimate)
 
+    # Spelling follows the local key (the signature stays global): validation
+    # spelling 84.8% -> 87.4% (`analysis.SPELLING_WINDOW_BEATS`).
+    note_keys = (analysis.spelling_keys(qnotes, key_estimate)
+                 if analyse and analysis.LOCAL_SPELLING
+                 else [key_estimate] * len(qnotes))
+
     sc = build_score(
         qnotes,
         bpm=grid.bpm,
@@ -594,6 +649,10 @@ def transcription_to_score(
         dynamics_marks=dynamics_marks,
         chord_symbols=chord_syms,
         beat_quarters=grid.beat_quarters,
+        note_keys=note_keys,
+        # The model writes held lengths; the grid path's `notated_offsets`
+        # already ends notes at the next onset on the staff.
+        legato_fill=LEGATO_FILL and rhythm in ("model", "hybrid"),
     )
 
     n_measures = 0
@@ -617,6 +676,7 @@ def transcription_to_score(
         grid_beats=list(grid.beats),
         notes=qnotes,
         key=key_estimate,
+        note_keys=note_keys,
         n_trills=len(ornaments),
         n_staccato=len(staccato_ids),
         time_signature=time_signature or time_signature_for(grid.beats_per_bar,

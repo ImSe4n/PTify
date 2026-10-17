@@ -131,6 +131,89 @@ def detect_key(notes: list[NoteEvent]) -> KeyEstimate | None:
     )
 
 
+#: How much music (in beats) each note's spelling key is detected over.
+#: Chosen on the ASAP validation scores (`tools/spelling_validation.py`):
+#: spelling 84.8% with one key per piece; 4 beats 87.8%, 8 beats 87.4%,
+#: 16 beats 87.1%, 32 beats 86.3%. 8 rather than 4 because validation used the
+#: composer's exact notes and the app spells TRANSCRIBED ones (~10% wrong),
+#: which a one-bar window would follow too closely.
+SPELLING_WINDOW_BEATS = 8.0
+
+#: OFF (2026-10-14): on the 38-piece TEST set local keys lowered spelling
+#: 89.38% -> 89.21% (worse on 20, better on 16; Bach in F#/G# lost 20-24 points
+#: to enharmonic twins). `nearest_enharmonic` fixes that cause but has only been
+#: re-checked on validation, not on the test set. Turn on once it passes there.
+LOCAL_SPELLING = False
+
+
+def _sharps(k) -> int:
+    from music21 import key as m21key
+
+    return m21key.Key(k.tonic, k.mode).sharps
+
+
+def nearest_enharmonic(k, global_key):
+    """`k`, re-spelled as its enharmonic twin when that is nearer the global
+    key's signature (Ab minor -> G# minor in a G#-minor piece).
+
+    Key detection sees pitch classes only, so it cannot tell enharmonic keys
+    apart; the global key and a window's key could name the same music in
+    opposite spellings. Twins differ by 12 sharps/flats, so a local key more
+    than 6 away from the global one is the wrong twin.
+    """
+    if k is None or global_key is None or not getattr(global_key, "confident", False):
+        return k
+    from dataclasses import replace
+
+    from music21 import pitch as m21pitch
+
+    diff = _sharps(k) - _sharps(global_key)
+    if abs(diff) <= 6:
+        return k
+    twin = m21pitch.Pitch(k.tonic).getEnharmonic().name
+    candidate = replace(k, tonic=twin)
+    try:
+        return candidate if abs(_sharps(candidate) - _sharps(global_key)) < abs(diff) else k
+    except Exception:  # noqa: BLE001 -- an unspellable twin keeps the original
+        return k
+
+
+def local_keys(notes: list[NoteEvent], starts, global_key, window: float):
+    """A key per note: detected over the notes within `window`/2 of it (in
+    the units of `starts`), or `global_key` where that is not confident.
+
+    Detected once per block of `window`/4, so a long piece costs a few hundred
+    detections rather than one per note.
+    """
+    starts = list(starts)
+    block = window / 4.0
+    cache: dict = {}
+    out = []
+    for s in starts:
+        b = int(s // block)
+        if b not in cache:
+            centre = (b + 0.5) * block
+            near = [n for n, t in zip(notes, starts) if abs(t - centre) <= window / 2]
+            k = detect_key(near)
+            cache[b] = (nearest_enharmonic(k, global_key)
+                        if (k is not None and k.confident) else global_key)
+        out.append(cache[b])
+    return out
+
+
+def spelling_keys(qnotes, global_key, window: float = SPELLING_WINDOW_BEATS):
+    """The key each quantised note is SPELLED in (the key signature stays
+    `global_key`): a modulated passage gets its own flats or sharps.
+
+    Beats stand in for quarter notes here, as `detect_key` only needs relative
+    durations.
+    """
+    events = [NoteEvent(q.pitch, q.start_beats / 2.0,
+                        (q.start_beats + max(q.length_beats, 0.125)) / 2.0, 80)
+              for q in qnotes]
+    return local_keys(events, [q.start_beats for q in qnotes], global_key, window)
+
+
 def detect_trills(notes: list[NoteEvent]) -> list[Ornament]:
     """Find trills in RAW (unquantised) notes.
 

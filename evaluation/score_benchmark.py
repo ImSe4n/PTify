@@ -244,7 +244,8 @@ def evaluate_piece(*, label: str, row: str,
                    ref_beats: list[float], ref_downbeats: list[float],
                    score: list[ScoreNote],
                    beat_quarters: float = 1.0, key_estimate=None,
-                   spelling=None, key_sharps: int | None = None) -> PieceResult:
+                   spelling=None, key_sharps: int | None = None,
+                   note_keys: dict | None = None) -> PieceResult:
     """Every column for one piece. All times are in PERFORMANCE seconds.
 
     Our positions and values are in quarter notes; `factor` is score beats per
@@ -272,7 +273,7 @@ def evaluate_piece(*, label: str, row: str,
         staff=staff_accuracy(chained),
         bar_ok=bool(abs(beats_per_bar * factor
                         - score_beats_per_bar(ref_beats, ref_downbeats)) < 1e-6),
-        spelling=(spelling_accuracy(chained, key_estimate, spelling)
+        spelling=(spelling_accuracy(chained, key_estimate, spelling, note_keys)
                   if spelling is not None else (0, 0)),
         key_ok=(key_signature_ok(key_estimate, key_sharps)
                 if key_sharps is not None else None),

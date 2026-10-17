@@ -126,3 +126,12 @@ def test_xml_measures_are_keyed_by_position_not_printed_number(tmp_path):
     got = xml_measures(path)
     assert [w.step for w in got[0]] == ["C"]
     assert [w.step for w in got[1]] == ["D"]
+
+
+def test_spelling_uses_each_notes_own_key_when_given():
+    ctx = SpellingContext(downbeats=DOWNBEATS, score_map=[1, 2, 3],
+                          measures={1: [WrittenPitch(0.0, 61, "D", -1.0)]})
+    c = _chained(61, 1.0)
+    # Global key C (prints C#), but this note was spelled in Ab major (Db).
+    assert spelling_accuracy([c], None, ctx) == (0, 1)
+    assert spelling_accuracy([c], None, ctx, {id(c.ours): _key("A-", "major")}) == (1, 1)

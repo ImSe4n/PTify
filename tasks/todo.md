@@ -1,17 +1,60 @@
+# RESUME HERE (stopped 2026-10-14, night)
+
+State: all 1556 tests pass; app behaviour = the shipped bar fix (bar right
+15/38) and nothing else new. Two changes are BUILT BUT OFF:
+
+- `notation.analysis.LOCAL_SPELLING = False`. Local-key spelling FAILED the
+  test set: 89.38% -> 89.21% (worse 20, better 16; Bach F#/G# pieces -20 to
+  -24 from enharmonic twins). Fix written: `nearest_enharmonic` (test pinned).
+  Validation WITH the fix (var/spelling-val3.log): 84.83% -> 86.07% (8 beats;
+  4: 86.02, 16: 85.87, 32: 85.63) -- smaller than the 87.4% without it, so
+  part of the earlier gain was the same enharmonic flips.
+  RESULT 2026-10-16 -- FAILED AGAIN, stays off: test set spelling 89.38% ->
+  88.90% audio (perfect MIDI 89.11 -> 88.50); every other column identical,
+  key 32/38 both. Better on 25 pieces, worse on 10, but the losses are large
+  on long chromatic pieces (Chopin Polonaise 53 -8.3, Wanderer -5.7, Liszt
+  S145/2 -5.3) and outweigh gains (Liszt TE3 +8.4, Beethoven 16-2 +6.1).
+  `benchmarks/score-benchmark-rhythm-run8-localkey2.json`, compare with
+  `var/cmp_bench.py`. Untried idea: switch key only where the local key is
+  confidently different from the global one. Command used (flag set at runtime):
+      python -m tools.score_benchmark --engine remote --served ptify         --rhythm-model var/rhythm-models/run8.pt --rhythm-choose-grid         --rhythm-try-tempi --rhythm-halve-fast-eighths         --json benchmarks/score-benchmark-rhythm-run8-localkey2.json
+      baseline: benchmarks/score-benchmark-rhythm-run8-spelling.json (89.38%)
+  (3) keep only if spelling rises and no other column falls; else revert.
+- `notation.score.LEGATO_FILL = False`: TRIED AND FAILED (keep off).
+  Diagnosis said 37% of values too short, 95% of those written legato, but
+  filling to the next onset on the staff does not hit the written value:
+  validation durations off 38.74%, theta 0.75 38.68%, 0.6 38.85%, 0.5 36.98%,
+  0.35 36.82% (`var/legato-sweep.log`). Next idea for durations, untried:
+  the duration head itself (retrain targets / decode), not a post-rule.
+
+Waiting on the USER: Songscription uploads (item 3 below).
+New tools today: `tools/score_validation.py` (full pipeline on ASAP val,
+per-note columns comparable, beat columns not), `tools/spelling_validation.py`,
+`tools/beat_level_validation.py`, `tools/fit_beat_chooser.py`,
+`tools/bar_validation.py`. `_fetch_asap` now reads `var/asap-repo` first
+(works offline).
+
+---
+
 # Toward Songscription: the five-item plan (agreed 2026-10-13, "do all")
 
-1. [~] **Spelling + key signature column** (`evaluation/spelling.py`): printed
-   spelling vs the MusicXML via ASAP's bar map; key sharps vs ASAP's
-   annotation. First full run: spelling 90.6%, key 32/38, BUT only 51% of
-   notes found a written partner: ASAP's bar map is a 0-based measure
-   POSITION, not the printed number. Fixed (100% found on 3 checked pieces);
-   re-run in progress. 81/1067 ASAP entries have no bar map (NaN): unscored.
-2. [~] **Beat level** (19/38). `tools/beat_level_validation.py`, ASAP val:
-   chosen right 29/89, but SOME tempo candidate right 64/89 -> a chooser
-   problem. Failed on val: tempo prior and most-common-gap prior from the
-   TRAIN split (best 30/89); bar strength (bar_t, alone 20/89, combined <= 28).
-   Next: a learned chooser fitted on train-split candidates
-   (`--split train`, running), judged on val.
+1. [x] **Spelling + key signature column** (`evaluation/spelling.py`).
+   Test set (web app): spelling 89.4% on 90% of linked notes (the rest are 2
+   pieces ASAP gives no bar map), key signature 32/38. Pieces with the key
+   right: 92.6%; key wrong: 81.0%. (Bug found on the way: ASAP's bar map is a
+   0-based measure POSITION, not the printed number.)
+   FOLLOW-UP [~]: spell by the LOCAL key (`analysis.spelling_keys`, 8-beat
+   window; signature stays global). ASAP validation (`tools/spelling_validation.py`,
+   20 scores): 84.8% -> 87.4% (4 beats 87.8, 16 87.1, 32 86.3); better on 14,
+   worse on 3 (worst -2.0). 1548 tests pass. Test-set run in progress
+   (`score-benchmark-rhythm-run8-localkey.json`).
+2. [x] **Beat level** (19/38): PARKED. ASAP val (`tools/beat_level_validation.py`):
+   most-confident candidate right 29/89, some candidate right 64/89, but no
+   chooser finds it: tempo prior / most-common-gap prior (train split) best
+   30/89; bar strength <= 28/89; logistic regression on all those features
+   reaches only 31/89 even IN-SAMPLE (`tools/fit_beat_chooser.py`), so the
+   notes do not carry the signal. Agrees with run 7 (a learned written-scale
+   head failed on val). ASAP's beat is a notational convention.
 3. [ ] **Songscription row**. USER uploads `var/songscription-upload/*.wav`
    (7 benchmark segments, 14.0 min, inside the free 15 min/month) and exports
    MusicXML to `var/songscription-out/` with the same file names.

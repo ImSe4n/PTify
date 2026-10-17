@@ -132,8 +132,13 @@ def our_spelling(midi: int, key_estimate) -> tuple[str, float]:
 
 
 def spelling_accuracy(chained: list["ChainedNote"], key_estimate,
-                      ctx: SpellingContext) -> tuple[int, int]:
-    """(spelled as written, printed notes with a written partner found)."""
+                      ctx: SpellingContext,
+                      note_keys: dict | None = None) -> tuple[int, int]:
+    """(spelled as written, printed notes with a written partner found).
+
+    `note_keys` maps id() of a printed note to the key it was spelled in
+    (`ScoreStats.note_keys`); notes missing from it use `key_estimate`.
+    """
     ok = total = 0
     for c in chained:
         k, pos = bar_position(c.score.start_beat, ctx.downbeats)
@@ -144,7 +149,8 @@ def spelling_accuracy(chained: list["ChainedNote"], key_estimate,
         if written is None:
             continue
         total += 1
-        ok += our_spelling(c.ours.pitch, key_estimate) == written
+        key = (note_keys or {}).get(id(c.ours), key_estimate)
+        ok += our_spelling(c.ours.pitch, key) == written
     return ok, total
 
 
@@ -157,3 +163,34 @@ def key_signature_ok(key_estimate, sharps: int) -> bool:
 
         ours = m21key.Key(key_estimate.tonic, key_estimate.mode).sharps
     return ours == sharps
+
+
+@dataclass(frozen=True)
+class WrittenNote:
+    offset: float   # quarter notes from the start of the score (as written)
+    length: float   # quarter notes
+    midi: int
+    step: str
+    alter: float
+
+
+def xml_notes(path: str | Path) -> list[WrittenNote]:
+    """Every pitched note of a MusicXML score with its absolute offset, for
+    analysing spelling on whole scores (no repeats unfolded)."""
+    from music21 import converter
+
+    out = []
+    for part in converter.parse(str(path)).parts:
+        for n in part.flatten().notes:
+            for p in n.pitches:
+                alter = float(p.accidental.alter) if p.accidental else 0.0
+                out.append(WrittenNote(float(n.offset), float(n.quarterLength),
+                                       int(p.midi), p.step, alter))
+    return sorted(out, key=lambda w: (w.offset, w.midi))
+
+
+def local_keys(notes, starts, global_key, window: float):
+    """The product's windowed key detector (`notation.analysis.local_keys`)."""
+    from notation.analysis import local_keys as _local_keys
+
+    return _local_keys(notes, starts, global_key, window)
