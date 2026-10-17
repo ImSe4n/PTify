@@ -146,6 +146,8 @@ def build_augmenter(args, *, epoch: int = 0):
         clean_prob=args.augment_clean_prob,
         max_cents=args.augment_max_cents,
         eq_prob=args.augment_eq_prob,
+        compress_prob=args.augment_compress_prob,
+        codec_prob=args.augment_codec_prob,
     )
 
 
@@ -354,6 +356,9 @@ def train(args) -> int:
         print(f"  augmentation ON (seed {args.augment_seed}, "
               f"clean {args.augment_clean_prob:.0%}, "
               f"+-{args.augment_max_cents:g} cents, "
+              f"eq {args.augment_eq_prob:.0%}, "
+              f"compress {args.augment_compress_prob:.0%}, "
+              f"codec {args.augment_codec_prob:.0%}, "
               f"{len(augmenter.bank)} impulse responses)")
 
     trigger = SaveTrigger(args.save_every_steps, args.save_every_seconds)
@@ -585,6 +590,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="mic-colouration probability. Default 0: it costs "
                          "22.6ms per segment, more than the rest of the chain "
                          "combined, for a factor absent from the curve")
+    ap.add_argument("--augment-compress-prob", type=float, default=0.0,
+                    help="Phase 39: loudness compression (phone apps, "
+                         "YouTube, TikTok). Default 0 keeps the 16b recipe")
+    ap.add_argument("--augment-codec-prob", type=float, default=0.0,
+                    help="Phase 39: Opus/MP3 round-trip at 0.3-0.85 "
+                         "compression level. Default 0 keeps the 16b recipe")
 
     ap.add_argument("--train-split", default="train")
     ap.add_argument("--val-split", default="validation")

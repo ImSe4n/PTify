@@ -1,0 +1,462 @@
+{
+  "schema": 1,
+  "dataset": "Saarland Music Data (SMD) MIDI-Audio Piano Music v2",
+  "source": "https://zenodo.org/api/records/13753319",
+  "license": "CC BY-NC-SA 3.0",
+  "audio": "wav_22050_mono",
+  "velocity_metric_valid": true,
+  "n": 50,
+  "audio_dir": "recordings/smd",
+  "tracks": [
+    {
+      "stem": "Bach_BWV849-01_001_20090916-SMD",
+      "source_wav": "wav_22050_mono/Bach_BWV849-01_001_20090916-SMD.wav",
+      "source_mid": "midi/Bach_BWV849-01_001_20090916-SMD.mid",
+      "duration": 156.545,
+      "n_notes": 724,
+      "sha256_audio": "c6e7eeb973aeae6133bb60db36d2ef186e36b99fbce62d14a8fadfc8b7a33ad2",
+      "sha256_reference": "95bdfd46cfa37637d18db809d8a586608e3b18aa64ec0206b491e2de9d115fab"
+    },
+    {
+      "stem": "Bach_BWV849-02_001_20090916-SMD",
+      "source_wav": "wav_22050_mono/Bach_BWV849-02_001_20090916-SMD.wav",
+      "source_mid": "midi/Bach_BWV849-02_001_20090916-SMD.mid",
+      "duration": 235.769,
+      "n_notes": 1317,
+      "sha256_audio": "be4e758919329f200149db1c4fe1af2f635afc5e8e84dd741ab2cc912a0873b8",
+      "sha256_reference": "d133d32d9aa1205d5b1b48ad129b74e226c7df06fb2d9d7720bd66db4fd3d971"
+    },
+    {
+      "stem": "Bach_BWV871-01_002_20090916-SMD",
+      "source_wav": "wav_22050_mono/Bach_BWV871-01_002_20090916-SMD.wav",
+      "source_mid": "midi/Bach_BWV871-01_002_20090916-SMD.mid",
+      "duration": 138.125,
+      "n_notes": 1415,
+      "sha256_audio": "1587737f4239f5f8a7c05ce43a5b19aabde8d88e6fadf92c812fb345e7a371cf",
+      "sha256_reference": "72be1500a0c726778dbcd28e50a50490bdba7853dd9319cfa72deb941c476f39"
+    },
+    {
+      "stem": "Bach_BWV871-02_002_20090916-SMD",
+      "source_wav": "wav_22050_mono/Bach_BWV871-02_002_20090916-SMD.wav",
+      "source_mid": "midi/Bach_BWV871-02_002_20090916-SMD.mid",
+      "duration": 125.007,
+      "n_notes": 658,
+      "sha256_audio": "df14461bbf1908c53b4629c8dafe8b78bcf71d36edcfe375b6178704121720ae",
+      "sha256_reference": "6f096cb77f3362bac1b561462401f922b038cc9461b467aad8684ba230c5bafa"
+    },
+    {
+      "stem": "Bach_BWV875-01_002_20090916-SMD",
+      "source_wav": "wav_22050_mono/Bach_BWV875-01_002_20090916-SMD.wav",
+      "source_mid": "midi/Bach_BWV875-01_002_20090916-SMD.mid",
+      "duration": 100.306,
+      "n_notes": 1102,
+      "sha256_audio": "d60b85d1f1a707dfdf104045e7b3616b4ecd8ecb86691a1a11b3f8065166e08f",
+      "sha256_reference": "68378d189bae2fdf307222e805c3292f707889c8b289ba817cde3b92af53fa0a"
+    },
+    {
+      "stem": "Bach_BWV875-02_002_20090916-SMD",
+      "source_wav": "wav_22050_mono/Bach_BWV875-02_002_20090916-SMD.wav",
+      "source_mid": "midi/Bach_BWV875-02_002_20090916-SMD.mid",
+      "duration": 117.74,
+      "n_notes": 803,
+      "sha256_audio": "6177cbad3442bd48c6f77dec4a8b054e1e6e1c64af23be4ff62b38a5ba9cdd50",
+      "sha256_reference": "f5ec23bce364fd5c47a87223c4712ccee15ba2607181fc08814413614d2a5e45"
+    },
+    {
+      "stem": "Bach_BWV888-01_008_20110315-SMD",
+      "source_wav": "wav_22050_mono/Bach_BWV888-01_008_20110315-SMD.wav",
+      "source_mid": "midi/Bach_BWV888-01_008_20110315-SMD.mid",
+      "duration": 132.973,
+      "n_notes": 689,
+      "sha256_audio": "c4e967b95169bcd011a46af4bda29e853c9d4b99e76a1afae92d2a7f290ae963",
+      "sha256_reference": "7c8999d762a08048d02bc071b6b3012ab139974707e2ba477d0fadb1ce90fe7e"
+    },
+    {
+      "stem": "Bach_BWV888-02_008_20110315-SMD",
+      "source_wav": "wav_22050_mono/Bach_BWV888-02_008_20110315-SMD.wav",
+      "source_mid": "midi/Bach_BWV888-02_008_20110315-SMD.mid",
+      "duration": 73.943,
+      "n_notes": 764,
+      "sha256_audio": "ec4e8bb399aa370559d802ce453c259612557a75735c7cb84a1864acddfce6c1",
+      "sha256_reference": "75875b713ae88d4f25f167e078a5fcf2326b24de9d28c1763775e23f82cf4885"
+    },
+    {
+      "stem": "Bartok_SZ080-01_002_20110315-SMD",
+      "source_wav": "wav_22050_mono/Bartok_SZ080-01_002_20110315-SMD.wav",
+      "source_mid": "midi/Bartok_SZ080-01_002_20110315-SMD.mid",
+      "duration": 282.931,
+      "n_notes": 3941,
+      "sha256_audio": "21635dcf8dc15f977373a264f4b59519c15659ffbc2340c9b98ff961c9ceb81c",
+      "sha256_reference": "a6f86e5b7fe52fc2b5469a4408ac0a2cce8e1af37f54a941417dfcbb575bc44e"
+    },
+    {
+      "stem": "Bartok_SZ080-02_002_20110315-SMD",
+      "source_wav": "wav_22050_mono/Bartok_SZ080-02_002_20110315-SMD.wav",
+      "source_mid": "midi/Bartok_SZ080-02_002_20110315-SMD.mid",
+      "duration": 259.1,
+      "n_notes": 740,
+      "sha256_audio": "39450f4c3dcd82eaade838e8cde7d5cbfa9b9dca2e3a4d5c1867bbd0c02fdab4",
+      "sha256_reference": "643618527538e9507ec737d73d677d18b56e42ecc19d1164668862c6dea3615e"
+    },
+    {
+      "stem": "Bartok_SZ080-03_002_20110315-SMD",
+      "source_wav": "wav_22050_mono/Bartok_SZ080-03_002_20110315-SMD.wav",
+      "source_mid": "midi/Bartok_SZ080-03_002_20110315-SMD.mid",
+      "duration": 212.355,
+      "n_notes": 4458,
+      "sha256_audio": "37f579be1733ab5501442d375232b6bf3c2ff91e0b691902d1aa8c780e2cfc23",
+      "sha256_reference": "0deeb983b449a79ee0e14347bedb3ddf9a2cbf8ef8533032f6aa1f5664abab2f"
+    },
+    {
+      "stem": "Beethoven_Op027No1-01_003_20090916-SMD",
+      "source_wav": "wav_22050_mono/Beethoven_Op027No1-01_003_20090916-SMD.wav",
+      "source_mid": "midi/Beethoven_Op027No1-01_003_20090916-SMD.mid",
+      "duration": 430.951,
+      "n_notes": 3520,
+      "sha256_audio": "62faf30197fa45c561bdd2345c6f1d35c0dbc1f9f30164a247f5a821844ee34b",
+      "sha256_reference": "ae31451905e6ecf684bca9d736497a3c7085e64b42be649422e339d3e40cb90e"
+    },
+    {
+      "stem": "Beethoven_Op027No1-02_003_20090916-SMD",
+      "source_wav": "wav_22050_mono/Beethoven_Op027No1-02_003_20090916-SMD.wav",
+      "source_mid": "midi/Beethoven_Op027No1-02_003_20090916-SMD.mid",
+      "duration": 175.981,
+      "n_notes": 838,
+      "sha256_audio": "b9c0351154a4d1483fdbc31a8761d37bc947d9de24187a6a11085c692fb208a9",
+      "sha256_reference": "904b356ba5f91d64beb50dfa25208364d2601c65959df28647343a03c35aafed"
+    },
+    {
+      "stem": "Beethoven_Op027No1-03_003_20090916-SMD",
+      "source_wav": "wav_22050_mono/Beethoven_Op027No1-03_003_20090916-SMD.wav",
+      "source_mid": "midi/Beethoven_Op027No1-03_003_20090916-SMD.mid",
+      "duration": 336.079,
+      "n_notes": 4078,
+      "sha256_audio": "824ba19069825f754ced2412e979815e15111fac42e981e3bb0d68dc60ab8ab6",
+      "sha256_reference": "cf30b86da3f4a2c86bd3e2979310bbf3743cc2f7a22179f95b33a9896018fbd6"
+    },
+    {
+      "stem": "Beethoven_Op031No2-01_002_20090916-SMD",
+      "source_wav": "wav_22050_mono/Beethoven_Op031No2-01_002_20090916-SMD.wav",
+      "source_mid": "midi/Beethoven_Op031No2-01_002_20090916-SMD.mid",
+      "duration": 529.634,
+      "n_notes": 3954,
+      "sha256_audio": "1e72557b2967a8258f5dcbd99965fd64e6e664e44578500f0bd9ae91cfd068f2",
+      "sha256_reference": "bde168ae9cea1bd539f91be05cf4067cfad9982336e8e00d63e6eec3a3f3c821"
+    },
+    {
+      "stem": "Beethoven_Op031No2-02_002_20090916-SMD",
+      "source_wav": "wav_22050_mono/Beethoven_Op031No2-02_002_20090916-SMD.wav",
+      "source_mid": "midi/Beethoven_Op031No2-02_002_20090916-SMD.mid",
+      "duration": 507.065,
+      "n_notes": 1676,
+      "sha256_audio": "3b62cbfd8a02382bbbb3a3787da67acfcafd3d85feaace4677e4e9765dcbdad5",
+      "sha256_reference": "05bd550891270877b310b776f4d0624b6770b30b1d012dd1b43d525e04512875"
+    },
+    {
+      "stem": "Beethoven_Op031No2-03_002_20090916-SMD",
+      "source_wav": "wav_22050_mono/Beethoven_Op031No2-03_002_20090916-SMD.wav",
+      "source_mid": "midi/Beethoven_Op031No2-03_002_20090916-SMD.mid",
+      "duration": 400.282,
+      "n_notes": 4372,
+      "sha256_audio": "e59f99900f17af18cb5b26fba85b517c75d401b7a78188363a5d24d99100f58b",
+      "sha256_reference": "68a3661bade947d4d5c42798bac73650f8b45d9cb4a4afdf48a3a567f9d3e525"
+    },
+    {
+      "stem": "Beethoven_WoO080_001_20081107-SMD",
+      "source_wav": "wav_22050_mono/Beethoven_WoO080_001_20081107-SMD.wav",
+      "source_mid": "midi/Beethoven_WoO080_001_20081107-SMD.mid",
+      "duration": 658.442,
+      "n_notes": 7458,
+      "sha256_audio": "c40ef543e913a1df8c4a13a8dab2787226cab8a32e75f15a813f295415008150",
+      "sha256_reference": "fc56a48649ab27bf19242c234fe5f9daf24dc4d17842c8518fbc2833d0ec81bb"
+    },
+    {
+      "stem": "Brahms_Op005-01_002_20110315-SMD",
+      "source_wav": "wav_22050_mono/Brahms_Op005-01_002_20110315-SMD.wav",
+      "source_mid": "midi/Brahms_Op005-01_002_20110315-SMD.mid",
+      "duration": 487.52,
+      "n_notes": 3617,
+      "sha256_audio": "3cfbce2a986831d17fc333e04e4cdbbaf2f02f34cc63247264db891aacb0bd9d",
+      "sha256_reference": "e2dea97936c5aee3e19687dc75ea7d21ee29102060e63d7cc24b2114b8d1a118"
+    },
+    {
+      "stem": "Brahms_Op010No1_003_20090916-SMD",
+      "source_wav": "wav_22050_mono/Brahms_Op010No1_003_20090916-SMD.wav",
+      "source_mid": "midi/Brahms_Op010No1_003_20090916-SMD.mid",
+      "duration": 301.604,
+      "n_notes": 1644,
+      "sha256_audio": "f9369d92ef029ae4bf1bbbcd0019bd6003fe30e909a828bea7e848cd540af833",
+      "sha256_reference": "05603b8c7be32aafe0fae0ab977087ab7fb75d402d6dc5dadce343d14dda9e10"
+    },
+    {
+      "stem": "Brahms_Op010No2_003_20090916-SMD",
+      "source_wav": "wav_22050_mono/Brahms_Op010No2_003_20090916-SMD.wav",
+      "source_mid": "midi/Brahms_Op010No2_003_20090916-SMD.mid",
+      "duration": 407.033,
+      "n_notes": 2403,
+      "sha256_audio": "c001cc65f1fd005b52a8423b419ca56496955bb97e30065aa523ad23b3df9d45",
+      "sha256_reference": "cfb920b7a3dfca6df43bf11899f0dc6f540736e7d9095dfe95ef9651a652dd4a"
+    },
+    {
+      "stem": "Chopin_Op010-03_007_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op010-03_007_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op010-03_007_20100611-SMD.mid",
+      "duration": 286.377,
+      "n_notes": 1849,
+      "sha256_audio": "5dc205f5b6ea19a76a65493f57a808009fa1b1b71d828663aabbc09c9e58484a",
+      "sha256_reference": "6ff22bf7cd7c07b0328cbdc01370e28e7a055452f89247ce09ac28b117872172"
+    },
+    {
+      "stem": "Chopin_Op010-04_007_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op010-04_007_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op010-04_007_20100611-SMD.mid",
+      "duration": 131.054,
+      "n_notes": 2202,
+      "sha256_audio": "af5f4162c9705eff237aa5b7e17626e6236446d30574fa4750160088bbe5e026",
+      "sha256_reference": "cd88c064f05f19d1adbf9e29ef71ad8ecf3b1e067970f1673c8aa69933d59e44"
+    },
+    {
+      "stem": "Chopin_Op026No1_003_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op026No1_003_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op026No1_003_20100611-SMD.mid",
+      "duration": 462.0,
+      "n_notes": 3585,
+      "sha256_audio": "c43e5ab034517ca8535a4ce051026432c81fd7109f7f38bf45b0326b094d355e",
+      "sha256_reference": "70e9951c384d74d4eb965022fb37befc1ffec118cb8309af5a65131774255fdd"
+    },
+    {
+      "stem": "Chopin_Op026No2_005_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op026No2_005_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op026No2_005_20100611-SMD.mid",
+      "duration": 467.1,
+      "n_notes": 5018,
+      "sha256_audio": "eccda0de3dd6490cd7cf2a653fa98fa263f6e7cb9b3fb31a0e48b5f7cd90cfe9",
+      "sha256_reference": "33aae89919204912fcf8cec07493739acfecdf8378830ea5115ddf33c1d050eb"
+    },
+    {
+      "stem": "Chopin_Op028-01_003_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op028-01_003_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op028-01_003_20100611-SMD.mid",
+      "duration": 32.989,
+      "n_notes": 330,
+      "sha256_audio": "a995d038a31f443d798ae54b4e862055c9fa2b3a9f25ca123e03e04bc752f063",
+      "sha256_reference": "060b665facc88c6fd5887d0d68e51935cda1a211770cf7233ca8a47e8497e6c9"
+    },
+    {
+      "stem": "Chopin_Op028-03_003_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op028-03_003_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op028-03_003_20100611-SMD.mid",
+      "duration": 59.009,
+      "n_notes": 662,
+      "sha256_audio": "a6584260072cdf4aac29ae06c7bc07521ee61ddad08066d96dae6403cf9df94c",
+      "sha256_reference": "27a75de239273054c2ffe0a24a45e5eeb37d030517b5e3dec0b748ee674dbfa1"
+    },
+    {
+      "stem": "Chopin_Op028-04_003_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op028-04_003_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op028-04_003_20100611-SMD.mid",
+      "duration": 118.984,
+      "n_notes": 600,
+      "sha256_audio": "c58d9fade3370c2424ecb9b6b7ba8bd62cac6af738b60ba40e618d80bcfa0b65",
+      "sha256_reference": "4c1d0b3cd15eb576e1c0506f69725bf61edf8ec5f998bef02c4a8fbd8c88401f"
+    },
+    {
+      "stem": "Chopin_Op028-11_003_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op028-11_003_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op028-11_003_20100611-SMD.mid",
+      "duration": 37.985,
+      "n_notes": 313,
+      "sha256_audio": "a5709c2b954d5bfbf9a0fce5478e846f8bb6fbc75355d3c0c6d09f566441aea0",
+      "sha256_reference": "a7f5a344bbb22d3efd672a9271b27b106218aec28a4d3b53086af0ce38dac51f"
+    },
+    {
+      "stem": "Chopin_Op028-15_006_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op028-15_006_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op028-15_006_20100611-SMD.mid",
+      "duration": 318.98,
+      "n_notes": 1499,
+      "sha256_audio": "143deb12c3b50eb76a2847e79e88a4cfd4c88302e524aface34d51d8151579d6",
+      "sha256_reference": "aab28a34b89b2418906abf03bcb33432070316c69f9f6450bf246b58f18e658c"
+    },
+    {
+      "stem": "Chopin_Op028-17_005_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op028-17_005_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op028-17_005_20100611-SMD.mid",
+      "duration": 176.916,
+      "n_notes": 2072,
+      "sha256_audio": "62ac3eb00f3f634d9001353ae821618afd659fbc08a6a0cadda49582c250b1a9",
+      "sha256_reference": "6be4b9ea32ecb07f83454a812d3afc3bc9b2d15683f546c377852487f5a254c7"
+    },
+    {
+      "stem": "Chopin_Op029_004_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op029_004_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op029_004_20100611-SMD.mid",
+      "duration": 242.973,
+      "n_notes": 2333,
+      "sha256_audio": "af252db5b4990a49ea746c6499b62822383bb79182c3f05d411f21c17e954a26",
+      "sha256_reference": "9848c498c2d936c03a362dabf97bfec77be48674e1c311881729f49963b334d2"
+    },
+    {
+      "stem": "Chopin_Op048No1_007_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op048No1_007_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op048No1_007_20100611-SMD.mid",
+      "duration": 431.942,
+      "n_notes": 2862,
+      "sha256_audio": "e1eaf4c6677471966c796ce5b83a2d45ea3c8d25fe1aa0b6cc18a456cbc314d5",
+      "sha256_reference": "ec04aa2b6d78f12a1ad68b4714c0457bb45c16785967ed64be2e66277cf5677f"
+    },
+    {
+      "stem": "Chopin_Op066_006_20100611-SMD",
+      "source_wav": "wav_22050_mono/Chopin_Op066_006_20100611-SMD.wav",
+      "source_mid": "midi/Chopin_Op066_006_20100611-SMD.mid",
+      "duration": 310.98,
+      "n_notes": 3013,
+      "sha256_audio": "03f24af6cc47eb10ac2acb43ef68e9353118be984989267894b62ac8bc0672e6",
+      "sha256_reference": "3aded3e1d79385f8bf871f5510b22afe3a5c2c009a0bb72bb4903504ead54677"
+    },
+    {
+      "stem": "Haydn_Hob017No4_003_20090916-SMD",
+      "source_wav": "wav_22050_mono/Haydn_Hob017No4_003_20090916-SMD.wav",
+      "source_mid": "midi/Haydn_Hob017No4_003_20090916-SMD.mid",
+      "duration": 349.246,
+      "n_notes": 3862,
+      "sha256_audio": "82ae1820f6505aa9e41990c729c3cd7b1a84c6bdbc113cdc09efb8fabe31943e",
+      "sha256_reference": "1ec5a62e349a104ff2517b3b9b5a468c13949c50fbd264906d0e8eb1a97871bd"
+    },
+    {
+      "stem": "Haydn_HobXVINo52-01_008_20110315-SMD",
+      "source_wav": "wav_22050_mono/Haydn_HobXVINo52-01_008_20110315-SMD.wav",
+      "source_mid": "midi/Haydn_HobXVINo52-01_008_20110315-SMD.mid",
+      "duration": 484.021,
+      "n_notes": 4527,
+      "sha256_audio": "8f6d97115a43cafef0cd81731b8cc06119dcc23395056178044cff2509a606db",
+      "sha256_reference": "7186e466df8d87375b7ee8ddb30b2fb6aff8fb99ef6c4aaa543507d39e8d458f"
+    },
+    {
+      "stem": "Haydn_HobXVINo52-02_008_20110315-SMD",
+      "source_wav": "wav_22050_mono/Haydn_HobXVINo52-02_008_20110315-SMD.wav",
+      "source_mid": "midi/Haydn_HobXVINo52-02_008_20110315-SMD.mid",
+      "duration": 434.077,
+      "n_notes": 1384,
+      "sha256_audio": "5a915644c0946d5b3657bc2bae00adb577cc90451e8539a44659e9c63037126a",
+      "sha256_reference": "ab0b9c9183bf673b7917791ef731a54d501caae57df1d64ca22cb3b4eb8b5e37"
+    },
+    {
+      "stem": "Haydn_HobXVINo52-03_008_20110315-SMD",
+      "source_wav": "wav_22050_mono/Haydn_HobXVINo52-03_008_20110315-SMD.wav",
+      "source_mid": "midi/Haydn_HobXVINo52-03_008_20110315-SMD.mid",
+      "duration": 345.806,
+      "n_notes": 3466,
+      "sha256_audio": "557a2d72afd52e6cd4294190c79ae805910de926f4bdb290da097bd28745fb2b",
+      "sha256_reference": "641501d1211271bcb62039e5a836eae169e29869019ca7d98a83ceb6117d5e4f"
+    },
+    {
+      "stem": "Liszt_AnnesDePelerinage-LectureDante_002_20090916-SMD",
+      "source_wav": "wav_22050_mono/Liszt_AnnesDePelerinage-LectureDante_002_20090916-SMD.wav",
+      "source_mid": "midi/Liszt_AnnesDePelerinage-LectureDante_002_20090916-SMD.mid",
+      "duration": 1036.046,
+      "n_notes": 12698,
+      "sha256_audio": "377e5c53b7653f490012f56b443b068e0fca0735a781e8cc613cdcf46f093d91",
+      "sha256_reference": "e68ee2158e0ae1d63573e1de8876169e08e1469b7b3c6f17b88ece768addda71"
+    },
+    {
+      "stem": "Liszt_KonzertetuedeNo2LaLeggierezza_003_20090916-SMD",
+      "source_wav": "wav_22050_mono/Liszt_KonzertetuedeNo2LaLeggierezza_003_20090916-SMD.wav",
+      "source_mid": "midi/Liszt_KonzertetuedeNo2LaLeggierezza_003_20090916-SMD.mid",
+      "duration": 298.536,
+      "n_notes": 6652,
+      "sha256_audio": "35b47c74f874740b4eabf3e8f9f1ef529067d49dae2d0fc7248595cbfda2ad87",
+      "sha256_reference": "edc3f2429cbeab3af5a7a407661c611de4a010a86dcdbdbd3cbcad8a6eca9dae"
+    },
+    {
+      "stem": "Liszt_VariationenBachmotivWeinenKlagenSorgenZagen_001_20090916-SMD",
+      "source_wav": "wav_22050_mono/Liszt_VariationenBachmotivWeinenKlagenSorgenZagen_001_20090916-SMD.wav",
+      "source_mid": "midi/Liszt_VariationenBachmotivWeinenKlagenSorgenZagen_001_20090916-SMD.mid",
+      "duration": 963.307,
+      "n_notes": 7976,
+      "sha256_audio": "8ae5a02199fd2eed686decd66a14bfc96d76594b4d38006379460d34d54945db",
+      "sha256_reference": "bf2d6396470f7741f3801f8dfc9d5544fcd6b4767bc32c658a8cb3b39c4d5ee6"
+    },
+    {
+      "stem": "Mozart_KV265_006_20110315-SMD",
+      "source_wav": "wav_22050_mono/Mozart_KV265_006_20110315-SMD.wav",
+      "source_mid": "midi/Mozart_KV265_006_20110315-SMD.mid",
+      "duration": 477.181,
+      "n_notes": 4187,
+      "sha256_audio": "53d21d27e6ecfb52e417b7163f9fd2f04eae75f612ee183f0640cca5ac1fd181",
+      "sha256_reference": "522ddf75f7897e8adcff8d1a103beba0583bd59337311b4d8ad6a9f6023e0917"
+    },
+    {
+      "stem": "Mozart_KV398_002_20110315-SMD",
+      "source_wav": "wav_22050_mono/Mozart_KV398_002_20110315-SMD.wav",
+      "source_mid": "midi/Mozart_KV398_002_20110315-SMD.mid",
+      "duration": 441.041,
+      "n_notes": 3648,
+      "sha256_audio": "0ee25dfe76eed59b291b674f3137a5a55c87c4bd8abc6daae6bd64bfb7b95936",
+      "sha256_reference": "32d2f6c200838d49ed9795d3956955b56fc194925e9536dc986dcecad96fc630"
+    },
+    {
+      "stem": "Rachmaninoff_Op036-01_007_20110315-SMD",
+      "source_wav": "wav_22050_mono/Rachmaninoff_Op036-01_007_20110315-SMD.wav",
+      "source_mid": "midi/Rachmaninoff_Op036-01_007_20110315-SMD.mid",
+      "duration": 562.243,
+      "n_notes": 4409,
+      "sha256_audio": "ff9cc07f804b64811a9ceb0f88bfb39453f81eb98d7c1cd6d2d1b9e0625ca752",
+      "sha256_reference": "4e80ddaa785df4759ff9e0be191f8a8fbd6c95a6a6eb4ffa3153b1a39f0a950f"
+    },
+    {
+      "stem": "Rachmaninoff_Op036-02_007_20110315-SMD",
+      "source_wav": "wav_22050_mono/Rachmaninoff_Op036-02_007_20110315-SMD.wav",
+      "source_mid": "midi/Rachmaninoff_Op036-02_007_20110315-SMD.mid",
+      "duration": 430.542,
+      "n_notes": 2197,
+      "sha256_audio": "679fdd7fa4459cef6e56b86adc3a630e1f5d69adf33884ea193fedfea58c3eaa",
+      "sha256_reference": "01bdea68de5ffb0c2a8b798fdf8bbada64aba27cfc6336ce85598c7674bb0d64"
+    },
+    {
+      "stem": "Rachmaninoff_Op036-03_007_20110315-SMD",
+      "source_wav": "wav_22050_mono/Rachmaninoff_Op036-03_007_20110315-SMD.wav",
+      "source_mid": "midi/Rachmaninoff_Op036-03_007_20110315-SMD.mid",
+      "duration": 337.493,
+      "n_notes": 4641,
+      "sha256_audio": "1a37b8c8e5e5ef5f4ff683df6c027b93bcf68bcf7de2a276eb0c2db6c74f2594",
+      "sha256_reference": "bf5894ef4ce33a2d16a8a0820c38ea49b4f779ebce32c50aa65b45df2b542265"
+    },
+    {
+      "stem": "Rachmaninov_Op039No1_002_20090916-SMD",
+      "source_wav": "wav_22050_mono/Rachmaninov_Op039No1_002_20090916-SMD.wav",
+      "source_mid": "midi/Rachmaninov_Op039No1_002_20090916-SMD.mid",
+      "duration": 193.421,
+      "n_notes": 3054,
+      "sha256_audio": "277bbceff9e393ce3f91c5d9768adb2355adc982b2998b49c1d3097e6e37fae8",
+      "sha256_reference": "48f36e30911b07dccb2b2c663c7382f70ca35f92ff7a932673b81de6df07f5d9"
+    },
+    {
+      "stem": "Ravel_JeuxDEau_008_20110315-SMD",
+      "source_wav": "wav_22050_mono/Ravel_JeuxDEau_008_20110315-SMD.wav",
+      "source_mid": "midi/Ravel_JeuxDEau_008_20110315-SMD.mid",
+      "duration": 317.048,
+      "n_notes": 4056,
+      "sha256_audio": "6f85afb0d302667df3d26081add36226b9b84a2dbc4e6b989bd778995c44c6e6",
+      "sha256_reference": "1eb5f8228054b3ab0f80f60447858046fb9285b0600dd99305899057ed51a9c7"
+    },
+    {
+      "stem": "Ravel_ValsesNoblesEtSentimentales_003_20090916-SMD",
+      "source_wav": "wav_22050_mono/Ravel_ValsesNoblesEtSentimentales_003_20090916-SMD.wav",
+      "source_mid": "midi/Ravel_ValsesNoblesEtSentimentales_003_20090916-SMD.mid",
+      "duration": 918.946,
+      "n_notes": 6740,
+      "sha256_audio": "daccda77208592cadc0c52b21bbe4f12e98b8e203648caafc46feb0057c161c1",
+      "sha256_reference": "de54cbb8bfd9648c7d4d238c1c79453d6541d8166c80368ff323e2cc4b3384ce"
+    },
+    {
+      "stem": "Skryabin_Op008No8_003_20090916-SMD",
+      "source_wav": "wav_22050_mono/Skryabin_Op008No8_003_20090916-SMD.wav",
+      "source_mid": "midi/Skryabin_Op008No8_003_20090916-SMD.mid",
+      "duration": 205.946,
+      "n_notes": 1200,
+      "sha256_audio": "793cbf167ecb9004a9a2e24e4506c7d0462d32a3266d47435f1cef4ff8ad9e50",
+      "sha256_reference": "d5cd42929e9e78501b4b05792a39747bff8963792bf496f294e9aaa1f06f2503"
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+{
+ "engine": "ptify",
+ "audio_dir": "recordings\\maps_paired",
+ "rows": [
+  {
+   "preset": "clean",
+   "track": "ENSTDkAm-bk_xmas1",
+   "onset_p": 0.8918278720884327,
+   "onset_r": 0.8467016491754122,
+   "onset_f1": 0.8686791001730436,
+   "offset_f1": 0.4810613343587771,
+   "n_ref": 2668,
+   "n_est": 2533
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkAm-grieg_butterfly",
+   "onset_p": 0.8569868995633187,
+   "onset_r": 0.8377801494130203,
+   "onset_f1": 0.8472746896923906,
+   "offset_f1": 0.441446303291959,
+   "n_ref": 937,
+   "n_est": 916
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkAm-liz_rhap09",
+   "onset_p": 0.9194366911951282,
+   "onset_r": 0.8470079476390837,
+   "onset_f1": 0.8817374376444824,
+   "offset_f1": 0.4419029078963378,
+   "n_ref": 8556,
+   "n_est": 7882
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkAm-scn15_11",
+   "onset_p": 0.7977207977207977,
+   "onset_r": 0.7486631016042781,
+   "onset_f1": 0.7724137931034483,
+   "offset_f1": 0.47448275862068967,
+   "n_ref": 748,
+   "n_est": 702
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkAm-scn16_4",
+   "onset_p": 0.7655737704918033,
+   "onset_r": 0.6980568011958147,
+   "onset_f1": 0.730258014073495,
+   "offset_f1": 0.4753713838936669,
+   "n_ref": 669,
+   "n_est": 610
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkAm-ty_maerz",
+   "onset_p": 0.82,
+   "onset_r": 0.7554438860971524,
+   "onset_f1": 0.7863993025283347,
+   "offset_f1": 0.41848299912816045,
+   "n_ref": 597,
+   "n_est": 550
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkAm-ty_mai",
+   "onset_p": 0.8407258064516129,
+   "onset_r": 0.8315054835493519,
+   "onset_f1": 0.8360902255639098,
+   "offset_f1": 0.5403508771929826,
+   "n_ref": 1003,
+   "n_est": 992
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkCl-bk_xmas1",
+   "onset_p": 0.888663967611336,
+   "onset_r": 0.8227136431784108,
+   "onset_f1": 0.8544180615025301,
+   "offset_f1": 0.48189957181782794,
+   "n_ref": 2668,
+   "n_est": 2470
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkCl-grieg_butterfly",
+   "onset_p": 0.9658965896589659,
+   "onset_r": 0.9370330843116329,
+   "onset_f1": 0.9512459371614301,
+   "offset_f1": 0.46912242686890576,
+   "n_ref": 937,
+   "n_est": 909
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkCl-liz_rhap09",
+   "onset_p": 0.940709437828147,
+   "onset_r": 0.8585787751285647,
+   "onset_f1": 0.8977696303085855,
+   "offset_f1": 0.4927589367552704,
+   "n_ref": 8556,
+   "n_est": 7809
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkCl-scn15_11",
+   "onset_p": 0.9157303370786517,
+   "onset_r": 0.8716577540106952,
+   "onset_f1": 0.893150684931507,
+   "offset_f1": 0.5972602739726028,
+   "n_ref": 748,
+   "n_est": 712
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkCl-scn16_4",
+   "onset_p": 0.819078947368421,
+   "onset_r": 0.7443946188340808,
+   "onset_f1": 0.7799530148786218,
+   "offset_f1": 0.5340642129992168,
+   "n_ref": 669,
+   "n_est": 608
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkCl-ty_maerz",
+   "onset_p": 0.9028268551236749,
+   "onset_r": 0.8559463986599665,
+   "onset_f1": 0.8787618228718831,
+   "offset_f1": 0.5073086844368014,
+   "n_ref": 597,
+   "n_est": 566
+  },
+  {
+   "preset": "clean",
+   "track": "ENSTDkCl-ty_mai",
+   "onset_p": 0.9287863590772317,
+   "onset_r": 0.9232303090727817,
+   "onset_f1": 0.926,
+   "offset_f1": 0.628,
+   "n_ref": 1003,
+   "n_est": 997
+  }
+ ]
+}

@@ -438,3 +438,72 @@ def test_uncorrected_drift_would_fail_that_round_trip():
 
     recovered = decode_onsets(naive, 60 - 21)
     assert abs(recovered[0] - true_time) > 0.10
+
+
+# --- Phase 39: upload-chain stages ----------------------------------------
+
+_OLD_FIELDS = ("cents", "ir_index", "rt60", "wet", "snr_db", "low_gain_db",
+               "high_gain_db", "peak", "clean", "source_seconds")
+
+
+def test_upload_stages_are_off_by_default():
+    s = _sampler(seed=3, clean_prob=0.0)
+    for i in range(50):
+        p = s.plan(i)
+        assert p.compress is None and p.codec is None
+
+
+def test_upload_stages_do_not_change_the_older_draws():
+    """The 16b recipe's room/detune/noise/level for each segment must be
+    identical whether or not the new stages are on -- otherwise an A/B
+    between recipes changes two things at once."""
+    off = _sampler(seed=3, clean_prob=0.2)
+    on = _sampler(seed=3, clean_prob=0.2, compress_prob=1.0, codec_prob=1.0)
+    for i in range(200):
+        a, b = off.plan(i), on.plan(i)
+        assert [getattr(a, f) for f in _OLD_FIELDS] == [getattr(b, f) for f in _OLD_FIELDS]
+
+
+def test_one_stage_probability_does_not_reshuffle_the_other():
+    a = _sampler(seed=5, clean_prob=0.0, compress_prob=1.0, codec_prob=1.0)
+    b = _sampler(seed=5, clean_prob=0.0, compress_prob=0.3, codec_prob=1.0)
+    for i in range(100):
+        assert a.plan(i).codec == b.plan(i).codec
+
+
+def test_upload_draws_stay_in_range():
+    s = _sampler(seed=1, clean_prob=0.0, compress_prob=1.0, codec_prob=1.0)
+    for i in range(200):
+        p = s.plan(i)
+        threshold, ratio = p.compress
+        subtype, level = p.codec
+        assert -34.0 <= threshold <= -16.0 and 2.0 <= ratio <= 8.0
+        assert subtype in ("OPUS", "MPEG_LAYER_III") and 0.3 <= level <= 0.85
+
+
+@pytest.mark.parametrize("subtype", ["OPUS", "MPEG_LAYER_III"])
+def test_codec_stage_keeps_length_and_note_timing(subtype):
+    """A click at a known time must still be there after the codec: the
+    encoder delay (~30 ms for MP3) would otherwise shift every label."""
+    from dataclasses import replace
+    s = _sampler(seed=0, clean_prob=0.0)
+    plan = replace(s.plan(0), cents=0.0, wet=0.0, snr_db=None, peak=None,
+                   low_gain_db=0.0, high_gain_db=0.0, source_seconds=SECONDS,
+                   codec=(subtype, 0.5))
+    audio = np.zeros(int(SECONDS * SR), dtype=np.float32)
+    t = np.arange(int(0.3 * SR)) / SR
+    k = int(2.0 * SR)
+    audio[k:k + len(t)] = 0.8 * np.exp(-8 * t) * np.sin(2 * np.pi * 440 * t)
+    out, _ = s.apply(audio, _labels(), plan)
+    assert len(out) == len(audio)
+    onset = int(np.argmax(np.abs(out) > 0.1 * np.abs(out).max()))
+    assert abs(onset - k) <= SR // 1000
+
+
+def test_upload_stages_are_deterministic():
+    s = _sampler(seed=9, clean_prob=0.0, compress_prob=1.0, codec_prob=1.0)
+    plan = s.plan(4)
+    audio = _tone(plan.source_seconds)
+    a, _ = s.apply(audio, _labels(), plan)
+    b, _ = s.apply(audio, _labels(), plan)
+    assert np.array_equal(a, b)

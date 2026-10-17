@@ -1,0 +1,1106 @@
+{
+ "preset": "clean",
+ "engine": "ptify",
+ "tracks": [
+  {
+   "n_ref": 724,
+   "n_est": 719,
+   "matched": 719,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 0,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 2,
+    "masked": 1,
+    "quiet": 2,
+    "other": 0
+   },
+   "velocity_valid": true,
+   "track": "Bach_BWV849-01_001_20090916-SMD"
+  },
+  {
+   "n_ref": 1317,
+   "n_est": 1297,
+   "matched": 1293,
+   "extra": {
+    "timing": 0,
+    "restrike": 2,
+    "harmonic": 2,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 2,
+    "masked": 18,
+    "quiet": 2,
+    "other": 2
+   },
+   "velocity_valid": true,
+   "track": "Bach_BWV849-02_001_20090916-SMD"
+  },
+  {
+   "n_ref": 1415,
+   "n_est": 1410,
+   "matched": 1408,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 1,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 1
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 1,
+    "masked": 2,
+    "quiet": 1,
+    "other": 3
+   },
+   "velocity_valid": true,
+   "track": "Bach_BWV871-01_002_20090916-SMD"
+  },
+  {
+   "n_ref": 658,
+   "n_est": 652,
+   "matched": 648,
+   "extra": {
+    "timing": 0,
+    "restrike": 2,
+    "harmonic": 2,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 0,
+    "masked": 8,
+    "quiet": 1,
+    "other": 1
+   },
+   "velocity_valid": true,
+   "track": "Bach_BWV871-02_002_20090916-SMD"
+  },
+  {
+   "n_ref": 1102,
+   "n_est": 1100,
+   "matched": 1100,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 0,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 0,
+    "masked": 0,
+    "quiet": 0,
+    "other": 2
+   },
+   "velocity_valid": true,
+   "track": "Bach_BWV875-01_002_20090916-SMD"
+  },
+  {
+   "n_ref": 803,
+   "n_est": 802,
+   "matched": 800,
+   "extra": {
+    "timing": 0,
+    "restrike": 1,
+    "harmonic": 0,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 1
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 1,
+    "masked": 1,
+    "quiet": 1,
+    "other": 0
+   },
+   "velocity_valid": true,
+   "track": "Bach_BWV875-02_002_20090916-SMD"
+  },
+  {
+   "n_ref": 689,
+   "n_est": 682,
+   "matched": 681,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 1,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 1,
+    "masked": 5,
+    "quiet": 1,
+    "other": 1
+   },
+   "velocity_valid": true,
+   "track": "Bach_BWV888-01_008_20110315-SMD"
+  },
+  {
+   "n_ref": 764,
+   "n_est": 753,
+   "matched": 753,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 0,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 1,
+    "masked": 9,
+    "quiet": 1,
+    "other": 0
+   },
+   "velocity_valid": true,
+   "track": "Bach_BWV888-02_008_20110315-SMD"
+  },
+  {
+   "n_ref": 3941,
+   "n_est": 3272,
+   "matched": 3176,
+   "extra": {
+    "timing": 0,
+    "restrike": 1,
+    "harmonic": 73,
+    "fragment": 1,
+    "foreign": 1,
+    "other": 20
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 35,
+    "masked": 391,
+    "quiet": 72,
+    "other": 267
+   },
+   "velocity_valid": true,
+   "track": "Bartok_SZ080-01_002_20110315-SMD"
+  },
+  {
+   "n_ref": 740,
+   "n_est": 642,
+   "matched": 634,
+   "extra": {
+    "timing": 0,
+    "restrike": 2,
+    "harmonic": 6,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 0,
+    "masked": 54,
+    "quiet": 20,
+    "other": 32
+   },
+   "velocity_valid": true,
+   "track": "Bartok_SZ080-02_002_20110315-SMD"
+  },
+  {
+   "n_ref": 4458,
+   "n_est": 3457,
+   "matched": 3395,
+   "extra": {
+    "timing": 3,
+    "restrike": 4,
+    "harmonic": 44,
+    "fragment": 0,
+    "foreign": 2,
+    "other": 9
+   },
+   "missed": {
+    "timing": 3,
+    "repeat": 47,
+    "masked": 676,
+    "quiet": 60,
+    "other": 277
+   },
+   "velocity_valid": true,
+   "track": "Bartok_SZ080-03_002_20110315-SMD"
+  },
+  {
+   "n_ref": 3520,
+   "n_est": 3307,
+   "matched": 3293,
+   "extra": {
+    "timing": 5,
+    "restrike": 1,
+    "harmonic": 6,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 2
+   },
+   "missed": {
+    "timing": 5,
+    "repeat": 6,
+    "masked": 138,
+    "quiet": 48,
+    "other": 30
+   },
+   "velocity_valid": true,
+   "track": "Beethoven_Op027No1-01_003_20090916-SMD"
+  },
+  {
+   "n_ref": 838,
+   "n_est": 785,
+   "matched": 783,
+   "extra": {
+    "timing": 0,
+    "restrike": 1,
+    "harmonic": 1,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 0,
+    "masked": 35,
+    "quiet": 17,
+    "other": 3
+   },
+   "velocity_valid": true,
+   "track": "Beethoven_Op027No1-02_003_20090916-SMD"
+  },
+  {
+   "n_ref": 4078,
+   "n_est": 3931,
+   "matched": 3919,
+   "extra": {
+    "timing": 2,
+    "restrike": 1,
+    "harmonic": 7,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 2
+   },
+   "missed": {
+    "timing": 2,
+    "repeat": 20,
+    "masked": 77,
+    "quiet": 30,
+    "other": 30
+   },
+   "velocity_valid": true,
+   "track": "Beethoven_Op027No1-03_003_20090916-SMD"
+  },
+  {
+   "n_ref": 3954,
+   "n_est": 3859,
+   "matched": 3848,
+   "extra": {
+    "timing": 1,
+    "restrike": 0,
+    "harmonic": 6,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 4
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 1,
+    "masked": 44,
+    "quiet": 25,
+    "other": 35
+   },
+   "velocity_valid": true,
+   "track": "Beethoven_Op031No2-01_002_20090916-SMD"
+  },
+  {
+   "n_ref": 1676,
+   "n_est": 1635,
+   "matched": 1627,
+   "extra": {
+    "timing": 1,
+    "restrike": 2,
+    "harmonic": 2,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 3
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 1,
+    "masked": 23,
+    "quiet": 15,
+    "other": 9
+   },
+   "velocity_valid": true,
+   "track": "Beethoven_Op031No2-02_002_20090916-SMD"
+  },
+  {
+   "n_ref": 4372,
+   "n_est": 4326,
+   "matched": 4309,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 17,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 3,
+    "masked": 29,
+    "quiet": 15,
+    "other": 16
+   },
+   "velocity_valid": true,
+   "track": "Beethoven_Op031No2-03_002_20090916-SMD"
+  },
+  {
+   "n_ref": 7458,
+   "n_est": 7046,
+   "matched": 7001,
+   "extra": {
+    "timing": 6,
+    "restrike": 5,
+    "harmonic": 20,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 14
+   },
+   "missed": {
+    "timing": 6,
+    "repeat": 11,
+    "masked": 251,
+    "quiet": 97,
+    "other": 92
+   },
+   "velocity_valid": true,
+   "track": "Beethoven_WoO080_001_20081107-SMD"
+  },
+  {
+   "n_ref": 3617,
+   "n_est": 3199,
+   "matched": 3165,
+   "extra": {
+    "timing": 0,
+    "restrike": 8,
+    "harmonic": 21,
+    "fragment": 2,
+    "foreign": 1,
+    "other": 2
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 18,
+    "masked": 247,
+    "quiet": 74,
+    "other": 113
+   },
+   "velocity_valid": true,
+   "track": "Brahms_Op005-01_002_20110315-SMD"
+  },
+  {
+   "n_ref": 1644,
+   "n_est": 1524,
+   "matched": 1498,
+   "extra": {
+    "timing": 0,
+    "restrike": 3,
+    "harmonic": 19,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 4
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 5,
+    "masked": 77,
+    "quiet": 24,
+    "other": 40
+   },
+   "velocity_valid": true,
+   "track": "Brahms_Op010No1_003_20090916-SMD"
+  },
+  {
+   "n_ref": 2403,
+   "n_est": 2283,
+   "matched": 2256,
+   "extra": {
+    "timing": 1,
+    "restrike": 3,
+    "harmonic": 23,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 7,
+    "masked": 89,
+    "quiet": 16,
+    "other": 34
+   },
+   "velocity_valid": true,
+   "track": "Brahms_Op010No2_003_20090916-SMD"
+  },
+  {
+   "n_ref": 1849,
+   "n_est": 1735,
+   "matched": 1702,
+   "extra": {
+    "timing": 5,
+    "restrike": 14,
+    "harmonic": 11,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 3
+   },
+   "missed": {
+    "timing": 5,
+    "repeat": 3,
+    "masked": 99,
+    "quiet": 25,
+    "other": 15
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op010-03_007_20100611-SMD"
+  },
+  {
+   "n_ref": 2202,
+   "n_est": 2134,
+   "matched": 2114,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 19,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 1
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 4,
+    "masked": 52,
+    "quiet": 10,
+    "other": 22
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op010-04_007_20100611-SMD"
+  },
+  {
+   "n_ref": 3585,
+   "n_est": 3391,
+   "matched": 3367,
+   "extra": {
+    "timing": 0,
+    "restrike": 2,
+    "harmonic": 19,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 3
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 12,
+    "masked": 148,
+    "quiet": 32,
+    "other": 26
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op026No1_003_20100611-SMD"
+  },
+  {
+   "n_ref": 5018,
+   "n_est": 4426,
+   "matched": 4305,
+   "extra": {
+    "timing": 8,
+    "restrike": 21,
+    "harmonic": 79,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 13
+   },
+   "missed": {
+    "timing": 8,
+    "repeat": 108,
+    "masked": 370,
+    "quiet": 143,
+    "other": 84
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op026No2_005_20100611-SMD"
+  },
+  {
+   "n_ref": 330,
+   "n_est": 323,
+   "matched": 320,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 2,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 1
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 1,
+    "masked": 3,
+    "quiet": 2,
+    "other": 4
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op028-01_003_20100611-SMD"
+  },
+  {
+   "n_ref": 662,
+   "n_est": 656,
+   "matched": 655,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 1,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 0,
+    "masked": 4,
+    "quiet": 1,
+    "other": 2
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op028-03_003_20100611-SMD"
+  },
+  {
+   "n_ref": 600,
+   "n_est": 574,
+   "matched": 573,
+   "extra": {
+    "timing": 1,
+    "restrike": 0,
+    "harmonic": 0,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 0,
+    "masked": 24,
+    "quiet": 2,
+    "other": 0
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op028-04_003_20100611-SMD"
+  },
+  {
+   "n_ref": 313,
+   "n_est": 307,
+   "matched": 306,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 1,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 0,
+    "masked": 6,
+    "quiet": 0,
+    "other": 1
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op028-11_003_20100611-SMD"
+  },
+  {
+   "n_ref": 1499,
+   "n_est": 1389,
+   "matched": 1371,
+   "extra": {
+    "timing": 1,
+    "restrike": 10,
+    "harmonic": 7,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 0,
+    "masked": 70,
+    "quiet": 40,
+    "other": 17
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op028-15_006_20100611-SMD"
+  },
+  {
+   "n_ref": 2072,
+   "n_est": 1902,
+   "matched": 1839,
+   "extra": {
+    "timing": 3,
+    "restrike": 3,
+    "harmonic": 36,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 21
+   },
+   "missed": {
+    "timing": 3,
+    "repeat": 1,
+    "masked": 152,
+    "quiet": 49,
+    "other": 28
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op028-17_005_20100611-SMD"
+  },
+  {
+   "n_ref": 2333,
+   "n_est": 2245,
+   "matched": 2240,
+   "extra": {
+    "timing": 0,
+    "restrike": 3,
+    "harmonic": 2,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 6,
+    "masked": 45,
+    "quiet": 32,
+    "other": 10
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op029_004_20100611-SMD"
+  },
+  {
+   "n_ref": 2862,
+   "n_est": 2523,
+   "matched": 2451,
+   "extra": {
+    "timing": 5,
+    "restrike": 4,
+    "harmonic": 49,
+    "fragment": 0,
+    "foreign": 1,
+    "other": 13
+   },
+   "missed": {
+    "timing": 5,
+    "repeat": 14,
+    "masked": 240,
+    "quiet": 94,
+    "other": 58
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op048No1_007_20100611-SMD"
+  },
+  {
+   "n_ref": 3013,
+   "n_est": 2966,
+   "matched": 2949,
+   "extra": {
+    "timing": 1,
+    "restrike": 1,
+    "harmonic": 10,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 5
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 4,
+    "masked": 29,
+    "quiet": 20,
+    "other": 10
+   },
+   "velocity_valid": true,
+   "track": "Chopin_Op066_006_20100611-SMD"
+  },
+  {
+   "n_ref": 3862,
+   "n_est": 3777,
+   "matched": 3774,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 3,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 15,
+    "masked": 38,
+    "quiet": 18,
+    "other": 17
+   },
+   "velocity_valid": true,
+   "track": "Haydn_Hob017No4_003_20090916-SMD"
+  },
+  {
+   "n_ref": 4527,
+   "n_est": 4406,
+   "matched": 4389,
+   "extra": {
+    "timing": 0,
+    "restrike": 4,
+    "harmonic": 10,
+    "fragment": 0,
+    "foreign": 1,
+    "other": 2
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 4,
+    "masked": 94,
+    "quiet": 15,
+    "other": 25
+   },
+   "velocity_valid": true,
+   "track": "Haydn_HobXVINo52-01_008_20110315-SMD"
+  },
+  {
+   "n_ref": 1384,
+   "n_est": 1331,
+   "matched": 1328,
+   "extra": {
+    "timing": 0,
+    "restrike": 2,
+    "harmonic": 0,
+    "fragment": 1,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 4,
+    "masked": 35,
+    "quiet": 12,
+    "other": 5
+   },
+   "velocity_valid": true,
+   "track": "Haydn_HobXVINo52-02_008_20110315-SMD"
+  },
+  {
+   "n_ref": 3466,
+   "n_est": 3400,
+   "matched": 3392,
+   "extra": {
+    "timing": 0,
+    "restrike": 2,
+    "harmonic": 6,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 7,
+    "masked": 42,
+    "quiet": 12,
+    "other": 13
+   },
+   "velocity_valid": true,
+   "track": "Haydn_HobXVINo52-03_008_20110315-SMD"
+  },
+  {
+   "n_ref": 12698,
+   "n_est": 10976,
+   "matched": 10859,
+   "extra": {
+    "timing": 12,
+    "restrike": 2,
+    "harmonic": 85,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 18
+   },
+   "missed": {
+    "timing": 12,
+    "repeat": 316,
+    "masked": 804,
+    "quiet": 265,
+    "other": 442
+   },
+   "velocity_valid": true,
+   "track": "Liszt_AnnesDePelerinage-LectureDante_002_20090916-SMD"
+  },
+  {
+   "n_ref": 6652,
+   "n_est": 3108,
+   "matched": 3100,
+   "extra": {
+    "timing": 0,
+    "restrike": 1,
+    "harmonic": 4,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 3
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 162,
+    "masked": 742,
+    "quiet": 157,
+    "other": 2491
+   },
+   "velocity_valid": true,
+   "track": "Liszt_KonzertetuedeNo2LaLeggierezza_003_20090916-SMD"
+  },
+  {
+   "n_ref": 7976,
+   "n_est": 6830,
+   "matched": 6706,
+   "extra": {
+    "timing": 21,
+    "restrike": 15,
+    "harmonic": 69,
+    "fragment": 0,
+    "foreign": 1,
+    "other": 18
+   },
+   "missed": {
+    "timing": 21,
+    "repeat": 229,
+    "masked": 508,
+    "quiet": 140,
+    "other": 372
+   },
+   "velocity_valid": true,
+   "track": "Liszt_VariationenBachmotivWeinenKlagenSorgenZagen_001_20090916-SMD"
+  },
+  {
+   "n_ref": 4187,
+   "n_est": 4105,
+   "matched": 4094,
+   "extra": {
+    "timing": 1,
+    "restrike": 1,
+    "harmonic": 3,
+    "fragment": 1,
+    "foreign": 0,
+    "other": 5
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 10,
+    "masked": 49,
+    "quiet": 17,
+    "other": 16
+   },
+   "velocity_valid": true,
+   "track": "Mozart_KV265_006_20110315-SMD"
+  },
+  {
+   "n_ref": 3648,
+   "n_est": 3581,
+   "matched": 3570,
+   "extra": {
+    "timing": 0,
+    "restrike": 5,
+    "harmonic": 4,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 2
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 4,
+    "masked": 52,
+    "quiet": 14,
+    "other": 8
+   },
+   "velocity_valid": true,
+   "track": "Mozart_KV398_002_20110315-SMD"
+  },
+  {
+   "n_ref": 4409,
+   "n_est": 3934,
+   "matched": 3889,
+   "extra": {
+    "timing": 2,
+    "restrike": 8,
+    "harmonic": 27,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 8
+   },
+   "missed": {
+    "timing": 2,
+    "repeat": 36,
+    "masked": 239,
+    "quiet": 125,
+    "other": 118
+   },
+   "velocity_valid": true,
+   "track": "Rachmaninoff_Op036-01_007_20110315-SMD"
+  },
+  {
+   "n_ref": 2197,
+   "n_est": 2014,
+   "matched": 2004,
+   "extra": {
+    "timing": 1,
+    "restrike": 0,
+    "harmonic": 7,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 2
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 13,
+    "masked": 93,
+    "quiet": 56,
+    "other": 30
+   },
+   "velocity_valid": true,
+   "track": "Rachmaninoff_Op036-02_007_20110315-SMD"
+  },
+  {
+   "n_ref": 4641,
+   "n_est": 3836,
+   "matched": 3738,
+   "extra": {
+    "timing": 5,
+    "restrike": 10,
+    "harmonic": 71,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 12
+   },
+   "missed": {
+    "timing": 5,
+    "repeat": 65,
+    "masked": 521,
+    "quiet": 139,
+    "other": 173
+   },
+   "velocity_valid": true,
+   "track": "Rachmaninoff_Op036-03_007_20110315-SMD"
+  },
+  {
+   "n_ref": 3054,
+   "n_est": 2724,
+   "matched": 2695,
+   "extra": {
+    "timing": 1,
+    "restrike": 2,
+    "harmonic": 20,
+    "fragment": 0,
+    "foreign": 1,
+    "other": 5
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 13,
+    "masked": 151,
+    "quiet": 52,
+    "other": 142
+   },
+   "velocity_valid": true,
+   "track": "Rachmaninov_Op039No1_002_20090916-SMD"
+  },
+  {
+   "n_ref": 4056,
+   "n_est": 3633,
+   "matched": 3617,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 12,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 4
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 42,
+    "masked": 230,
+    "quiet": 85,
+    "other": 82
+   },
+   "velocity_valid": true,
+   "track": "Ravel_JeuxDEau_008_20110315-SMD"
+  },
+  {
+   "n_ref": 6740,
+   "n_est": 6205,
+   "matched": 6142,
+   "extra": {
+    "timing": 1,
+    "restrike": 2,
+    "harmonic": 42,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 18
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 108,
+    "masked": 331,
+    "quiet": 77,
+    "other": 81
+   },
+   "velocity_valid": true,
+   "track": "Ravel_ValsesNoblesEtSentimentales_003_20090916-SMD"
+  },
+  {
+   "n_ref": 1200,
+   "n_est": 1168,
+   "matched": 1144,
+   "extra": {
+    "timing": 0,
+    "restrike": 5,
+    "harmonic": 19,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 2,
+    "masked": 39,
+    "quiet": 10,
+    "other": 5
+   },
+   "velocity_valid": true,
+   "track": "Skryabin_Op008No8_003_20090916-SMD"
+  }
+ ]
+}

@@ -1,3 +1,241 @@
+# Phase 39 -- retrain with UPLOAD-CHAIN augmentation (PLAN 2026-10-17)
+
+## Why (Phase 38 evidence)
+- Errors are acoustic, not musical: implausible extras <= 2.2% everywhere.
+- Upload conditions cost: far phone -7.2 pt, tiktok -3.4, phone -1.7; harmonic
+  extras triple under tiktok-style compression + codec.
+- The 16b training sampler (`training/augment.py`) has room, detune, noise and
+  level -- but mic EQ is OFF (`eq_prob=0.0`) and there is NO compression and NO
+  codec. The model has never heard an upload.
+- Phase 23: continuing 16b on the SAME recipe made it worse ("change the
+  recipe, not the schedule"). This changes ONE thing: the acoustic chain.
+- A lower onset threshold helped SMD/uploads but hurt MAPS (Phase 38 A), so
+  no decode setting fixes this; the model has to hear better.
+
+## Requirements
+- Training sampler gains three stages, drawn per segment like the others:
+  mic EQ (turn on), compression (threshold/ratio ranges), codec round-trip
+  (Opus/MP3, bitrate range), reusing `evaluation/upload_chain.py`.
+- Benchmark presets untouched (they are the yardstick, not the distribution).
+- Throughput stays >= 15 segments/s/worker (the existing budget), measured.
+- "It bites" measured on REAL audio, as the module requires.
+
+## Success criteria (judged at onset threshold 0.6 vs 16b at 0.6)
+- Upload set: far phone and tiktok mean onset F1 each +1.0 pt or more.
+- No regression beyond noise: SMD >= 0.9539 - 0.002, MAPS paired >= 0.8502
+  - 0.002, MAESTRO 3-min clean >= 0.9552 - 0.002.
+- Otherwise 16b stays the shipped checkpoint.
+
+## Files
+- `training/augment.py` (+ tests): new plan fields + apply stages.
+- `training/train.py` / Kaggle notebook: flags for the new stages.
+- Scoring: `tools/wild_benchmark.py --checkpoint` (local) or a temporary host
+  deploy -- NOT the live host without asking.
+
+## Not doing
+No architecture change, no loss change, no threshold change, no new data.
+
+## Steps
+- [x] 1. Sampler stages + tests (`training/augment.py`, flags
+      `--augment-compress-prob/--augment-codec-prob`); defaults reproduce the
+      16b recipe exactly. Cost 106 ms/segment at .5/.5/.5 -- accepted: GPU
+      consumes ~2.2 seg/s, 2 workers supply ~19.
+- [x] 2. It bites (`var/it-bites.log`, 69 x 10 s segments, 16b via GPU host):
+      clean 0.9545 | old recipe 0.9245 | new (.5/.5/.5) 0.9185. Per stage
+      (new-old): none 0.000 (old params identical, as designed); codec alone
+      ~0; compress -0.6 pt; eq+compress -1.7 pt. -> run with eq .7,
+      compress .7, codec .5. Expectation: targets the UPLOAD gap; it will not
+      fix clean-audio masked chord misses (45% of errors).
+- [~] 3. Kaggle run via `tools/kaggle_transcriber.py` (ships tested code in a
+      private dataset; no commit needed), from 16b, Phase 23 recipe
+      (velocity=0.1, batch 4 x accum 2, clean 0.2), 8,000 steps (~8.2 h; a
+      script kernel has a 12 h cap).
+- [ ] 4. Score on the Phase 38 set at 0.6; apply the criteria.
+
+---
+
+# FUTURE GOALS (user, 2026-10-16) -- not now, transcription first
+
+- **Accompaniment**: a song with vocals + piano -> isolate the background
+  piano and transcribe it as an accompaniment part.
+- **Arrangement**: a song with no piano (or piano + vocals) -> our own model
+  writes a piano arrangement. `docs/arbitrary-audio.md` has the costed
+  assessment (separation stage, then arrangement, which has no metric yet).
+- Both depend on the transcriber being right on real uploads first.
+
+---
+
+# Phase 38 -- transcription on REAL uploads: measure, then classify the errors (PLAN, awaiting approval 2026-10-16)
+
+## Why
+Users upload YouTube videos, TikToks, phone recordings of themselves and of
+others. Our numbers come from MAESTRO (one competition hall, Disklavier, good
+mics), where 16b is at 0.963 onset F1 -- near the ceiling and not the target.
+On MAPS (different piano/room) it is 0.850; nothing measures phone or
+YouTube/TikTok audio. User's hypothesis: the model has no musical knowledge,
+which is why it overlaps notes and does weird things. That is testable: an
+error taxonomy says what share of errors a musical prior could fix.
+Goal (user): isolate and transcribe exactly what the piano plays. 100% is the
+direction, not a reachable number; every step is judged on note F1 on the
+real-upload set.
+
+## Requirements
+1. A REAL-UPLOAD test set in three tiers, each reported separately:
+   T1 gold: real home recordings with exact MIDI -- user's digital piano
+      (MIDI out) + phone mic at the same time. NEEDS USER (keyboard?).
+   T2 real room, exact MIDI, public: MAPS ENSTDkAm/Cl (have), SMD
+      (Saarland Music Data, Disklavier, CC BY-NC-SA 3.0 -- NC is OK here).
+   T3 simulated upload chains on MAESTRO test audio: phone-mic EQ + room +
+      noise floor, YouTube/TikTok-like lossy codec + loudness limiting,
+      detune. Labelled SIMULATED; uses/extends `evaluation/augment.py`.
+      (no ffmpeg on PATH: codec step needs imageio-ffmpeg or similar).
+   Real YouTube/TikTok clips have no exact answer -> listening only, never a metric.
+2. Error taxonomy over T1-T3 for 16b, every error in exactly one class:
+   extra: harmonic (octave/12th/2 octaves above a played note), re-onset of
+   a held note (split/duplicate), short fragment, out-of-key isolated, other;
+   missed: by velocity band, masked by a louder simultaneous note, register;
+   timing: right note, onset off by > 50 ms.
+   Builds on `tools/recall_diagnosis.py` / `tools/precision_review.py`.
+
+## Success criteria (this phase decides the next one)
+- T2 + T3 numbers for 16b (and ByteDance as yardstick only), per tier.
+- Taxonomy shares sum to 100% of errors per tier.
+- Decision written now:
+  * "musically implausible" classes (out-of-key isolated, duplicates,
+    fragments) >= 30% of errors -> next phase is a note-level MUSICAL PRIOR
+    (our own small Transformer over note sequences, trained on lots of MIDI,
+    rescoring the acoustic model's candidate notes).
+  * harmonics/quiet/masked dominate -> acoustic: train with upload-chain
+    augmentation (recipe change, not a 4th continuation of 16b).
+  * both large -> report, recommend, user picks.
+
+## Files
+- new `evaluation/upload_chain.py` (T3 degradations) + test
+- new `evaluation/smd.py` (fetch/pair SMD, like `evaluation/maps.py`) + test
+- new `tools/error_taxonomy.py` + test
+- `benchmarks/wild-*.json` results
+- NO change to the transcriber, the host, or the app.
+
+## Not doing
+No training, no deploy, no notation work, no separation/arrangement.
+
+## Steps
+- [x] 1. SMD fetch (`evaluation/smd.py`, 50 pieces, 282.4 min, 151,206 notes;
+      range reads now retried in `maps._RemoteFile`). First piece, clean:
+      onset F1 0.9965 -- studio Disklavier is EASY; real-room != hard.
+- [~] 2. Upload presets youtube/phone/phone_far/tiktok (`evaluation/upload_chain.py`,
+      codec delay removed, bitrates measured). Running on 3-min excerpts of
+      maestro_test12 (`tools/cut_excerpts.py` -> recordings/maestro_test12_3min)
+      via `tools/wild_benchmark.py` (caches notes in var/wild-estimates).
+      CPU is ~2.8x slower than real time: ~8 h for 12 x 3 min x 5 presets.
+- [x] 3. Error taxonomy tool (`tools/error_taxonomy.py`, tested).
+- [~] 4. Run taxonomy, report + apply the decision rule.
+      CLEAN maestro_test12_3min (22,757 played, 2,218 errors,
+      `benchmarks/wild/taxonomy-maestro3min-clean.json`): MISSES are 92%:
+      masked-in-chord 45.4%, other 20.7%, repeat 14.7%, quiet 11.6%; extras
+      harmonic 4.0%, other 1.7%; timing 1.0%; musically implausible 0.9%.
+      RESULTS 2026-10-17 (GPU host, `benchmarks/wild/`), mean onset F1:
+        maestro 3-min: clean 0.9552 | youtube 0.9555 | phone 0.9382 |
+                       tiktok 0.9212 | phone_far 0.8830;  SMD (50) clean 0.9539
+      Taxonomy: musically implausible <= 2.2% everywhere (rule bar 30%) ->
+      ACOUSTIC. Misses dominate (masked chord notes 34-45%); harmonic extras
+      4% clean -> 12.6% tiktok; far mic costs most (-7.2 pt).
+      (A) onset-threshold sweep, maestro 3-min (CHOSEN ON these excerpts):
+        clean   0.6 0.9552 | 0.5 0.9598 | 0.4 0.9620 | 0.3 0.9629
+        tiktok  0.6 0.9212 | 0.5 0.9257 | 0.4 0.9256 | 0.3 0.9233
+        far     0.6 0.8830 | 0.5 0.8912 | 0.4 0.8925 | 0.3 0.8882
+      0.4 best balance. NOT shipped: validating on SMD (50) and MAPS paired
+      (0.6 was chosen on MAPS in Phase 22) before changing
+      config.PTIFY_ONSET_THRESHOLD. Ship only if SMD and MAPS do not fall.
+      VALIDATION -> NOT SHIPPED (rule: neither may fall):
+        SMD (50)     0.6 0.9539 -> 0.4 0.9596  (better 46, worse 2)
+        MAPS paired  0.6 0.8503 -> 0.4 0.8445  (better 2, worse 12; P 0.875->0.851)
+      (0.8503 reproduces the committed 0.8502 through this harness.) MAPS
+      pianos already make the model invent notes, so a lower global threshold
+      adds more. No single threshold fits both -> the fix is the model (B).
+      Untried cheap idea: a per-recording threshold from the onset-probability
+      distribution. (B) PLAN a retrain with upload-chain
+      augmentation targeting masked chord notes + harmonics (recipe change).
+      2026-10-17: PC crash left 4 stray spaces at line 1 of
+      evaluation/estimate_cache.py (IndentationError); removed, diff now empty.
+- [-] T1 impossible: user has no MIDI keyboard (2026-10-16).
+
+FINDING 2026-10-17 (not acted on): `get_engine("remote")` builds
+`RemoteEngine()` with ByteDance thresholds (frame 0.05 / onset 0.7) while the
+host serves ptify (wants 0.01 / 0.6) and applies client thresholds verbatim.
+So the web app's remote option and `score_benchmark --engine remote` decode
+ptify with the wrong thresholds. But it is NOT simply worse
+(`var/threshold-probe.log`, local CPU, 2 MAESTRO test tracks):
+  Scarlatti K525  ours: onset 0.9572 offset 0.4903 | remote-default: onset 0.9508 offset 0.6935
+  Chopin 10/12    ours: onset 0.9688 offset 0.2662 | remote-default: onset 0.9640 offset 0.4432
+Onset -0.5 pt, offsets +17-20 pt (frame 0.05 ends notes better here). Choose
+thresholds on the real-upload set, then make remote pass them explicitly.
+
+---
+
+# Phase 37 -- durations: diagnosis DONE 2026-10-16, then PARKED (user: transcription first)
+
+RESULT (ASAP val, run 8, `var/duration-breakdown.log`, 1560 tests pass):
+  head 38.04% | head+B 38.74% (= val column, check passed) | oracle+B 67.53% | ceiling 92.40%
+Decision rule -> oracle+B - head+B = +28.8 points: the DURATION HEAD is the
+bottleneck, not single-voice engraving (which costs only 7.6 points even on
+the written score). The rest of the oracle's gap to the ceiling is our onsets
+/ staves. When resumed: retrain or re-decode the duration head.
+PARKED because the user wants transcription accuracy first (2026-10-16).
+
+(original plan below)
+
+## Why
+Durations are the weakest per-note column (test 58.7%, perfect MIDI 59.5% --
+so not transcription). Two post-rules failed (legato fill, Phase 30-31 rules).
+The printed value passes through TWO stages, and the column mixes them:
+  A. the duration head: argmax over DURATION_TICKS (`rhythm/infer.py:95`)
+  B. engraving: `_trim_staff_overlaps` cuts every note at the next onset on
+     its staff and gives each chord its longest member's value
+     (`notation/score.py:300-330`) -- ONE voice per staff. A whole note held
+     under moving eighths cannot survive B, however right A is.
+Retraining A is wasted if B caps the column. Measure first.
+
+## Requirements
+- A per-stage breakdown on ASAP VALIDATION (not the test set): head argmax
+  vs written value, after B, and an ORACLE (true written values pushed
+  through B on our own onsets) = the ceiling B allows.
+- Same note linking and DURATION_TOL as the benchmark's `duration_accuracy`.
+
+## Success criteria (for the diagnosis; it decides the next step)
+- Numbers for: head-only, head+B (should reproduce the val durations
+  column), oracle+B, and oracle+B with TRUE onsets.
+- Decision rule, written now so it cannot drift:
+  * oracle+B - head+B >= 10 points  -> the HEAD is worth fixing: plan a
+    retrain / decode change (e.g. decode to "until next onset in this voice"
+    classes, or expected-value decode), judged on val then test once.
+  * oracle+B <= head+B + 5          -> B is the ceiling: the fix is engraving
+    (a second voice for held notes), which changes what the page LOOKS like
+    -- your decision, I will bring options with before/after renders.
+  * between                         -> report both, recommend, you choose.
+
+## Files
+- new `tools/duration_breakdown.py` (reuses `tools.score_validation`
+  `val_rows`/`run_val_piece` path and `evaluation.score_benchmark` linking).
+- new `tests/test_duration_breakdown.py` (oracle path on a hand-made piece:
+  held bass under moving treble loses exactly the held notes under B).
+- NO change to `notation/`, `rhythm/` or the shipped app in this step.
+
+## Not doing
+- No retraining, no engraving change, no test-set run until the diagnosis is
+  read and the next step agreed.
+
+## Verification
+- head+B number matches `tools.score_validation` durations to within 0.1.
+- full pytest suite still passes.
+
+## Steps
+- [ ] 1. Write the test, then `tools/duration_breakdown.py`.
+- [ ] 2. Run on ASAP val (run 8, web-app flags); log to var/duration-breakdown.log.
+- [ ] 3. Report the four numbers + per-piece worst cases; apply the decision rule.
+
+---
+
 # RESUME HERE (stopped 2026-10-14, night)
 
 State: all 1556 tests pass; app behaviour = the shipped bar fix (bar right

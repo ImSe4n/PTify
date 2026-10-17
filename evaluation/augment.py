@@ -507,6 +507,23 @@ PRESETS: dict[str, dict] = {
     "worst_case": {"rt60": 1.0, "wet": 0.45, "snr_db": 18.0,
                    "low_gain_db": -5.0, "high_gain_db": 4.0,
                    "semitones": 0.3, "peak": 0.08},
+    # Phase 38 upload chains (`evaluation/upload_chain.py`): SIMULATED uploads.
+    # "codec" is (format, subtype, compression_level); bitrates measured on
+    # MAESTRO piano audio are in upload_chain.py. MP3 stands in for AAC.
+    "youtube": {"compress": {"threshold_db": -20.0, "ratio": 3.0},
+                "codec": ("OGG", "OPUS", 0.5)},
+    "phone": {"rt60": 0.4, "wet": 0.3, "snr_db": 30.0,
+              "low_gain_db": -6.0, "high_gain_db": 2.0,
+              "compress": {"threshold_db": -28.0, "ratio": 4.0},
+              "codec": ("MP3", "MPEG_LAYER_III", 0.3)},
+    "phone_far": {"rt60": 0.9, "wet": 0.55, "snr_db": 22.0,
+                  "low_gain_db": -6.0, "high_gain_db": 2.0,
+                  "compress": {"threshold_db": -28.0, "ratio": 4.0},
+                  "codec": ("MP3", "MPEG_LAYER_III", 0.3)},
+    "tiktok": {"rt60": 0.4, "wet": 0.3, "snr_db": 28.0,
+               "low_gain_db": -6.0, "high_gain_db": 3.0,
+               "compress": {"threshold_db": -30.0, "ratio": 6.0},
+               "codec": ("OGG", "OPUS", 0.8)},
 }
 
 
@@ -539,7 +556,14 @@ def apply_preset(
                       cfg.get("high_gain_db", 0.0))
     if cfg.get("snr_db") is not None:
         out, lab = add_noise(out, lab, sr, cfg["snr_db"], seed)
+    if cfg.get("compress") is not None:
+        from evaluation.upload_chain import compress
+        out = compress(out, sr, **cfg["compress"])
     if cfg.get("peak") is not None:
         out, lab = gain(out, lab, sr, cfg["peak"])
+    # Last: the codec sees the signal as it would be uploaded.
+    if cfg.get("codec") is not None:
+        from evaluation.upload_chain import codec_roundtrip
+        out = codec_roundtrip(out, sr, *cfg["codec"])
 
     return out, lab

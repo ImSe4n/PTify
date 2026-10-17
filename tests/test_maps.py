@@ -323,3 +323,42 @@ def test_summarise_names_the_paired_pieces():
     out = summarise(listings, paired_ids(listings))
     assert "paired" in out.lower()
     assert "confounds" in out
+
+
+def test_a_dropped_range_read_is_retried(monkeypatch):
+    """Zenodo drops long range reads mid-body (Phase 38, SMD). One drop must
+    not abort the fetch."""
+    import http.client
+
+    import evaluation.maps as maps
+    from evaluation.maps import _RemoteFile
+
+    payload = bytes(range(256)) * 4
+    calls = {"get": 0}
+
+    class _Resp:
+        def __init__(self, data=b"", headers=None):
+            self._data, self.headers = data, headers or {}
+
+        def read(self):
+            return self._data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def opener(req, timeout=None):
+        if req.get_method() == "HEAD":
+            return _Resp(headers={"Content-Length": str(len(payload))})
+        calls["get"] += 1
+        if calls["get"] == 1:
+            raise http.client.IncompleteRead(b"", 10)
+        lo, hi = map(int, req.headers["Range"].split("=")[1].split("-"))
+        return _Resp(payload[lo:hi + 1])
+
+    monkeypatch.setattr(maps.time, "sleep", lambda s: None)
+    f = _RemoteFile("https://example.invalid/x.zip", opener=opener)
+    assert f.read(100) == payload[:100]
+    assert calls["get"] == 2
