@@ -25,3 +25,35 @@ def test_kernel_checks_both_codecs_before_training():
 def test_paths_the_kernel_owns_cannot_be_overridden(owned):
     with pytest.raises(ValueError, match=owned):
         kernel_script([owned, "x"])
+
+
+def test_score_kernel_is_valid_and_guards_the_checkpoints():
+    from tools.kaggle_score import BASE, kernel_script
+    from tools.kaggle_transcriber import INITS
+    script = kernel_script()
+    ast.parse(script)
+    assert INITS[BASE][1] in script
+    # Both guards run before anything is scored.
+    first_score = script.index("from tools.wild_benchmark import main")
+    assert script.index("identical to the baseline") < first_score
+    assert script.index("assert_deployable(") < first_score
+    # Models alternate inside each set, so a cut-short session stays paired.
+    assert script.index("'p39', base), ('p41', new)") > script.index("for name, presets in")
+
+
+def test_kernel_can_start_from_p39_and_pins_its_digest():
+    from tools.kaggle_transcriber import INITS
+    script = kernel_script(["--steps", "10"], init="p39")
+    ast.parse(script)
+    assert INITS["p39"][1] in script and "ptify-p39-step8000.pth" in script
+    assert "--synth-banks" in script        # passed only if banks ship
+
+
+def test_synth_banks_path_is_owned_by_the_kernel():
+    with pytest.raises(ValueError, match="--synth-banks"):
+        kernel_script(["--synth-banks", "x"])
+
+
+def test_init_swallowed_into_train_args_is_refused():
+    with pytest.raises(ValueError, match="BEFORE the action"):
+        kernel_script(["--init", "p39", "--steps", "10"])

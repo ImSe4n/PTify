@@ -1,3 +1,83 @@
+# Phase 41 -- many pianos: train on sampled uprights/grands (STARTED 2026-10-17)
+
+## Why
+- Biggest measured gap is the INSTRUMENT: MAPS close mic (upright Disklavier,
+  confirmed by DAFx 2019) 0.88-0.90 even delay-corrected vs 0.955 on MAESTRO
+  grands. Caveat: MAPS ENSTDkCl annotations have known errors (803 unplayed,
+  342 deviations, 1,613 slow starts), so part of that gap is the answer key.
+- Users mostly play home uprights / digital pianos. MAESTRO is one Yamaha
+  Disklavier grand model. No room/codec augmentation changes the instrument.
+
+## User's stop rule (2026-10-17)
+"If this really doesn't make us as good as Songscription, give up."
+Needs a measurable comparison: ASK whether Songscription's free tier exports
+MIDI (then score both on the same clips with known notes). Otherwise the
+comparison is screenshots only.
+
+## Pianos (all CC0, VCSL, github.com/sgossner/VCSL)
+Upright Knight (420 MB), Upright Yamaha (248 MB), Grand Kawai (460 MB),
+Grand Steinway B (1.3 GB). Raw WAV, per-instrument naming; sparse sampling
+-> our own sample player (no SFZ/fluidsynth), pitch-shift to nearest sample.
+
+## Steps
+- [x] 1. `tools/fetch_vcsl.py` -> var/pianos/ (2.4 GB WAV).
+- [x] 2. `evaluation/sampled_piano.py` (+ tests): octave offset MEASURED
+      (Kawai/Knight/Yamaha +12, Steinway 0), velocity curve, damper/pedal,
+      release noise, negative-start tails; banks -> var/piano-banks/*.npz.
+- [x] 3. Probe A, p39 on test MIDI rendered (`benchmarks/wild/vcsl-*`):
+        real MAESTRO 0.956 | Steinway 0.930 | Yamaha upright 0.907 |
+        Kawai 0.895 | Knight upright 0.834   (precision 0.80-0.93 vs 0.99)
+      -> piano-bound, mostly INVENTED notes, as on MAPS. Caveat: renderer is
+      simpler than a real piano. (First run scored all four 0.8950: cache
+      keyed by stem reused piano 1 for all -- fixed, `bind_cache` guard.)
+- [~] 4. Probe B RUNNING (Kaggle v2, from p39, p39 recipe + synth 0.35 on
+      Knight/Kawai/Steinway; Yamaha HELD OUT), started 2026-10-18 00:00.
+      (A first prepare swallowed `--init p39` into train args; caught before
+      the kernel was pushed; launcher now refuses it.)
+      Scoring kernel retargeted: p39 vs p41 + rendered yamaha/knight sets.
+      Probe B (~10 h Kaggle): train from p39 with rendered segments mixed
+      in (on-the-fly in the dataloader). Criteria: MAPS +1.0 pt or more,
+      SMD and uploads not below p39 - 0.2.
+
+---
+
+# Phase 40 probe -- are missed notes half-heard? (2026-10-17)
+
+`tools/chord_decode.py`, clean maestro_test12_3min, 16b activations cached in
+var/activations/ (`benchmarks/wild/chord-decode-maestro3min.json`):
+- Re-decode reproduces the engine exactly (base 0.9552 = the wild run).
+- CHORD-AWARE decode FAILS: never beats a global lower threshold
+  (g0.3 0.9630 vs c0.3 0.9615; g0.4 0.9620 vs c0.4 0.9607). Dropped.
+- MISSED notes' peak onset activation (+-50 ms), 2,071 misses at 0.6:
+  <0.05 35.2% (unheard) | 0.05-0.2 20.0% | 0.2-0.6 43.7% (half-heard) | >=0.6 1.0%
+  -> almost half the misses are nearly heard. A global threshold recovers
+  them on MAESTRO/SMD but adds false notes on MAPS (Phase 38 A).
+- NEXT: is a candidate-note RESCORER learnable? Quick check: classifier on
+  candidates from 6 excerpts, test on the other 6 (and MAPS), must beat the
+  best global threshold held-out. If yes -> plan a proper second-stage model.
+- RESCORER (`tools/rescore_probe.py`, HistGradientBoosting on 14 candidate
+  features), 2-fold by track on maestro 3-min, cuts chosen on train tracks:
+    fold 1: base 0.9563 | global 0.3 0.9647 | rescorer 0.9638
+    fold 2: base 0.9542 | global 0.3 0.9612 | rescorer 0.9582
+  -> does NOT beat a global threshold on MAESTRO.
+  MAESTRO -> MAPS: base 0.8503 | global 0.3 0.8398 | rescorer@0.45 0.8457
+  -> FAILS both tests. With 16b's activations and 12 tracks of training, a
+  rescorer does not beat plain decoding. (More training data untested.)
+- MAPS probe (`benchmarks/wild/chord-decode-maps.json`): base 0.8503 matches;
+  every lower threshold hurts. Misses: <0.05 33% | 0.05-0.2 11% | 0.2-0.6
+  31% | >=0.6 25%. The >=0.6 group (1,191): 1,181 have a same-pitch note
+  decoded 50-150 ms away (median 58 ms) = TIMING misses, vs 1% on MAESTRO.
+  Per-track signed offset (model onset - annotation, matched within 150 ms):
+  CLOSE mic +4..+9 ms typical (scn16_4 +21); AMBIENT mic (3-4 m) +15..+29 ms,
+  on the SAME performances with the SAME annotations -> acoustic, not an
+  annotation error: ~10 ms flight time + reverb-smeared attacks. Far mic =
+  systematic late onsets -> notes cross the 50 ms window and count as a miss
+  AND an extra. Harmless for sheet music (constant), but it inflates far-mic
+  error counts. Fixable without training: estimate per-recording delay and
+  shift. Oracle upper bound (true median shift per track) running.
+
+---
+
 # Phase 39 -- retrain with UPLOAD-CHAIN augmentation (PLAN 2026-10-17)
 
 ## Why (Phase 38 evidence)
@@ -46,11 +126,43 @@ No architecture change, no loss change, no threshold change, no new data.
       ~0; compress -0.6 pt; eq+compress -1.7 pt. -> run with eq .7,
       compress .7, codec .5. Expectation: targets the UPLOAD gap; it will not
       fix clean-audio masked chord misses (45% of errors).
-- [~] 3. Kaggle run via `tools/kaggle_transcriber.py` (ships tested code in a
+- [x] 3. TRAINED 2026-10-17 11:40-19:30 (8,000 steps, 0.28 steps/s, T4):
+      var/transcriber-run/checkpoints/ptify-note-pedal.pth (sha 6687be39bdb0,
+      deployable, differs from 16b). Per-head val, step 500 -> 8000:
+      onset -1.1%, frame -0.1%, offset -2.2%; aug onset -1.8%, aug frame
+      -0.2% -- inside noise, but onset did NOT rise (Phase 23's did).
+      Scoring kernel `tools/kaggle_score.py` (16b vs p39, same audio) pushed.
+      Was: Kaggle run via `tools/kaggle_transcriber.py` (ships tested code in a
       private dataset; no commit needed), from 16b, Phase 23 recipe
       (velocity=0.1, batch 4 x accum 2, clean 0.2), 8,000 steps (~8.2 h; a
       script kernel has a 12 h cap).
-- [ ] 4. Score on the Phase 38 set at 0.6; apply the criteria.
+- [x] 4. SCORED on Kaggle (`tools/kaggle_score.py`, both models, same 16 kHz
+      audio, threshold 0.6; `benchmarks/wild/p39/`). Onset F1 16b -> p39:
+        far phone 0.8603 -> 0.8788 (+1.85, 12/0) | tiktok 0.9301 -> 0.9401
+        (+1.00, 12/0) | phone +0.78 (11/1) | youtube +0.05 | clean +0.11 |
+        SMD 0.9538 -> 0.9553 (+0.15, 33/16) | MAPS 0.8503 -> 0.8437 (-0.66, 3/11)
+      PRE-REGISTERED RULE: FAILS on MAPS (allowance -0.2). 16b stays unless
+      the user decides otherwise.
+      Post-hoc (NOT the rule): MAPS drop is mostly far-mic timing. p39 onsets
+      ~1 ms later; far-mic tracks already sit ~24 ms late (sound travel,
+      `tools/latency_probe.py`), so more notes cross 50 ms. Note counts barely
+      change. Delay-corrected MAPS: 0.8924 -> 0.8906 (-0.18, inside noise).
+      Per-recording delay is NOT estimable from audio (the audio is late too):
+      it is a key-press-vs-sound artifact, harmless for sheet music.
+      DECISION (user, 2026-10-17): SHIP p39. DONE:
+        - transcriber/ptify.py: PTIFY_SHIPPED_* = p39 (16b constants kept as
+          the pin for old reports); doctor/CLI use SHIPPED.
+        - checkpoints/ptify-p39-step8000.pth (sha 6687be39...).
+        - Host: pins p39, bakes it FROM THIS MACHINE (add_local_file) because
+          the model-v2 release asset is NOT PUBLISHED (no gh CLI here).
+          Redeployed with PTIFY_HOST_ENGINE=ptify; crosscheck PASS
+          (var/crosscheck-p39.json: 286/286 notes, onset F1 1.000000; 16b gave
+          284 on this clip). Tests: 53 weight/host tests pass.
+        - TODO (user): publish release model-v2 with
+          checkpoints/ptify-p39-step8000.pth, or fresh clones cannot fetch it.
+        - Rollback: point PTIFY_SHIPPED_* (and the host pin) back at 16b.
+        - var/wild-estimates/ptify caches are 16b output under the label
+          `ptify`; use a new --cache for p39 runs.
 
 ---
 

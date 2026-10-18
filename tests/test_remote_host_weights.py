@@ -123,9 +123,9 @@ def test_host_pins_the_same_ptify_weights_as_the_engine(app):
     """
     from transcriber import ptify
 
-    assert app.PTIFY_CHECKPOINT_SHA256 == ptify.PTIFY_16B_SHA256
-    assert app.PTIFY_CHECKPOINT_NAME == ptify.PTIFY_16B_NAME
-    assert app.PTIFY_CHECKPOINT_URL == ptify.PTIFY_16B_URL
+    assert app.PTIFY_CHECKPOINT_SHA256 == ptify.PTIFY_SHIPPED_SHA256
+    assert app.PTIFY_CHECKPOINT_NAME == ptify.PTIFY_SHIPPED_NAME
+    assert app.PTIFY_CHECKPOINT_URL == ptify.PTIFY_SHIPPED_URL
 
 
 def test_a_wrong_digest_is_refused(app, tmp_path):
@@ -215,10 +215,12 @@ def test_both_checkpoints_are_baked_into_the_image(app):
     # Only real fetch commands -- not the prose in the module docstring that
     # explains why the library's own `os.system('wget ...')` is avoided, and
     # not the apt_install line that puts wget in the image.
+    # A checkpoint is baked either by download or (Phase 39, while the p39
+    # release asset is unpublished) copied from this machine.
     fetches = [
         ln.strip()
         for ln in source.splitlines()
-        if "wget -q -O" in ln
+        if "wget -q -O" in ln or "remote_path=PTIFY_CHECKPOINT_PATH" in ln
     ]
     assert fetches, "the image fetches no checkpoints at all"
 

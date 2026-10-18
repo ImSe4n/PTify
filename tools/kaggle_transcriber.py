@@ -43,6 +43,15 @@ KERNEL_SLUG = "ptify-transcriber-train"
 MAESTRO_DATASET = "alonhaviv/the-maestro-dataset-v3-0-0"
 INIT_CKPT = Path("checkpoints/ptify-16b-step6555.pth")
 INIT_SHA256 = "17286ad93c5806e02a59caf0333769d9bea9f4f3e53abd7360be8cabe9d4accd"
+#: Starting weights a run may continue from, each pinned by digest.
+INITS = {
+    "16b": (INIT_CKPT, INIT_SHA256),
+    "p39": (Path("checkpoints/ptify-p39-step8000.pth"),
+            "6687be39bdb05a55ee1c4bee907035a8f3252806032a7209adaf9903f3983f77"),
+}
+#: Phase 41 sampled-piano banks (`evaluation.sampled_piano`), shipped when the
+#: run uses `--augment-synth-prob`.
+BANKS = Path("var/piano-banks")
 INDEX = Path("benchmarks/maestro_segments.json")
 PACKAGES = ("training", "evaluation", "transcriber")
 RUN_OUT = Path("var/transcriber-run")
@@ -57,9 +66,9 @@ subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps",
                 "pretty_midi", "resampy", "soxr", "lazy_loader", "msgpack"],
                check=True)
 
-hits = sorted(Path("/kaggle/input").rglob("ptify-16b-step6555.pth"))
+hits = sorted(Path("/kaggle/input").rglob({init_name!r}))
 if not hits:
-    sys.exit("16b checkpoint not found: is the code dataset attached?")
+    sys.exit("init checkpoint not found: is the code dataset attached?")
 code = hits[0].parent
 for z in code.glob("*.zip"):
     sys.path.insert(0, str(z))
@@ -86,8 +95,13 @@ audio_root = years[0]
 print("MAESTRO root:", audio_root)
 subprocess.run(["nvidia-smi"], check=False)
 
+extra = []
+if (code / "piano-banks").is_dir():
+    extra = ["--synth-banks", str(code / "piano-banks")]
+    print("piano banks:", sorted(p.name for p in (code / "piano-banks").glob("*.npz")))
+
 from training.train import main
-sys.exit(main(["--index", str(code / "maestro_segments.json"),
+sys.exit(main(extra + ["--index", str(code / "maestro_segments.json"),
                "--audio-root", str(audio_root),
                "--init-checkpoint", str(hits[0]),
                "--out", "/kaggle/working/checkpoints"] + {args!r}))
@@ -115,18 +129,29 @@ def _kaggle(*args: str, cwd: Path | None = None) -> int:
                            cwd=str(cwd) if cwd else None)
 
 
-def kernel_script(train_args: list[str]) -> str:
-    for owned in ("--index", "--audio-root", "--init-checkpoint", "--out"):
+def kernel_script(train_args: list[str], init: str = "16b") -> str:
+    if "--init" in train_args:
+        # argparse REMAINDER swallows `prepare --init p39 -- ...` into the
+        # training args (happened 2026-10-17): the run would start from 16b.
+        raise ValueError("--init must come BEFORE the action: "
+                         "`--init p39 prepare -- <train args>`")
+    for owned in ("--index", "--audio-root", "--init-checkpoint", "--out",
+                  "--synth-banks"):
         if owned in train_args:
             raise ValueError(f"{owned} is set by the kernel; do not pass it")
-    return KERNEL_SCRIPT.format(sha=INIT_SHA256, args=train_args)
+    path, sha = INITS[init]
+    return KERNEL_SCRIPT.format(sha=sha, init_name=path.name, args=train_args)
 
 
-def prepare(train_args: list[str]) -> None:
+def prepare(train_args: list[str], init: str = "16b") -> None:
     user = _username()
-    if sha256(INIT_CKPT) != INIT_SHA256:
-        sys.exit(f"error: {INIT_CKPT} is not the 16b checkpoint (digest mismatch)")
-    script = kernel_script(train_args)
+    init_path, init_sha = INITS[init]
+    if sha256(init_path) != init_sha:
+        sys.exit(f"error: {init_path} is not the {init} checkpoint (digest mismatch)")
+    script = kernel_script(train_args, init)
+    synth = any(a == "--augment-synth-prob" for a in train_args)
+    if synth and not sorted(BANKS.glob("*.npz")):
+        sys.exit(f"error: --augment-synth-prob needs piano banks in {BANKS}")
     ds, kn = ROOT / "dataset", ROOT / "kernel"
     for d in (ds, kn):
         if d.exists():
@@ -136,7 +161,9 @@ def prepare(train_args: list[str]) -> None:
         shutil.copytree(pkg, ds / pkg, ignore=shutil.ignore_patterns(
             "__pycache__", "kaggle", "*.ipynb"))
     shutil.copy2(INDEX, ds / INDEX.name)
-    shutil.copy2(INIT_CKPT, ds / INIT_CKPT.name)
+    shutil.copy2(init_path, ds / init_path.name)
+    if synth:
+        shutil.copytree(BANKS, ds / "piano-banks")
     (ds / "dataset-metadata.json").write_text(json.dumps({
         "title": "PTify transcriber code", "id": f"{user}/{DATASET_SLUG}",
         "licenses": [{"name": "CC-BY-NC-SA-4.0"}],
@@ -157,13 +184,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("action", choices=("prepare", "push-data", "push-kernel",
                                        "status", "fetch"))
     ap.add_argument("--message", default="update")
+    ap.add_argument("--init", choices=sorted(INITS), default="16b",
+                    help="starting weights (prepare only)")
     ap.add_argument("train_args", nargs=argparse.REMAINDER,
                     help="after --, passed to training.train (prepare only)")
     args = ap.parse_args(argv)
     train_args = [a for a in args.train_args if a != "--"]
 
     if args.action == "prepare":
-        prepare(train_args)
+        prepare(train_args, args.init)
         return 0
     user = _username()
     if args.action == "push-data":

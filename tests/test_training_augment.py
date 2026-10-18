@@ -507,3 +507,48 @@ def test_upload_stages_are_deterministic():
     a, _ = s.apply(audio, _labels(), plan)
     b, _ = s.apply(audio, _labels(), plan)
     assert np.array_equal(a, b)
+
+
+# --- Phase 41: sampled-piano stage -----------------------------------------
+
+def _tiny_bank(tmp_path):
+    from evaluation.sampled_piano import PianoBank
+    t = np.arange(int(3.0 * SR)) / SR
+    tone = (np.exp(-1.0 * t) * np.sin(2 * np.pi * 261.63 * t)).astype(np.float32)
+    bank = PianoBank(name="tiny", sr=SR)
+    bank.notes[60] = {1: [tone]}
+    path = tmp_path / "tiny.npz"
+    bank.save(path)
+    return str(path)
+
+
+def test_synth_stage_off_by_default_and_never_on_clean(tmp_path):
+    bank = _tiny_bank(tmp_path)
+    off = _sampler(seed=2, clean_prob=0.3)
+    on = _sampler(seed=2, clean_prob=0.3, synth_prob=1.0, synth_banks=(bank,))
+    for i in range(200):
+        a, b = off.plan(i), on.plan(i)
+        assert a.piano is None
+        assert [getattr(a, f) for f in _OLD_FIELDS] == [getattr(b, f) for f in _OLD_FIELDS]
+        assert (b.piano is None) == b.clean
+
+
+def test_synth_needs_banks():
+    with pytest.raises(ValueError, match="synth_banks"):
+        _sampler(synth_prob=0.5)
+
+
+def test_synth_replaces_the_audio_with_the_labels_rendered(tmp_path):
+    from dataclasses import replace
+    s = _sampler(seed=0, clean_prob=0.0, synth_prob=1.0,
+                 synth_banks=(_tiny_bank(tmp_path),))
+    plan = replace(s.plan(0), cents=0.0, wet=0.0, snr_db=None, peak=None,
+                   low_gain_db=0.0, high_gain_db=0.0, source_seconds=SECONDS)
+    assert plan.piano == 0
+    noise = np.random.default_rng(0).standard_normal(int(SECONDS * SR)).astype(np.float32)
+    labels = Transcription(duration=SECONDS)
+    labels.notes = [NoteEvent(60, 2.0, 3.0, 100)]
+    out, _ = s.apply(noise, labels, plan)
+    assert np.abs(out[: int(1.9 * SR)]).max() < 1e-3      # the real audio is gone
+    onset = int(np.argmax(np.abs(out) > 0.1 * np.abs(out).max()))
+    assert abs(onset - 2 * SR) <= SR // 1000               # the note is at its label

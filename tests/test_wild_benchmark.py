@@ -55,3 +55,24 @@ def test_threshold_override_refuses_the_shared_cache(capsys):
     from tools.wild_benchmark import main
     assert main(["--audio-dir", ".", "--onset-threshold", "0.4"]) == 1
     assert "own --cache" in capsys.readouterr().err
+
+
+def test_checkpoint_needs_its_own_cache_and_is_local_only(capsys):
+    from tools.wild_benchmark import main
+    assert main(["--audio-dir", ".", "--checkpoint", "x.pth"]) == 1
+    assert "own --cache" in capsys.readouterr().err
+    assert main(["--audio-dir", ".", "--checkpoint", "x.pth", "--cache", "c",
+                 "--remote"]) == 1
+    assert "local only" in capsys.readouterr().err
+
+
+def test_a_cache_cannot_serve_two_audio_dirs(tmp_path):
+    """Phase 41: same stems in two corpora reused one corpus's notes."""
+    from tools.wild_benchmark import bind_cache
+    cache = tmp_path / "cache"
+    a, b = tmp_path / "piano_a", tmp_path / "piano_b"
+    a.mkdir(); b.mkdir()
+    bind_cache(cache, a)
+    bind_cache(cache, a)                     # same dir again: fine
+    with pytest.raises(ValueError, match="separate --cache"):
+        bind_cache(cache, b)

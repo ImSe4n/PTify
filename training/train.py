@@ -148,6 +148,9 @@ def build_augmenter(args, *, epoch: int = 0):
         eq_prob=args.augment_eq_prob,
         compress_prob=args.augment_compress_prob,
         codec_prob=args.augment_codec_prob,
+        synth_prob=args.augment_synth_prob,
+        synth_banks=tuple(sorted(str(b) for b in Path(args.synth_banks).glob("*.npz")))
+        if args.synth_banks else (),
     )
 
 
@@ -359,6 +362,7 @@ def train(args) -> int:
               f"eq {args.augment_eq_prob:.0%}, "
               f"compress {args.augment_compress_prob:.0%}, "
               f"codec {args.augment_codec_prob:.0%}, "
+              f"synth piano {args.augment_synth_prob:.0%}, "
               f"{len(augmenter.bank)} impulse responses)")
 
     trigger = SaveTrigger(args.save_every_steps, args.save_every_seconds)
@@ -593,6 +597,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--augment-compress-prob", type=float, default=0.0,
                     help="Phase 39: loudness compression (phone apps, "
                          "YouTube, TikTok). Default 0 keeps the 16b recipe")
+    ap.add_argument("--augment-synth-prob", type=float, default=0.0,
+                    help="Phase 41: share of augmented segments re-rendered "
+                         "on a sampled piano (needs --synth-banks)")
+    ap.add_argument("--synth-banks", default=None,
+                    help="directory of PianoBank .npz files")
     ap.add_argument("--augment-codec-prob", type=float, default=0.0,
                     help="Phase 39: Opus/MP3 round-trip at 0.3-0.85 "
                          "compression level. Default 0 keeps the 16b recipe")

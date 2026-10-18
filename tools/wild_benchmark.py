@@ -59,11 +59,18 @@ def load_env_file(path: Path) -> dict[str, str]:
     return out
 
 
-def make_engine(name: str, remote: bool, onset_threshold: float | None = None):
+def make_engine(name: str, remote: bool, onset_threshold: float | None = None,
+                checkpoint: Path | None = None):
     """`onset_threshold` None = the engine's configured value. A different
     value MUST be cached in its own --cache directory: the cache key is the
     engine name, which does not record thresholds."""
     if not remote:
+        if checkpoint is not None:
+            if name != "ptify":
+                raise ValueError("--checkpoint scores ptify weights only")
+            from transcriber.ptify import PtifyEngine
+            return PtifyEngine(checkpoint_path=checkpoint,
+                               onset_threshold=onset_threshold)
         if onset_threshold is not None:
             if name != "ptify":
                 raise ValueError("--onset-threshold locally supports ptify only")
@@ -105,6 +112,28 @@ def transcribe(engine, engine_name: str, audio: Path, preset: str,
     return est
 
 
+def bind_cache(cache: Path, audio_dir: Path) -> None:
+    """Tie a cache directory to ONE audio directory, or refuse.
+
+    The cache key is `<preset>__<stem>`, and two corpora can share stems:
+    Phase 41 rendered the same MIDI through four pianos, and the first piano's
+    transcriptions were silently reused for the other three (all four scored
+    exactly 0.8950). A marker file names the audio directory a cache belongs
+    to, so that mix-up is an error instead of a plausible number. Caches made
+    before the marker existed are adopted by the first run that uses them.
+    """
+    marker = cache / ".audio_dir"
+    want = str(audio_dir.resolve())
+    if marker.exists():
+        have = marker.read_text(encoding="utf-8").strip()
+        if have != want:
+            raise ValueError(f"cache {cache} belongs to {have}, not {want}; "
+                             "use a separate --cache per audio directory")
+        return
+    cache.mkdir(parents=True, exist_ok=True)
+    marker.write_text(want, encoding="utf-8")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tools.wild_benchmark")
     ap.add_argument("--audio-dir", type=Path, required=True)
@@ -118,9 +147,18 @@ def main(argv=None) -> int:
                     help="run on the Modal GPU host (var/remote.env)")
     ap.add_argument("--onset-threshold", type=float, default=None,
                     help="override; use a separate --cache per value")
+    ap.add_argument("--checkpoint", type=Path, default=None,
+                    help="score these ptify weights (local); own --cache")
     args = ap.parse_args(argv)
-    if args.onset_threshold is not None and args.cache == Path("var/wild-estimates"):
-        print("error: --onset-threshold needs its own --cache directory",
+    needs_own_cache = (args.onset_threshold is not None
+                                  or args.checkpoint is not None)
+    if needs_own_cache and args.cache == Path("var/wild-estimates"):
+        print("error: --onset-threshold/--checkpoint need their own --cache "
+              "directory (the cache key does not record weights or thresholds)",
+              file=sys.stderr)
+        return 1
+    if args.checkpoint is not None and args.remote:
+        print("error: --checkpoint is local only; the host runs its own weights",
               file=sys.stderr)
         return 1
 
@@ -130,11 +168,17 @@ def main(argv=None) -> int:
         print(f"error: unknown preset(s) {unknown}", file=sys.stderr)
         return 1
     tracks = pairs(args.audio_dir)[:args.limit]
+    try:
+        bind_cache(args.cache, args.audio_dir)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     if not tracks:
         print(f"error: no audio+MIDI pairs in {args.audio_dir}", file=sys.stderr)
         return 1
 
-    engine = make_engine(args.engine, args.remote, args.onset_threshold)
+    engine = make_engine(args.engine, args.remote, args.onset_threshold,
+                         args.checkpoint)
     rows = []
     with tempfile.TemporaryDirectory() as td:
         for preset in presets:

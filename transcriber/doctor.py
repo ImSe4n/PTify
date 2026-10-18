@@ -63,7 +63,7 @@ def _report_ptify_checkpoint() -> None:
     try:
         from . import weights
         from .ptify import (
-            CHECKPOINT_ENV, PTIFY_16B_NAME, PtifyWeightsMissing,
+            CHECKPOINT_ENV, PTIFY_SHIPPED_NAME, PtifyWeightsMissing,
             resolve_checkpoint, spec,
         )
     except Exception as exc:  # noqa: BLE001
@@ -75,7 +75,7 @@ def _report_ptify_checkpoint() -> None:
     except PtifyWeightsMissing:
         print(f"  {WARN} not present. The ptify engine is OPTIONAL; the other")
         print("         engines work without it.")
-        print(f"         Expected: {PTIFY_16B_NAME} (172MB, not in the repo)")
+        print(f"         Expected: {PTIFY_SHIPPED_NAME} (172MB, not in the repo)")
         print(f"         Set {CHECKPOINT_ENV}=<path>, or drop it in checkpoints/")
         return
     except Exception as exc:  # noqa: BLE001
