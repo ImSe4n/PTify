@@ -46,6 +46,8 @@ DEFAULT_SSE_HEARTBEAT_SECONDS = 10.0
 #: The concurrency cap is the one that bites: a job is minutes of CPU, not
 #: milliseconds, so one client queueing ten files would starve everyone else.
 DEFAULT_RATE_LIMIT_PER_MINUTE = 60
+#: A 32-char secret is 128+ bits only if random; refuse shorter in production.
+MIN_JWT_SECRET_CHARS = 32
 DEFAULT_MAX_CONCURRENT_JOBS_PER_PRINCIPAL = 2
 
 
@@ -134,6 +136,29 @@ class Settings:
     #: Token lifetime. A day: short enough that a leaked token expires by
     #: itself, long enough not to interrupt a transcription being watched.
     jwt_ttl_seconds: int = 24 * 3600
+
+    #: PRODUCTION MODE (2026-10-18 security review). When on: creating a job
+    #: needs a signed-in user or the shared key -- anonymous visitors cannot
+    #: spend GPU time -- and the JWT secret must be >= MIN_JWT_SECRET_CHARS.
+    #: Off by default so local dev (`npm run dev:all`) keeps working.
+    require_account: bool = False
+    #: Invite code for sign-up; empty = open sign-up. Per-user limits mean
+    #: nothing if anyone can make unlimited accounts.
+    signup_code: str = ""
+    #: Jobs one principal may start per rolling 24 h; 0 = unlimited. The GPU
+    #: host bills per second, so this is the cost cap per user.
+    daily_job_limit: int = 0
+    #: Sign-up/login attempts per client IP per minute. Each attempt costs
+    #: ~0.3 s of PBKDF2, so unlimited attempts are also a cheap CPU flood.
+    auth_rate_limit_per_minute: int = 10
+    #: Emails (lower-case) of accounts that skip rate/concurrency/daily limits.
+    admin_emails: frozenset[str] = frozenset()
+    #: Engines a job may request; empty = all. Production sets "remote": a
+    #: local engine runs the model on the API server's CPU for minutes per job.
+    allowed_engines: tuple[str, ...] = ()
+    #: Read the client IP from X-Forwarded-For (first hop). Only behind a
+    #: proxy that sets it; otherwise a client can forge its own IP.
+    trust_proxy: bool = False
 
 
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
@@ -228,6 +253,14 @@ def _load() -> Settings:
             f"PTIFY_QUEUE must be inproc or arq, got {queue_backend!r}"
         )
 
+    require_account = _env_bool("PTIFY_REQUIRE_ACCOUNT", default=False)
+    jwt_secret = _env_str("PTIFY_JWT_SECRET", "").strip()
+    if require_account and jwt_secret and len(jwt_secret) < MIN_JWT_SECRET_CHARS:
+        raise ValueError(
+            f"PTIFY_JWT_SECRET must be at least {MIN_JWT_SECRET_CHARS} characters "
+            f"with PTIFY_REQUIRE_ACCOUNT on (use: openssl rand -hex 32)"
+        )
+
     return Settings(
         work_dir=Path(_env_str("PTIFY_WORK_DIR", "var/jobs")),
         db_path=_env_str("PTIFY_DB_PATH", "").strip(),
@@ -237,7 +270,19 @@ def _load() -> Settings:
         default_engine=engine,
         auth_required=auth_required,
         api_key=api_key,
-        jwt_secret=_env_str("PTIFY_JWT_SECRET", "").strip(),
+        jwt_secret=jwt_secret,
+        require_account=require_account,
+        signup_code=_env_str("PTIFY_SIGNUP_CODE", "").strip(),
+        daily_job_limit=_env_int("PTIFY_DAILY_JOB_LIMIT", 0, minimum=0),
+        auth_rate_limit_per_minute=_env_int(
+            "PTIFY_AUTH_RATE_LIMIT_PER_MINUTE", 10, minimum=1),
+        trust_proxy=_env_bool("PTIFY_TRUST_PROXY", default=False),
+        admin_emails=frozenset(
+            e.strip().lower()
+            for e in _env_str("PTIFY_ADMIN_EMAILS", "").split(",") if e.strip()),
+        allowed_engines=tuple(
+            normalise_engine_name(e.strip())
+            for e in _env_str("PTIFY_ALLOWED_ENGINES", "").split(",") if e.strip()),
         jwt_ttl_seconds=_env_int("PTIFY_JWT_TTL_SECONDS", 24 * 3600, minimum=60),
         max_upload_bytes=_env_int(
             "PTIFY_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES, minimum=1

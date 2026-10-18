@@ -42,7 +42,7 @@ interface AuthValue {
   /** True until the initial probe settles, so screens can avoid flashing. */
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, inviteCode?: string) => Promise<void>;
   signOut: () => void;
 }
 
@@ -130,9 +130,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signUp = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, inviteCode?: string) => {
       // Signup returns a token, so there is no second round trip.
-      const res = await api.signup(email, password);
+      const res = await api.signup(email, password, inviteCode);
       adopt(res.access_token, res.email, res.user_id);
     },
     [adopt],

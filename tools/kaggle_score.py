@@ -105,7 +105,7 @@ for name, presets in {sets!r}:
     for label, ckpt in (({base_label!r}, base), ({new_label!r}, new)):
         rc = wild(["--audio-dir", str(audio / name), "--engine", "ptify",
                    "--checkpoint", str(ckpt), "--presets", presets,
-                   "--cache", str(out / ("est-" + label)),
+                   "--cache", str(out / ("est-" + label + "-" + name)),
                    "--json", str(out / (label + "-" + name + ".json"))])
         print(label, name, "exit", rc, flush=True)
 '''

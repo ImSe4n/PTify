@@ -128,10 +128,13 @@ async def healthz(request: Request) -> dict:
 async def engines(request: Request) -> list[EngineOut]:
     from transcriber.engine import normalise_engine_name
 
-    default = request.app.state.settings.default_engine
-    key = normalise_engine_name(default)
+    settings = request.app.state.settings
+    key = normalise_engine_name(settings.default_engine)
+    allowed = settings.allowed_engines
     return [
         EngineOut(name=name, default=(name == key),
                   available=_is_available(name), **facts)
         for name, facts in _ENGINES.items()
+        # A server that refuses an engine must not offer it in the picker.
+        if not allowed or name in allowed
     ]

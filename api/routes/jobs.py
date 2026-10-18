@@ -24,7 +24,9 @@ from ..security import (
     Principal,
     check_audio_duration,
     enforce_job_concurrency,
+    enforce_daily_quota,
     enforce_rate_limit,
+    require_paying_principal,
     get_principal,
 )
 from ..storage import safe_suffix
@@ -87,8 +89,10 @@ async def create_job(
 
     # Rate first, then concurrency: both are cheap, and neither should be
     # reached only after an upload has already been streamed to disk.
+    require_paying_principal(request, principal)
     await enforce_rate_limit(request, principal)
     await enforce_job_concurrency(request, principal)
+    enforce_daily_quota(request, principal)
 
     suffix = safe_suffix(file.filename or "")
     if not suffix:
@@ -107,6 +111,13 @@ async def create_job(
             400,
             "unknown_engine",
             f"Unknown engine {chosen!r}. Options: {', '.join(ENGINE_NAMES)}.",
+        )
+    allowed = settings.allowed_engines
+    if allowed and normalise_engine_name(chosen) not in allowed:
+        raise _error(
+            400,
+            "engine_not_allowed",
+            f"This server only runs: {', '.join(allowed)}.",
         )
 
     fmts = _parse_formats(formats)
@@ -130,6 +141,8 @@ async def create_job(
         original_name=file.filename or "",
     )
     job = store.create(spec, principal_id=principal.id)
+    if not principal.admin:
+        request.app.state.daily_quota.record(principal.id)
 
     dest = storage.input_path(job.id, suffix)
     written = 0

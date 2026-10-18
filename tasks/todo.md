@@ -1,3 +1,85 @@
+# Phase 10 -- production readiness (user: "resolve all of these", 2026-10-18)
+
+Target: PRIVATE BETA. Frontend on Vercel; backend as a second Modal app
+(ASGI) with a persistent Volume for SQLite + job files; transcription stays
+on the existing GPU host. Nothing goes live without the user's OK.
+
+- [x] 1. Remote path thresholds FIXED: RemoteEngine asks for
+      PTIFY_REMOTE_ENGINE (default ptify) with its thresholds, and raises if
+      the host serves another model. 67 remote tests pass (3 new). NOTE:
+      score-benchmark audio rows (benchmarks/score-benchmark-*) were produced
+      through the old default (ByteDance thresholds on ptify), so they
+      understate ptify slightly.
+- [x] 2. Security review DONE. Already sound: PBKDF2 600k + per-user salt,
+      compare_digest everywhere, JWT alg pinned + 24 h expiry, upload suffix
+      allow-list (client filename never a path), size cap, other users' jobs
+      404. FIXED (tests/test_api_production.py, 8 tests):
+        F1 anonymous could start GPU jobs -> PTIFY_REQUIRE_ACCOUNT=1
+           (enforced at job creation; /me stays 200 so the app shows sign-in)
+        F2 login/signup unlimited (PBKDF2 = CPU flood) -> per-IP limit,
+           PTIFY_AUTH_RATE_LIMIT_PER_MINUTE (10); X-Forwarded-For only with
+           PTIFY_TRUST_PROXY=1
+        F3 open sign-up -> PTIFY_SIGNUP_CODE invite code (+ frontend field)
+        F4 no daily cap -> PTIFY_DAILY_JOB_LIMIT (rolling 24 h, in-process)
+        F5 weak JWT secret -> >=32 chars required in production mode
+      Not fixed, accepted: ffmpeg decodes untrusted uploads (keep the image
+      updated; it runs inside Modal's sandbox); in-process limits reset on
+      restart (single instance).
+- [x] 3. Cost: account required + daily cap (above).
+      USER: set a spending limit in the Modal dashboard.
+      ALSO FOR USER: AuthScreen shows v1-era claims ("0.840 onset F1 on MAPS",
+      "+5.3 over ByteDance"); update before going public.
+- [~] 4. hosting/modal/api_app.py WRITTEN (not deployed): one container,
+      Volume ptify-data (/data: SQLite + job files), secret `ptify-api`,
+      remote-only engine, production settings. SQLite WAL on a Modal Volume
+      MEASURED OK (throwaway probe, 200/200 rows, probe volume deleted).
+      Also added PTIFY_ALLOWED_ENGINES (local engines = CPU abuse) + engine
+      list filtered; 313 API tests pass. DEPLOYED 2026-10-18 (user: "go"):
+      https://imse4n--ptify-api-api.us-east.modal.run (Modal app ptify-api,
+      secret ptify-api: generated JWT secret, host token, invite code in
+      var/invite-code.txt). Admin: PTIFY_ADMIN_EMAILS=snie7638@gmail.com skips
+      rate/concurrency/daily limits (sign-up with that email + invite code).
+      First deploy failed: numpy upgraded to 2.x by the 2nd pip step -> torch
+      "Numpy is not available"; pinned again, redeployed. SMOKE (live): engines
+      ['remote']; signup w/o invite 403; anonymous job 401; 25 s clip ->
+      succeeded in 45 s, MIDI/MusicXML/PDF served. Test account
+      smoketest@ptify.invalid left in the prod DB (no delete-account route).
+      CORS: redeployed with PTIFY_CORS_ORIGINS=https://ptify.vercel.app
+      (preflight 200, other origins get no ACAO). REDEPLOY THE API WITH THAT
+      ENV SET, or CORS falls back to localhost.
+- [x] 5. frontend/public/terms.html (AI-drafted, NOT legal advice; user to
+      review), linked from sign-up. Uploads deleted ~1 h after a job finishes
+      (job_ttl_seconds janitor). Frontend builds.
+- [x] 6. Frontend LIVE: https://ptify.vercel.app (Vercel project pt-ify/ptify,
+      `npx vercel deploy --prod --yes --build-env VITE_API_BASE=<api url>`
+      from frontend/). terms.html served.
+
+---
+
+# RESUME HERE (2026-10-18 ~12:10)
+
+Shipped: p39 is the live model (host redeployed, crosscheck PASS). Release
+asset model-v2 NOT published yet (user, via GitHub web UI).
+
+Running on Kaggle: `ptify-score` v3 = p39 vs p41 (Phase 41, sampled pianos).
+(v2 scored ONLY maestro3min: one cache per model across sets tripped the
+bind_cache guard; fixed to one cache per model+set, test added.)
+v2 maestro3min (`benchmarks/wild/p41/`), p39 -> p41 onset F1: clean 0.9562 ->
+0.9550 (-0.13) | phone -0.06 | youtube -0.12 | tiktok -0.16 | phone_far
+-0.16; p41 better on only 2-5 of 12 tracks. p39 numbers reproduce exactly.
+1. `python -m kaggle kernels status imse4n/ptify-score` -> COMPLETE?
+2. `python -m tools.kaggle_score fetch` -> var/score-run/ (OVERWRITES the
+   p39-vs-16b JSONs there; those are already saved in benchmarks/wild/p39/).
+3. Compare p39-* vs p41-* per set (same script as Phase 39 step 4).
+   Criteria (pre-registered): MAPS +1.0 pt or more; SMD, maestro clean and
+   upload presets not below p39 - 0.2. Also report held-out vcsl_yamaha.
+4. If it passes: ship p41 like p39 (PTIFY_SHIPPED_* + host pin, redeploy
+   with PTIFY_HOST_ENGINE=ptify, crosscheck). If not: p39 stays.
+User's stop rule: "if this doesn't make us as good as Songscription, give
+up." Open question to user: can Songscription's free tier export MIDI?
+
+---
+
 # Phase 41 -- many pianos: train on sampled uprights/grands (STARTED 2026-10-17)
 
 ## Why
@@ -30,11 +112,25 @@ Grand Steinway B (1.3 GB). Raw WAV, per-instrument naming; sparse sampling
       -> piano-bound, mostly INVENTED notes, as on MAPS. Caveat: renderer is
       simpler than a real piano. (First run scored all four 0.8950: cache
       keyed by stem reused piano 1 for all -- fixed, `bind_cache` guard.)
-- [~] 4. Probe B RUNNING (Kaggle v2, from p39, p39 recipe + synth 0.35 on
+- [x] 4. Probe B SCORED 2026-10-18 (`benchmarks/wild/p41/`), p39 -> p41 onset F1:
+        MAPS 0.8437 -> 0.8492 (+0.54, 12/14) | held-out Yamaha upright (render)
+        0.9074 -> 0.9369 (+2.95, 12/12) | Knight (trained) +7.20 | SMD -0.04 |
+        maestro clean -0.13, phone -0.06, youtube -0.12, tiktok -0.16, far -0.16
+      Pre-registered rule (MAPS >= +1.0): FAILS. p39 stays live. Gains are
+      precision (MAPS P 0.866 -> 0.880). Caveat: held-out piano uses OUR
+      renderer. Recommendation: bigger run (more/varied uprights, longer)
+      rather than shipping a near-miss; user may choose to ship p41.
+      Was: Probe B RUNNING (Kaggle v2, from p39, p39 recipe + synth 0.35 on
       Knight/Kawai/Steinway; Yamaha HELD OUT), started 2026-10-18 00:00.
       (A first prepare swallowed `--init p39` into train args; caught before
       the kernel was pushed; launcher now refuses it.)
       Scoring kernel retargeted: p39 vs p41 + rendered yamaha/knight sets.
+      TRAINED (done by 11:52 2026-10-18): var/transcriber-run-p41/ (sha
+      e87c30ee1fee, deployable, differs from p39). Val step 500 -> 8000:
+      onset -0.8%, frame -4.4%, offset -1.8%; aug onset -2.6%, aug frame
+      -5.0%. Console log came back empty (download glitch); synth was on:
+      train.py refuses synth without banks, and aug val started higher than
+      p39's (0.0312 vs 0.0290). Scoring kernel v2 pushed.
       Probe B (~10 h Kaggle): train from p39 with rendered segments mixed
       in (on-the-fly in the dataloader). Criteria: MAPS +1.0 pt or more,
       SMD and uploads not below p39 - 0.2.

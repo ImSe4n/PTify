@@ -1,0 +1,606 @@
+{
+ "engine": "ptify",
+ "audio_dir": "/kaggle/input/datasets/imse4n/ptify-wild-audio/maestro3min",
+ "rows": [
+  {
+   "preset": "clean",
+   "track": "Alexander_Scriabin-2006-Sonata_No._9-MIDI-Unprocessed",
+   "onset_p": 0.9969481180061037,
+   "onset_r": 0.8860759493670886,
+   "onset_f1": 0.9382479655337481,
+   "offset_f1": 0.10052656773575874,
+   "n_ref": 1106,
+   "n_est": 983
+  },
+  {
+   "preset": "clean",
+   "track": "Claude_Debussy-2011-Jardins_sous_la_pluie_from_Estampes-MIDI-Unprocessed",
+   "onset_p": 0.9947089947089947,
+   "onset_r": 0.9478991596638655,
+   "onset_f1": 0.9707401032702238,
+   "offset_f1": 0.11876075731497418,
+   "n_ref": 2380,
+   "n_est": 2268
+  },
+  {
+   "preset": "clean",
+   "track": "Domenico_Scarlatti-2008-Sonata_K._525-MIDI-Unprocessed",
+   "onset_p": 0.9938949938949939,
+   "onset_r": 0.9229024943310657,
+   "onset_f1": 0.9570840681951793,
+   "offset_f1": 0.4997060552616108,
+   "n_ref": 882,
+   "n_est": 819
+  },
+  {
+   "preset": "clean",
+   "track": "Felix_Mendelssohn-2017-Fantasy_in_F-sharp_Minor,_Op._28_(Complete)-MIDI-Unprocessed",
+   "onset_p": 0.9939427312775331,
+   "onset_r": 0.9323347107438017,
+   "onset_f1": 0.9621535181236673,
+   "offset_f1": 0.09541577825159915,
+   "n_ref": 1936,
+   "n_est": 1816
+  },
+  {
+   "preset": "clean",
+   "track": "Franz_Liszt-2008-Transcendental_Etude_No._10_in_F_Minor__Appassionata_-MIDI-Unprocessed",
+   "onset_p": 0.994053064958829,
+   "onset_r": 0.8979338842975206,
+   "onset_f1": 0.9435518888406426,
+   "offset_f1": 0.16717325227963523,
+   "n_ref": 2420,
+   "n_est": 2186
+  },
+  {
+   "preset": "clean",
+   "track": "Franz_Schubert-2015-Impromptu_Op._90_No._4_in_A-flat_Major-MIDI-Unprocessed",
+   "onset_p": 0.9842908438061041,
+   "onset_r": 0.9080745341614906,
+   "onset_f1": 0.9446478569890155,
+   "offset_f1": 0.09519707085935818,
+   "n_ref": 2415,
+   "n_est": 2228
+  },
+  {
+   "preset": "clean",
+   "track": "Franz_Schubert___Franz_Liszt-2004-Song_Transcriptions__Aufenthalt,_Gretchen_am_Spinnrade,_",
+   "onset_p": 0.9711769415532426,
+   "onset_r": 0.7636134718287693,
+   "onset_f1": 0.8549779735682819,
+   "offset_f1": 0.07436123348017623,
+   "n_ref": 3177,
+   "n_est": 2498
+  },
+  {
+   "preset": "clean",
+   "track": "Fr\u00e9d\u00e9ric_Chopin-2015-Etude_Op._10_No._12-MIDI-Unprocessed",
+   "onset_p": 0.9965415019762845,
+   "onset_r": 0.9554713405968736,
+   "onset_f1": 0.9755743651753325,
+   "offset_f1": 0.2916565900846433,
+   "n_ref": 2111,
+   "n_est": 2024
+  },
+  {
+   "preset": "clean",
+   "track": "Johann_Sebastian_Bach-2013-Prelude_and_Fugue_in_D-sharp_Minor,_WTC_II,_BWV_877-ORIG-MIDI_0",
+   "onset_p": 0.9989071038251366,
+   "onset_r": 0.9902491874322861,
+   "onset_f1": 0.9945593035908596,
+   "offset_f1": 0.544069640914037,
+   "n_ref": 923,
+   "n_est": 915
+  },
+  {
+   "preset": "clean",
+   "track": "Johannes_Brahms-2009-Sonata_2_F-sharp_Minor,_Op._2-MIDI-Unprocessed",
+   "onset_p": 0.9960726558664703,
+   "onset_r": 0.9066130473637176,
+   "onset_f1": 0.9492397660818714,
+   "offset_f1": 0.15532163742690058,
+   "n_ref": 2238,
+   "n_est": 2037
+  },
+  {
+   "preset": "clean",
+   "track": "Joseph_Haydn-2008-Sonata_in_C_Minor,_First_Movement-MIDI-Unprocessed",
+   "onset_p": 0.9992962702322308,
+   "onset_r": 0.9793103448275862,
+   "onset_f1": 0.9892023685127133,
+   "offset_f1": 0.4674329501915709,
+   "n_ref": 1450,
+   "n_est": 1421
+  },
+  {
+   "preset": "clean",
+   "track": "Ludwig_van_Beethoven-2015-Sonata_No._3_in_C_Major,_Op._2_No._3,_I._Allegro_con_brio-MIDI-U",
+   "onset_p": 0.9981894990947495,
+   "onset_r": 0.9621873182082606,
+   "onset_f1": 0.9798578199052133,
+   "offset_f1": 0.4863744075829384,
+   "n_ref": 1719,
+   "n_est": 1657
+  },
+  {
+   "preset": "phone",
+   "track": "Alexander_Scriabin-2006-Sonata_No._9-MIDI-Unprocessed",
+   "onset_p": 0.9916666666666667,
+   "onset_r": 0.8607594936708861,
+   "onset_f1": 0.9215876089060987,
+   "offset_f1": 0.07938044530493708,
+   "n_ref": 1106,
+   "n_est": 960
+  },
+  {
+   "preset": "phone",
+   "track": "Claude_Debussy-2011-Jardins_sous_la_pluie_from_Estampes-MIDI-Unprocessed",
+   "onset_p": 0.9912963811268896,
+   "onset_r": 0.9092436974789916,
+   "onset_f1": 0.9484987946526408,
+   "offset_f1": 0.10607056760902915,
+   "n_ref": 2380,
+   "n_est": 2183
+  },
+  {
+   "preset": "phone",
+   "track": "Domenico_Scarlatti-2008-Sonata_K._525-MIDI-Unprocessed",
+   "onset_p": 0.9938118811881188,
+   "onset_r": 0.9104308390022676,
+   "onset_f1": 0.9502958579881657,
+   "offset_f1": 0.3479289940828402,
+   "n_ref": 882,
+   "n_est": 808
+  },
+  {
+   "preset": "phone",
+   "track": "Felix_Mendelssohn-2017-Fantasy_in_F-sharp_Minor,_Op._28_(Complete)-MIDI-Unprocessed",
+   "onset_p": 0.9903409090909091,
+   "onset_r": 0.9003099173553719,
+   "onset_f1": 0.9431818181818181,
+   "offset_f1": 0.08062770562770562,
+   "n_ref": 1936,
+   "n_est": 1760
+  },
+  {
+   "preset": "phone",
+   "track": "Franz_Liszt-2008-Transcendental_Etude_No._10_in_F_Minor__Appassionata_-MIDI-Unprocessed",
+   "onset_p": 0.990177736202058,
+   "onset_r": 0.8747933884297521,
+   "onset_f1": 0.9289161913119789,
+   "offset_f1": 0.12593242650285214,
+   "n_ref": 2420,
+   "n_est": 2138
+  },
+  {
+   "preset": "phone",
+   "track": "Franz_Schubert-2015-Impromptu_Op._90_No._4_in_A-flat_Major-MIDI-Unprocessed",
+   "onset_p": 0.9773567467652495,
+   "onset_r": 0.8757763975155279,
+   "onset_f1": 0.9237824852587901,
+   "offset_f1": 0.06901070102642498,
+   "n_ref": 2415,
+   "n_est": 2164
+  },
+  {
+   "preset": "phone",
+   "track": "Franz_Schubert___Franz_Liszt-2004-Song_Transcriptions__Aufenthalt,_Gretchen_am_Spinnrade,_",
+   "onset_p": 0.9590163934426229,
+   "onset_r": 0.6997167138810199,
+   "onset_f1": 0.8090991810737034,
+   "offset_f1": 0.05495905368516834,
+   "n_ref": 3177,
+   "n_est": 2318
+  },
+  {
+   "preset": "phone",
+   "track": "Fr\u00e9d\u00e9ric_Chopin-2015-Etude_Op._10_No._12-MIDI-Unprocessed",
+   "onset_p": 0.9949748743718593,
+   "onset_r": 0.9379441023211748,
+   "onset_f1": 0.9656181419166058,
+   "offset_f1": 0.2765179224579371,
+   "n_ref": 2111,
+   "n_est": 1990
+  },
+  {
+   "preset": "phone",
+   "track": "Johann_Sebastian_Bach-2013-Prelude_and_Fugue_in_D-sharp_Minor,_WTC_II,_BWV_877-ORIG-MIDI_0",
+   "onset_p": 0.9989059080962801,
+   "onset_r": 0.9891657638136512,
+   "onset_f1": 0.9940119760479041,
+   "offset_f1": 0.4877517691888949,
+   "n_ref": 923,
+   "n_est": 914
+  },
+  {
+   "preset": "phone",
+   "track": "Johannes_Brahms-2009-Sonata_2_F-sharp_Minor,_Op._2-MIDI-Unprocessed",
+   "onset_p": 0.9928644240570846,
+   "onset_r": 0.870420017873101,
+   "onset_f1": 0.9276190476190477,
+   "offset_f1": 0.11333333333333333,
+   "n_ref": 2238,
+   "n_est": 1962
+  },
+  {
+   "preset": "phone",
+   "track": "Joseph_Haydn-2008-Sonata_in_C_Minor,_First_Movement-MIDI-Unprocessed",
+   "onset_p": 0.998567335243553,
+   "onset_r": 0.9613793103448276,
+   "onset_f1": 0.9796205200281097,
+   "offset_f1": 0.3352073085031623,
+   "n_ref": 1450,
+   "n_est": 1396
+  },
+  {
+   "preset": "phone",
+   "track": "Ludwig_van_Beethoven-2015-Sonata_No._3_in_C_Major,_Op._2_No._3,_I._Allegro_con_brio-MIDI-U",
+   "onset_p": 0.9945121951219512,
+   "onset_r": 0.9488074461896452,
+   "onset_f1": 0.9711223578445966,
+   "offset_f1": 0.4459660613277761,
+   "n_ref": 1719,
+   "n_est": 1640
+  },
+  {
+   "preset": "youtube",
+   "track": "Alexander_Scriabin-2006-Sonata_No._9-MIDI-Unprocessed",
+   "onset_p": 0.9979674796747967,
+   "onset_r": 0.8878842676311031,
+   "onset_f1": 0.939712918660287,
+   "offset_f1": 0.09186602870813396,
+   "n_ref": 1106,
+   "n_est": 984
+  },
+  {
+   "preset": "youtube",
+   "track": "Claude_Debussy-2011-Jardins_sous_la_pluie_from_Estampes-MIDI-Unprocessed",
+   "onset_p": 0.9951348960636887,
+   "onset_r": 0.9453781512605042,
+   "onset_f1": 0.9696186166774403,
+   "offset_f1": 0.12195647489765137,
+   "n_ref": 2380,
+   "n_est": 2261
+  },
+  {
+   "preset": "youtube",
+   "track": "Domenico_Scarlatti-2008-Sonata_K._525-MIDI-Unprocessed",
+   "onset_p": 0.9951040391676866,
+   "onset_r": 0.9217687074829932,
+   "onset_f1": 0.9570335491465567,
+   "offset_f1": 0.49793996468510887,
+   "n_ref": 882,
+   "n_est": 817
+  },
+  {
+   "preset": "youtube",
+   "track": "Felix_Mendelssohn-2017-Fantasy_in_F-sharp_Minor,_Op._28_(Complete)-MIDI-Unprocessed",
+   "onset_p": 0.9944812362030905,
+   "onset_r": 0.9307851239669421,
+   "onset_f1": 0.9615795090715048,
+   "offset_f1": 0.09765208110992529,
+   "n_ref": 1936,
+   "n_est": 1812
+  },
+  {
+   "preset": "youtube",
+   "track": "Franz_Liszt-2008-Transcendental_Etude_No._10_in_F_Minor__Appassionata_-MIDI-Unprocessed",
+   "onset_p": 0.9949748743718593,
+   "onset_r": 0.9,
+   "onset_f1": 0.9451073985680191,
+   "offset_f1": 0.1566500325450206,
+   "n_ref": 2420,
+   "n_est": 2189
+  },
+  {
+   "preset": "youtube",
+   "track": "Franz_Schubert-2015-Impromptu_Op._90_No._4_in_A-flat_Major-MIDI-Unprocessed",
+   "onset_p": 0.9861235452103849,
+   "onset_r": 0.9122153209109731,
+   "onset_f1": 0.9477306947730695,
+   "offset_f1": 0.09292320929232092,
+   "n_ref": 2415,
+   "n_est": 2234
+  },
+  {
+   "preset": "youtube",
+   "track": "Franz_Schubert___Franz_Liszt-2004-Song_Transcriptions__Aufenthalt,_Gretchen_am_Spinnrade,_",
+   "onset_p": 0.9684630738522955,
+   "onset_r": 0.7636134718287693,
+   "onset_f1": 0.853924674410419,
+   "offset_f1": 0.07497360084477298,
+   "n_ref": 3177,
+   "n_est": 2505
+  },
+  {
+   "preset": "youtube",
+   "track": "Fr\u00e9d\u00e9ric_Chopin-2015-Etude_Op._10_No._12-MIDI-Unprocessed",
+   "onset_p": 0.9960552268244576,
+   "onset_r": 0.9568924680246329,
+   "onset_f1": 0.9760811790287509,
+   "offset_f1": 0.2923411452041556,
+   "n_ref": 2111,
+   "n_est": 2028
+  },
+  {
+   "preset": "youtube",
+   "track": "Johann_Sebastian_Bach-2013-Prelude_and_Fugue_in_D-sharp_Minor,_WTC_II,_BWV_877-ORIG-MIDI_0",
+   "onset_p": 0.9989094874591058,
+   "onset_r": 0.9924160346695557,
+   "onset_f1": 0.9956521739130435,
+   "offset_f1": 0.5380434782608696,
+   "n_ref": 923,
+   "n_est": 917
+  },
+  {
+   "preset": "youtube",
+   "track": "Johannes_Brahms-2009-Sonata_2_F-sharp_Minor,_Op._2-MIDI-Unprocessed",
+   "onset_p": 0.9965686274509804,
+   "onset_r": 0.9084003574620196,
+   "onset_f1": 0.9504441327723234,
+   "offset_f1": 0.15427769985974754,
+   "n_ref": 2238,
+   "n_est": 2040
+  },
+  {
+   "preset": "youtube",
+   "track": "Joseph_Haydn-2008-Sonata_in_C_Minor,_First_Movement-MIDI-Unprocessed",
+   "onset_p": 0.9985935302390999,
+   "onset_r": 0.9793103448275862,
+   "onset_f1": 0.9888579387186629,
+   "offset_f1": 0.4533426183844011,
+   "n_ref": 1450,
+   "n_est": 1422
+  },
+  {
+   "preset": "youtube",
+   "track": "Ludwig_van_Beethoven-2015-Sonata_No._3_in_C_Major,_Op._2_No._3,_I._Allegro_con_brio-MIDI-U",
+   "onset_p": 0.9981894990947495,
+   "onset_r": 0.9621873182082606,
+   "onset_f1": 0.9798578199052133,
+   "offset_f1": 0.48992890995260663,
+   "n_ref": 1719,
+   "n_est": 1657
+  },
+  {
+   "preset": "tiktok",
+   "track": "Alexander_Scriabin-2006-Sonata_No._9-MIDI-Unprocessed",
+   "onset_p": 0.9905660377358491,
+   "onset_r": 0.8544303797468354,
+   "onset_f1": 0.9174757281553398,
+   "offset_f1": 0.0825242718446602,
+   "n_ref": 1106,
+   "n_est": 954
+  },
+  {
+   "preset": "tiktok",
+   "track": "Claude_Debussy-2011-Jardins_sous_la_pluie_from_Estampes-MIDI-Unprocessed",
+   "onset_p": 0.9850204266908761,
+   "onset_r": 0.9117647058823529,
+   "onset_f1": 0.9469779620336024,
+   "offset_f1": 0.10429849443595898,
+   "n_ref": 2380,
+   "n_est": 2203
+  },
+  {
+   "preset": "tiktok",
+   "track": "Domenico_Scarlatti-2008-Sonata_K._525-MIDI-Unprocessed",
+   "onset_p": 0.988833746898263,
+   "onset_r": 0.9036281179138322,
+   "onset_f1": 0.9443127962085308,
+   "offset_f1": 0.32464454976303314,
+   "n_ref": 882,
+   "n_est": 806
+  },
+  {
+   "preset": "tiktok",
+   "track": "Felix_Mendelssohn-2017-Fantasy_in_F-sharp_Minor,_Op._28_(Complete)-MIDI-Unprocessed",
+   "onset_p": 0.9932508436445444,
+   "onset_r": 0.9121900826446281,
+   "onset_f1": 0.9509962304792676,
+   "offset_f1": 0.078082929456112,
+   "n_ref": 1936,
+   "n_est": 1778
+  },
+  {
+   "preset": "tiktok",
+   "track": "Franz_Liszt-2008-Transcendental_Etude_No._10_in_F_Minor__Appassionata_-MIDI-Unprocessed",
+   "onset_p": 0.9887693027608797,
+   "onset_r": 0.8731404958677685,
+   "onset_f1": 0.9273644941847706,
+   "offset_f1": 0.13517665130568352,
+   "n_ref": 2420,
+   "n_est": 2137
+  },
+  {
+   "preset": "tiktok",
+   "track": "Franz_Schubert-2015-Impromptu_Op._90_No._4_in_A-flat_Major-MIDI-Unprocessed",
+   "onset_p": 0.974548819990745,
+   "onset_r": 0.8720496894409938,
+   "onset_f1": 0.9204545454545455,
+   "offset_f1": 0.0729895104895105,
+   "n_ref": 2415,
+   "n_est": 2161
+  },
+  {
+   "preset": "tiktok",
+   "track": "Franz_Schubert___Franz_Liszt-2004-Song_Transcriptions__Aufenthalt,_Gretchen_am_Spinnrade,_",
+   "onset_p": 0.9665092314297982,
+   "onset_r": 0.7085300598048473,
+   "onset_f1": 0.8176534689429712,
+   "offset_f1": 0.05375953505266982,
+   "n_ref": 3177,
+   "n_est": 2329
+  },
+  {
+   "preset": "tiktok",
+   "track": "Fr\u00e9d\u00e9ric_Chopin-2015-Etude_Op._10_No._12-MIDI-Unprocessed",
+   "onset_p": 0.9974849094567404,
+   "onset_r": 0.9393652297489341,
+   "onset_f1": 0.9675530617223712,
+   "offset_f1": 0.27860453769212007,
+   "n_ref": 2111,
+   "n_est": 1988
+  },
+  {
+   "preset": "tiktok",
+   "track": "Johann_Sebastian_Bach-2013-Prelude_and_Fugue_in_D-sharp_Minor,_WTC_II,_BWV_877-ORIG-MIDI_0",
+   "onset_p": 0.9989047097480832,
+   "onset_r": 0.9880823401950163,
+   "onset_f1": 0.9934640522875817,
+   "offset_f1": 0.4934640522875817,
+   "n_ref": 923,
+   "n_est": 913
+  },
+  {
+   "preset": "tiktok",
+   "track": "Johannes_Brahms-2009-Sonata_2_F-sharp_Minor,_Op._2-MIDI-Unprocessed",
+   "onset_p": 0.9923625254582484,
+   "onset_r": 0.8708668453976764,
+   "onset_f1": 0.9276534983341266,
+   "offset_f1": 0.11232746311280341,
+   "n_ref": 2238,
+   "n_est": 1964
+  },
+  {
+   "preset": "tiktok",
+   "track": "Joseph_Haydn-2008-Sonata_in_C_Minor,_First_Movement-MIDI-Unprocessed",
+   "onset_p": 0.9971326164874552,
+   "onset_r": 0.9593103448275863,
+   "onset_f1": 0.9778558875219685,
+   "offset_f1": 0.3458699472759227,
+   "n_ref": 1450,
+   "n_est": 1395
+  },
+  {
+   "preset": "tiktok",
+   "track": "Ludwig_van_Beethoven-2015-Sonata_No._3_in_C_Major,_Op._2_No._3,_I._Allegro_con_brio-MIDI-U",
+   "onset_p": 0.9908980582524272,
+   "onset_r": 0.9499709133216987,
+   "onset_f1": 0.97000297000297,
+   "offset_f1": 0.44668844668844665,
+   "n_ref": 1719,
+   "n_est": 1648
+  },
+  {
+   "preset": "phone_far",
+   "track": "Alexander_Scriabin-2006-Sonata_No._9-MIDI-Unprocessed",
+   "onset_p": 0.9793340987370838,
+   "onset_r": 0.77124773960217,
+   "onset_f1": 0.8629236216489631,
+   "offset_f1": 0.06069802731411229,
+   "n_ref": 1106,
+   "n_est": 871
+  },
+  {
+   "preset": "phone_far",
+   "track": "Claude_Debussy-2011-Jardins_sous_la_pluie_from_Estampes-MIDI-Unprocessed",
+   "onset_p": 0.9566353187042842,
+   "onset_r": 0.769327731092437,
+   "onset_f1": 0.8528178854215185,
+   "offset_f1": 0.04285048905449464,
+   "n_ref": 2380,
+   "n_est": 1914
+  },
+  {
+   "preset": "phone_far",
+   "track": "Domenico_Scarlatti-2008-Sonata_K._525-MIDI-Unprocessed",
+   "onset_p": 0.9583333333333334,
+   "onset_r": 0.808390022675737,
+   "onset_f1": 0.8769987699876999,
+   "offset_f1": 0.1045510455104551,
+   "n_ref": 882,
+   "n_est": 744
+  },
+  {
+   "preset": "phone_far",
+   "track": "Felix_Mendelssohn-2017-Fantasy_in_F-sharp_Minor,_Op._28_(Complete)-MIDI-Unprocessed",
+   "onset_p": 0.9719276356830941,
+   "onset_r": 0.8047520661157025,
+   "onset_f1": 0.8804747103701611,
+   "offset_f1": 0.04577564283695959,
+   "n_ref": 1936,
+   "n_est": 1603
+  },
+  {
+   "preset": "phone_far",
+   "track": "Franz_Liszt-2008-Transcendental_Etude_No._10_in_F_Minor__Appassionata_-MIDI-Unprocessed",
+   "onset_p": 0.9522058823529411,
+   "onset_r": 0.7491735537190083,
+   "onset_f1": 0.8385753931544866,
+   "offset_f1": 0.05874190564292322,
+   "n_ref": 2420,
+   "n_est": 1904
+  },
+  {
+   "preset": "phone_far",
+   "track": "Franz_Schubert-2015-Impromptu_Op._90_No._4_in_A-flat_Major-MIDI-Unprocessed",
+   "onset_p": 0.9569230769230769,
+   "onset_r": 0.7726708074534161,
+   "onset_f1": 0.8549828178694159,
+   "offset_f1": 0.045819014891179836,
+   "n_ref": 2415,
+   "n_est": 1950
+  },
+  {
+   "preset": "phone_far",
+   "track": "Franz_Schubert___Franz_Liszt-2004-Song_Transcriptions__Aufenthalt,_Gretchen_am_Spinnrade,_",
+   "onset_p": 0.9443231441048034,
+   "onset_r": 0.5445388731507712,
+   "onset_f1": 0.6907566380515073,
+   "offset_f1": 0.021561189858255142,
+   "n_ref": 3177,
+   "n_est": 1832
+  },
+  {
+   "preset": "phone_far",
+   "track": "Fr\u00e9d\u00e9ric_Chopin-2015-Etude_Op._10_No._12-MIDI-Unprocessed",
+   "onset_p": 0.9902173913043478,
+   "onset_r": 0.8630980577925154,
+   "onset_f1": 0.9222981523664895,
+   "offset_f1": 0.14173626929891167,
+   "n_ref": 2111,
+   "n_est": 1840
+  },
+  {
+   "preset": "phone_far",
+   "track": "Johann_Sebastian_Bach-2013-Prelude_and_Fugue_in_D-sharp_Minor,_WTC_II,_BWV_877-ORIG-MIDI_0",
+   "onset_p": 0.9977949283351709,
+   "onset_r": 0.980498374864572,
+   "onset_f1": 0.9890710382513662,
+   "offset_f1": 0.29945355191256834,
+   "n_ref": 923,
+   "n_est": 907
+  },
+  {
+   "preset": "phone_far",
+   "track": "Johannes_Brahms-2009-Sonata_2_F-sharp_Minor,_Op._2-MIDI-Unprocessed",
+   "onset_p": 0.9821029082774049,
+   "onset_r": 0.7846291331546024,
+   "onset_f1": 0.8723298559364132,
+   "offset_f1": 0.050670640834575266,
+   "n_ref": 2238,
+   "n_est": 1788
+  },
+  {
+   "preset": "phone_far",
+   "track": "Joseph_Haydn-2008-Sonata_in_C_Minor,_First_Movement-MIDI-Unprocessed",
+   "onset_p": 0.9872468117029257,
+   "onset_r": 0.9075862068965517,
+   "onset_f1": 0.9457420050305426,
+   "offset_f1": 0.12432626661875673,
+   "n_ref": 1450,
+   "n_est": 1333
+  },
+  {
+   "preset": "phone_far",
+   "track": "Ludwig_van_Beethoven-2015-Sonata_No._3_in_C_Major,_Op._2_No._3,_I._Allegro_con_brio-MIDI-U",
+   "onset_p": 0.9725856697819315,
+   "onset_r": 0.908086096567772,
+   "onset_f1": 0.9392298435619736,
+   "offset_f1": 0.2388688327316486,
+   "n_ref": 1719,
+   "n_est": 1605
+  }
+ ]
+}

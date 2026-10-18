@@ -41,6 +41,9 @@ class Principal:
 
     id: str
     kind: str = "anonymous"  # "anonymous" | "api_key" | "user"
+    #: A signed-in user whose email is in PTIFY_ADMIN_EMAILS. Skips the
+    #: per-minute, concurrency and daily limits -- never authentication.
+    admin: bool = False
 
 
 ANONYMOUS = Principal(id="anonymous", kind="anonymous")
@@ -112,7 +115,11 @@ async def get_principal(request: Request) -> Principal:
             subject = claims.get("sub")
             if not subject:
                 raise _error(401, "unauthorized", "invalid or expired token")
-            return Principal(id=f"user:{subject}", kind="user")
+            # The email claim is set by OUR signer at login, so it is as
+            # trustworthy as the signature.
+            email = str(claims.get("email") or "").strip().lower()
+            return Principal(id=f"user:{subject}", kind="user",
+                             admin=bool(email) and email in settings.admin_emails)
 
     if not settings.auth_enabled:
         # Either no key is configured, or auth was explicitly switched off.
@@ -197,8 +204,89 @@ class RateLimiter:
             self._buckets.pop(principal_id, None)
 
 
+class DailyQuota:
+    """Jobs per principal in a rolling 24 h window (2026-10-18 review).
+
+    In-process, like `RateLimiter`: right for the single-instance deployment
+    this app supports (`Storage` is local disk). A restart forgets the counts,
+    which errs on the side of the user. `limit <= 0` disables it.
+    """
+
+    WINDOW = 24 * 3600.0
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self._starts: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def _recent(self, principal_id: str, now: float) -> list[float]:
+        kept = [t for t in self._starts.get(principal_id, ()) if now - t < self.WINDOW]
+        self._starts[principal_id] = kept
+        return kept
+
+    def allows(self, principal_id: str, now: float | None = None) -> bool:
+        if self.limit <= 0:
+            return True
+        now = time.time() if now is None else now
+        with self._lock:
+            return len(self._recent(principal_id, now)) < self.limit
+
+    def record(self, principal_id: str, now: float | None = None) -> None:
+        if self.limit <= 0:
+            return
+        now = time.time() if now is None else now
+        with self._lock:
+            self._recent(principal_id, now).append(now)
+
+
+def client_ip(request: Request) -> str:
+    """The caller's IP. X-Forwarded-For only when the deployment says a
+    trusted proxy sets it -- otherwise any client could pick its own."""
+    if request.app.state.settings.trust_proxy:
+        fwd = request.headers.get("x-forwarded-for", "")
+        if fwd.strip():
+            return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def enforce_auth_rate_limit(request: Request) -> None:
+    """Per-IP limit on sign-up/login (password guessing; PBKDF2 CPU cost)."""
+    limiter: RateLimiter = request.app.state.auth_rate_limiter
+    key = "ip:" + client_ip(request)
+    if not limiter.check(key):
+        retry = limiter.retry_after(key)
+        raise HTTPException(
+            status_code=429,
+            detail=ErrorOut(code="rate_limited",
+                            message=f"too many attempts; retry in {retry}s").model_dump(),
+            headers={"Retry-After": str(retry)},
+        )
+
+
+def require_paying_principal(request: Request, principal: Principal) -> None:
+    """Production mode: only a signed-in user (or the shared key) may start
+    work that spends GPU time."""
+    if request.app.state.settings.require_account and principal.kind == "anonymous":
+        raise _error(401, "sign_in_required", "sign in to transcribe")
+
+
+def enforce_daily_quota(request: Request, principal: Principal) -> None:
+    if principal.admin:
+        return
+    quota: DailyQuota = request.app.state.daily_quota
+    if not quota.allows(principal.id):
+        raise HTTPException(
+            status_code=429,
+            detail=ErrorOut(code="daily_limit",
+                            message=f"daily limit of {quota.limit} transcriptions "
+                                    f"reached; try again tomorrow").model_dump(),
+        )
+
+
 async def enforce_rate_limit(request: Request, principal: Principal) -> None:
     """Reject a caller that is over its request rate."""
+    if principal.admin:
+        return
     limiter: RateLimiter = request.app.state.rate_limiter
     if not limiter.check(principal.id):
         retry = limiter.retry_after(principal.id)
@@ -219,6 +307,8 @@ async def enforce_job_concurrency(request: Request, principal: Principal) -> Non
     ByteDance at ~1.87x real time on the real corpus, so a handful of long
     uploads from one client is hours of the single worker's time.
     """
+    if principal.admin:
+        return
     settings = request.app.state.settings
     store = request.app.state.store
 
