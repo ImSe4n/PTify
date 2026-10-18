@@ -28,7 +28,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..models import ErrorOut
-from ..security import Principal, get_principal
+import hmac
+
+from ..security import Principal, enforce_auth_rate_limit, get_principal
 from ..users import MIN_PASSWORD_LENGTH, UserExists
 
 log = logging.getLogger(__name__)
@@ -43,6 +45,8 @@ class Credentials(BaseModel):
     #: Bounded because PBKDF2 hashes whatever it is given: an unbounded
     #: password is an unbounded amount of work per unauthenticated request.
     password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=1024)
+    #: Sign-up only, and only when the server sets PTIFY_SIGNUP_CODE.
+    invite_code: str | None = Field(None, max_length=200)
 
 
 class TokenOut(BaseModel):
@@ -89,6 +93,11 @@ def _issue(request: Request, user) -> TokenOut:
              summary="Create an account")
 async def signup(request: Request, body: Credentials) -> TokenOut:
     """Register and return a token, so signup does not need a second call."""
+    await enforce_auth_rate_limit(request)
+    code = request.app.state.settings.signup_code
+    if code and not hmac.compare_digest(
+            (body.invite_code or "").encode(), code.encode()):
+        raise _error(403, "invite_required", "a valid invite code is required")
     users = request.app.state.users
 
     try:
@@ -106,6 +115,7 @@ async def signup(request: Request, body: Credentials) -> TokenOut:
 @router.post("/auth/login", response_model=TokenOut,
              summary="Exchange credentials for a token")
 async def login(request: Request, body: Credentials) -> TokenOut:
+    await enforce_auth_rate_limit(request)
     users = request.app.state.users
     user = users.authenticate(body.email, body.password)
 

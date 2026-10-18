@@ -196,14 +196,15 @@ export async function accountsAvailable(): Promise<boolean> {
   return res.status !== 404;
 }
 
-const credentials = (email: string, password: string): RequestInit => ({
+const credentials = (email: string, password: string, inviteCode?: string): RequestInit => ({
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ email, password }),
+  // invite_code only when given: the server needs it only if PTIFY_SIGNUP_CODE is set.
+  body: JSON.stringify(inviteCode ? { email, password, invite_code: inviteCode } : { email, password }),
 });
 
-export const signup = (email: string, password: string) =>
-  request<TokenOut>("/v1/auth/signup", credentials(email, password));
+export const signup = (email: string, password: string, inviteCode?: string) =>
+  request<TokenOut>("/v1/auth/signup", credentials(email, password, inviteCode));
 
 export const login = (email: string, password: string) =>
   request<TokenOut>("/v1/auth/login", credentials(email, password));

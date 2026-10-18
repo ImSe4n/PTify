@@ -24,7 +24,7 @@ from .jobs import JobStore
 from .models import ErrorOut
 from .pipeline import PipelineError
 from .queue import get_queue
-from .security import RateLimiter
+from .security import DailyQuota, RateLimiter
 from .settings import Settings, load_settings
 from .storage import LocalStorage
 
@@ -160,6 +160,8 @@ def create_app(
     app.state.storage = storage
     app.state.queue = queue
     app.state.rate_limiter = RateLimiter(settings.rate_limit_per_minute)
+    app.state.auth_rate_limiter = RateLimiter(settings.auth_rate_limit_per_minute)
+    app.state.daily_quota = DailyQuota(settings.daily_job_limit)
 
     # Accounts need both a signing secret and somewhere to keep users, so the
     # routes exist only when both are present. A deployment with neither gets

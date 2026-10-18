@@ -79,6 +79,13 @@ PEDAL_WIRE_FIELDS = ("onset", "offset")
 #: `load()` rather than at import so a test can set them without reloading.
 ENDPOINT_ENV = "PTIFY_REMOTE_URL"
 TOKEN_ENV = "PTIFY_REMOTE_TOKEN"
+#: Which model to ask the host for. Its thresholds go with it, and the host
+#: applies whatever thresholds it is sent -- so this MUST name the model the
+#: host serves. Defaults to ptify because that is what the deployed host runs
+#: (`PTIFY_HOST_ENGINE=ptify`). Before 2026-10-18 the default was bytedance,
+#: so the web app's remote path decoded ptify with ByteDance's thresholds.
+REMOTE_ENGINE_ENV = "PTIFY_REMOTE_ENGINE"
+DEFAULT_REMOTE_ENGINE = "ptify"
 
 #: Generous, because it covers upload + cold start + inference on a long file.
 #: `api/settings.py` caps audio at 900s by default; at the measured GPU rate
@@ -284,7 +291,7 @@ class RemoteEngine(TranscriptionEngine):
         self,
         endpoint: str | None = None,
         token: str | None = None,
-        remote_engine: str = "bytedance",
+        remote_engine: str | None = None,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         transport=None,
         frame_threshold: float | None = None,
@@ -292,7 +299,11 @@ class RemoteEngine(TranscriptionEngine):
     ) -> None:
         self._endpoint = endpoint
         self._token = token
-        self._remote_engine = remote_engine
+        self._remote_engine = (
+            remote_engine
+            or os.environ.get(REMOTE_ENGINE_ENV, "").strip()
+            or DEFAULT_REMOTE_ENGINE
+        )
         self._timeout = float(timeout)
         # The injection seam, shaped like `create_app(queue=...)` and
         # `pipeline.run(engine=...)`: a fake here means the entire client is
@@ -406,6 +417,15 @@ class RemoteEngine(TranscriptionEngine):
 
         tr = parse_response(payload, source_path=str(source))
         self._verify_echo(payload)
+        if tr.engine != self._remote_engine:
+            # The thresholds sent were chosen for the model we asked for. A
+            # host serving another model returns notes decoded with the wrong
+            # settings -- plausible-looking and systematically off.
+            raise RemoteProtocolError(
+                f"asked the host for {self._remote_engine!r} but it served "
+                f"{tr.engine!r}; set {REMOTE_ENGINE_ENV} to the model the host "
+                f"was deployed with (PTIFY_HOST_ENGINE)"
+            )
 
         device = payload.get("device")
         if device:

@@ -20,6 +20,7 @@ export function AuthScreen() {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [invite, setInvite] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,7 +33,7 @@ export function AuthScreen() {
     setError(null);
     try {
       if (isLogin) await signIn(email, password);
-      else await signUp(email, password);
+      else await signUp(email, password, invite.trim() || undefined);
     } catch (err) {
       const e = err as ApiError;
       // The API never says which half of a login was wrong -- that is a
@@ -127,6 +128,20 @@ export function AuthScreen() {
             />
           </label>
 
+          {!isLogin && (
+            <label className="field">
+              <span className="field-label">Invite code</span>
+              <input
+                className="field-input"
+                type="text"
+                autoComplete="off"
+                value={invite}
+                onChange={(e) => setInvite(e.target.value)}
+                placeholder="if you were given one"
+              />
+            </label>
+          )}
+
           {error && (
             <p className="form-error" role="alert">
               {error}
@@ -146,6 +161,16 @@ export function AuthScreen() {
           {pending && (
             <p className="auth-note mono">
               hashing your password: 600,000 rounds, by design
+            </p>
+          )}
+
+          {!isLogin && (
+            <p className="auth-note">
+              By creating an account you agree to the{" "}
+              <a href="terms.html" target="_blank" rel="noopener noreferrer">
+                terms &amp; privacy notice
+              </a>
+              .
             </p>
           )}
 

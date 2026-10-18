@@ -57,3 +57,10 @@ def test_synth_banks_path_is_owned_by_the_kernel():
 def test_init_swallowed_into_train_args_is_refused():
     with pytest.raises(ValueError, match="BEFORE the action"):
         kernel_script(["--init", "p39", "--steps", "10"])
+
+
+def test_score_kernel_uses_one_cache_per_model_and_set():
+    """bind_cache refuses a cache shared across audio dirs; the kernel's
+    single per-model cache made every set after the first fail (2026-10-18)."""
+    from tools.kaggle_score import kernel_script
+    assert '("est-" + label + "-" + name)' in kernel_script()

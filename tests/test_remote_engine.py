@@ -76,6 +76,9 @@ class _FakeTransport:
 
 def _engine(transport=None, **kw):
     kw.setdefault("endpoint", ENDPOINT)
+    # The canned host answers as bytedance; ask for that explicitly. The
+    # production default (ptify) has its own tests below.
+    kw.setdefault("remote_engine", "bytedance")
     return RemoteEngine(transport=transport or _FakeTransport(), **kw)
 
 
@@ -430,3 +433,33 @@ def test_clamp_is_deliberately_not_on_the_wire():
     # It is a parsing directive, not data. Sending it would let a host disable
     # a local invariant.
     assert "clamp" not in remote.NOTE_WIRE_FIELDS
+
+
+# --- 2026-10-18: the remote path must ask for the model the host serves ---
+
+def test_default_remote_engine_is_ptify_with_ptify_thresholds(monkeypatch):
+    from transcriber import config
+    monkeypatch.delenv("PTIFY_REMOTE_ENGINE", raising=False)
+    transport = _FakeTransport(
+        _payload(engine="ptify",
+                 frame_threshold=config.PTIFY_FRAME_THRESHOLD,
+                 onset_threshold=config.PTIFY_ONSET_THRESHOLD))
+    RemoteEngine(endpoint=ENDPOINT, transport=transport).transcribe_file(__file__)
+    sent = transport.calls[0]["body"]
+    assert sent["engine"] == "ptify"
+    assert sent["onset_threshold"] == config.PTIFY_ONSET_THRESHOLD
+    assert sent["frame_threshold"] == config.PTIFY_FRAME_THRESHOLD
+
+
+def test_remote_engine_comes_from_the_environment(monkeypatch):
+    monkeypatch.setenv("PTIFY_REMOTE_ENGINE", "bytedance")
+    transport = _FakeTransport()
+    RemoteEngine(endpoint=ENDPOINT, transport=transport).transcribe_file(__file__)
+    assert transport.calls[0]["body"]["engine"] == "bytedance"
+
+
+def test_a_host_serving_another_model_is_refused():
+    # Host echoes our (bytedance) thresholds but says it ran ptify.
+    transport = _FakeTransport(_payload(engine="ptify"))
+    with pytest.raises(remote.RemoteProtocolError, match="served 'ptify'"):
+        _engine(transport, remote_engine="bytedance").transcribe_file(__file__)
