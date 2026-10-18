@@ -45,8 +45,20 @@ RELEASE_NOISE_GAIN = 0.25
 VELOCITY_EXP = 1.8        # gain = (velocity/127)**VELOCITY_EXP
 
 
+#: Salamander Grand (Phase 43): `A0v12.flac` = note, octave, velocity layer;
+#: `rel37.flac` = the key-release noise of key 20+37 (rel1 is A0, key 21).
+SALAMANDER_RE = re.compile(r"^([A-G]#?)(-?\d)v(\d+)\.")
+SALAMANDER_REL_RE = re.compile(r"^rel(\d+)\.")
+
+
 def parse_name(name: str) -> tuple[int, int, int] | None:
     """(provisional MIDI note with C4=60, velocity layer, round robin)."""
+    m = SALAMANDER_RE.match(name)
+    if m:
+        return 12 * (int(m.group(2)) + 1) + PC[m.group(1)], int(m.group(3)), 1
+    m = SALAMANDER_REL_RE.match(name)
+    if m:
+        return 20 + int(m.group(1)), 1, 1
     m = NOTE_RE.search(name)
     if not m:
         return None
@@ -133,9 +145,14 @@ class PianoBank:
         return bank
 
     def render(self, tr: Transcription, duration: float | None = None,
-               seed: int = 0) -> np.ndarray:
-        """Audio for `tr` (notes + sustain pedal) at `self.sr`."""
+               seed: int = 0, timbre: "Timbre | None" = None) -> np.ndarray:
+        """Audio for `tr` (notes + sustain pedal) at `self.sr`.
+
+        `timbre` (Phase 43) turns this bank into a slightly different
+        instrument per render; None renders the samples as recorded.
+        """
         rng = np.random.default_rng(seed)
+        tb = timbre or Timbre()
         dur = duration if duration is not None else (
             max((n.offset for n in tr.notes), default=0.0) + 2.0)
         out = np.zeros(int(dur * self.sr) + 1, dtype=np.float32)
@@ -154,6 +171,15 @@ class PianoBank:
             if len(src) == 0:
                 continue
             y = np.interp(src, np.arange(len(sample)), sample).astype(np.float32)
+            if tb.detune_cents > 0:
+                # Two strings a few cents apart: the beating of an out-of-tune
+                # unison, characteristic of older uprights.
+                r2 = ratio * 2.0 ** (tb.detune_cents / 1200.0)
+                src2 = np.arange(len(y)) * r2
+                y2 = np.interp(src2, np.arange(len(sample)), sample, right=0.0)
+                y = (0.5 * (y + y2)).astype(np.float32)
+            if tb.decay_per_sec > 0:
+                y *= np.exp(-tb.decay_per_sec * np.arange(len(y)) / self.sr).astype(np.float32)
             hold = int((end - n.onset) * self.sr)
             if hold < len(y):                      # dampers fall at `end`
                 tail = len(y) - hold
@@ -166,8 +192,40 @@ class PianoBank:
                 rel = self.releases[rr][int(rng.integers(len(self.releases[rr])))]
                 _mix(out, rel * RELEASE_NOISE_GAIN * (n.velocity / 127.0) ** VELOCITY_EXP,
                      int(end * self.sr))
+        if tb.brightness:
+            out = _tilt(out, self.sr, tb.brightness)
         peak = float(np.abs(out).max())
         return out / peak * 0.9 if peak > 0 else out
+
+
+@dataclass(frozen=True)
+class Timbre:
+    """Per-render instrument variation (Phase 43). Defaults = as recorded.
+
+    decay_per_sec   extra exponential decay: shorter sustain, as on uprights
+    detune_cents    second copy of each note this many cents sharp (unison
+                    mistuning, "honky-tonk")
+    brightness      -1..1 spectral tilt around ~1.5 kHz (dark .. bright)
+    """
+
+    decay_per_sec: float = 0.0
+    detune_cents: float = 0.0
+    brightness: float = 0.0
+
+    @classmethod
+    def draw(cls, rng: np.random.Generator) -> "Timbre":
+        return cls(decay_per_sec=float(rng.uniform(0.0, 1.5)),
+                   detune_cents=float(rng.choice([0.0, rng.uniform(1.0, 8.0)])),
+                   brightness=float(rng.uniform(-0.6, 0.8)))
+
+
+def _tilt(x: np.ndarray, sr: int, amount: float, fc: float = 1500.0) -> np.ndarray:
+    """Split at `fc` with a one-pole low-pass; boost or cut the highs."""
+    from scipy.signal import lfilter
+    a = np.exp(-2 * np.pi * fc / sr)
+    low = lfilter([1 - a], [1, -a], x).astype(np.float32)
+    high = x - low
+    return (low * (1 - 0.5 * max(amount, 0)) + high * (1 + amount)).astype(np.float32)
 
 
 def _damper_time(offset: float, pedals: list[tuple[float, float]]) -> float:

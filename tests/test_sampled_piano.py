@@ -74,3 +74,61 @@ def test_bank_round_trips_through_npz(tmp_path):
     assert back.sr == SR and sorted(back.notes[60]) == [1, 2]
     assert np.allclose(back.notes[60][2][0], bank.notes[60][2][0], atol=1e-3)
     assert len(back.releases[60]) == 1
+
+
+# --- Phase 43: Salamander names and timbre randomisation -------------------
+
+def test_salamander_names():
+    assert parse_name("A0v1.flac") == (21, 1, 1)
+    assert parse_name("D#4v16.flac") == (63, 16, 1)
+    assert parse_name("rel1.flac") == (21, 1, 1)       # release noise of A0
+    assert parse_name("rel88.flac") == (108, 1, 1)
+
+
+def _one_note(timbre=None):
+    from evaluation.sampled_piano import Timbre  # noqa: F401
+    bank = _bank()
+    tr = Transcription(notes=[NoteEvent(60, 0.1, 3.5, 100, clamp=False)], duration=4)
+    return bank.render(tr, duration=4.0, timbre=timbre)
+
+
+def test_default_timbre_is_the_plain_render():
+    from evaluation.sampled_piano import Timbre
+    assert np.array_equal(_one_note(), _one_note(Timbre()))
+
+
+def test_extra_decay_shortens_the_sustain():
+    from evaluation.sampled_piano import Timbre
+    plain, fast = _one_note(), _one_note(Timbre(decay_per_sec=1.5))
+    late = slice(int(2.5 * SR), int(3.0 * SR))
+    early = slice(int(0.2 * SR), int(0.4 * SR))
+    ratio = lambda y: np.abs(y[late]).max() / np.abs(y[early]).max()
+    assert ratio(fast) < 0.5 * ratio(plain)
+
+
+def test_detune_adds_a_second_string():
+    from evaluation.sampled_piano import Timbre
+    y = _one_note(Timbre(detune_cents=8.0))
+    seg = y[int(0.2 * SR): int(3.0 * SR)]
+    spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg))))
+    f = np.fft.rfftfreq(len(seg), 1 / SR)
+    near = lambda hz: spec[np.abs(f - hz) < 0.4].max()
+    assert near(261.63 * 2 ** (8 / 1200)) > 0.3 * near(261.63)
+
+
+def test_brightness_tilts_the_spectrum():
+    from evaluation.sampled_piano import Timbre, _tilt
+    noise = np.random.default_rng(0).standard_normal(SR).astype(np.float32)
+    def hi_share(y):
+        s = np.abs(np.fft.rfft(y)); f = np.fft.rfftfreq(len(y), 1 / SR)
+        return s[f > 3000].sum() / s.sum()
+    assert hi_share(_tilt(noise, SR, 0.8)) > hi_share(noise) > hi_share(_tilt(noise, SR, -0.6))
+
+
+def test_timbre_draws_stay_in_range():
+    from evaluation.sampled_piano import Timbre
+    rng = np.random.default_rng(1)
+    for _ in range(200):
+        t = Timbre.draw(rng)
+        assert 0 <= t.decay_per_sec <= 1.5 and 0 <= t.detune_cents <= 8
+        assert -0.6 <= t.brightness <= 0.8

@@ -1831,3 +1831,19 @@
 .legal-foot a {
   color: var(--accent);
 }
+
+/* Result page: "Something wrong?" (plan A, 2026-10-18). */
+.feedback-form {
+  display: grid;
+  gap: 0.75rem;
+}
+.feedback-form textarea {
+  resize: vertical;
+  font: inherit;
+}
+.feedback-keep {
+  display: block;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--muted);
+}

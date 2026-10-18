@@ -48,6 +48,9 @@ INITS = {
     "16b": (INIT_CKPT, INIT_SHA256),
     "p39": (Path("checkpoints/ptify-p39-step8000.pth"),
             "6687be39bdb05a55ee1c4bee907035a8f3252806032a7209adaf9903f3983f77"),
+    # Phase 41's run (3 sampled pianos, 8,000 steps); Phase 43 continues it.
+    "p41": (Path("checkpoints/ptify-p41-step8000.pth"),
+            "e87c30ee1fee1a709b590ec9127003952be6f4c54f6731e5c7043ceaa687407f"),
 }
 #: Phase 41 sampled-piano banks (`evaluation.sampled_piano`), shipped when the
 #: run uses `--augment-synth-prob`.

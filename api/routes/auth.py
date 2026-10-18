@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from ..models import ErrorOut
@@ -142,3 +142,23 @@ async def me(request: Request) -> MeOut:
         email = user.email if user else None
 
     return MeOut(id=principal.id, kind=principal.kind, email=email)
+
+
+@router.delete("/auth/me", status_code=204, response_class=Response,
+                summary="Delete my account and data")
+async def delete_me(request: Request,
+                    principal: Principal = Depends(get_principal)) -> Response:
+    """Delete the account, every job and file it owns, and any feedback it
+    gave -- including recordings it chose to share. The privacy page promises
+    deletion on request; this is that request, self-service."""
+    if principal.kind != "user":
+        raise _error(401, "unauthorized", "sign in to delete your account")
+    store, storage = request.app.state.store, request.app.state.storage
+    for job in store.list(principal.id):
+        storage.delete(job.id)
+        store.delete(job.id)
+    if request.app.state.ops is not None:
+        request.app.state.ops.delete_principal(principal.id)
+    request.app.state.users.delete(principal.id.removeprefix("user:"))
+    log.info("account deleted: %s", principal.id)
+    return Response(status_code=204)

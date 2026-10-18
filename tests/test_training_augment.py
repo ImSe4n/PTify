@@ -552,3 +552,21 @@ def test_synth_replaces_the_audio_with_the_labels_rendered(tmp_path):
     assert np.abs(out[: int(1.9 * SR)]).max() < 1e-3      # the real audio is gone
     onset = int(np.argmax(np.abs(out) > 0.1 * np.abs(out).max()))
     assert abs(onset - 2 * SR) <= SR // 1000               # the note is at its label
+
+
+def test_synth_timbre_changes_the_render_but_is_deterministic(tmp_path):
+    from dataclasses import replace
+    bank = _tiny_bank(tmp_path)
+    plain = _sampler(seed=0, clean_prob=0.0, synth_prob=1.0, synth_banks=(bank,))
+    varied = _sampler(seed=0, clean_prob=0.0, synth_prob=1.0, synth_banks=(bank,),
+                      synth_timbre=True)
+    plan = replace(plain.plan(0), cents=0.0, wet=0.0, snr_db=None, peak=None,
+                   low_gain_db=0.0, high_gain_db=0.0, source_seconds=SECONDS)
+    labels = Transcription(duration=SECONDS)
+    labels.notes = [NoteEvent(60, 1.0, 6.0, 100)]
+    audio = np.zeros(int(SECONDS * SR), dtype=np.float32)
+    a, _ = plain.apply(audio, labels, plan)
+    b, _ = varied.apply(audio, labels, plan)
+    c, _ = varied.apply(audio, labels, plan)
+    assert not np.allclose(a, b)
+    assert np.array_equal(b, c)

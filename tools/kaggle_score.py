@@ -43,7 +43,7 @@ from tools.kaggle_transcriber import (DATASET_SLUG as CODE16B_SLUG, INITS,
 #: The baseline the new checkpoint is scored against (Phase 41: p39, the
 #: shipped model). Its file comes from the training code dataset.
 BASE = "p39"
-NEW = "p41"
+NEW = "p43"
 
 ROOT = Path("var/kaggle-score")
 AUDIO_SLUG = "ptify-wild-audio"
@@ -163,6 +163,10 @@ def prepare_code() -> None:
     (ds / "tools").mkdir()
     for f in TOOLS:
         shutil.copy2(Path("tools") / f, ds / "tools" / f)
+    # The baseline ships HERE, not via the training dataset, whose checkpoint
+    # changes with every run's --init (Phase 43 continues from p41).
+    base_path, _ = INITS[BASE]
+    shutil.copy2(base_path, ds / base_path.name)
     _meta(ds, "PTify score code", CODE_SLUG, user)
     (kn / "score_kernel.py").write_text(kernel_script(), encoding="utf-8")
     (kn / "kernel-metadata.json").write_text(json.dumps({

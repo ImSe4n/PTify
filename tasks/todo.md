@@ -4,7 +4,28 @@ Live: https://ptify.vercel.app, invite-only beta, model p39. Done this branch:
 sign-in + legal accuracy copy updated to p39 figures (SMD 0.955, far phone +1.9,
 MAPS 0.844); redeployed.
 
-## A. Learn from real users (small, unlocks everything else) -- RECOMMENDED FIRST
+## A. DONE 2026-10-19 (live, verified)
+- api/ops.py + api/routes/ops.py: POST /v1/jobs/{id}/feedback (owner only;
+  files copied to /data/feedback/<id>/ ONLY with keep_audio opt-in);
+  GET /v1/admin/feedback, /v1/admin/stats (admins; 404 for everyone else);
+  job_log written on every job end via InProcessQueue.on_finish (no audio).
+- DELETE /v1/auth/me: account + jobs + files + feedback (incl. kept audio).
+- Frontend: "Something wrong?" form on the result page (keep box unticked by
+  default); "Delete account" (confirm) beside Sign out.
+- Privacy copy CORRECTED: in-app LegalScreen said audio stays on this
+  server / default engine sends nothing (false in production) and that the
+  model trained on MAPS (test only); terms.html claimed a history delete
+  button that does not exist. Both fixed; opt-in feedback + job log described.
+- Tests: tests/test_api_ops.py (5); 318 API tests pass; tsc + vite build OK.
+- LIVE SMOKE: signup -> job succeeded -> feedback kept=True -> admin routes
+  404 for a normal user -> delete account 204 -> login 401 -> volume
+  feedback/ empty. Old smoketest@ptify.invalid account deleted the same way.
+- Kept recordings: `modal volume get ptify-data feedback/<id> <dir>`; list
+  via GET /v1/admin/feedback with the admin account.
+- Still running: score benchmark through the fixed remote path
+  (benchmarks/score-benchmark-rhythm-run8-p39.json).
+
+## (original A plan)
 We have NO real upload with known-correct notes; every number is a proxy.
 - "This transcription is wrong" button on the result page: user can attach a
   note and, with explicit opt-in consent, keep the audio + our output for
@@ -15,7 +36,21 @@ We have NO real upload with known-correct notes; every number is a proxy.
   thresholds, so the notation baseline is slightly stale).
 - Success: feedback stored and listable by admin; delete-account tested.
 
-## B. Phase 43 -- piano diversity, bigger (the one lever that moved real uprights)
+## B. Phase 43 -- IN PROGRESS 2026-10-19
+Built: Salamander Grand v3 fetch (CC BY 3.0, attribution in
+var/pianos/Grand Piano, Salamander/LICENSE.txt; `tools/fetch_vcsl.py
+--salamander`), Salamander name parsing, `Timbre` per-render variation
+(decay 0-1.5/s, unison detune 0 or 1-8 cents, brightness -0.6..0.8;
+`--augment-synth-timbre`), 15 sampled_piano tests + sampler test. No clean-
+licence uprights beyond VCSL's two (Pianobook/K18 terms unclear) -> timbre
+randomisation stands in for instrument variety.
+Run design: continue from p41 (INITS["p41"], sha e87c30ee...) 8,000 steps
+with Knight + Kawai + Steinway + Salamander, synth 0.5, timbre on; Yamaha
+upright still HELD OUT. = 16k piano-diverse steps total. Judged vs p39
+(shipped) with the same rule: MAPS >= +1.0; SMD/maestro/uploads >= p39-0.2.
+Scoring kernel now ships the p39 baseline in its own code dataset.
+
+### (original B plan)
 p41: MAPS +0.54 (12/14), held-out upright +2.95 (12/12), grands -0.1. Bar was +1.0.
 - More instruments: Salamander Grand (CC BY 3.0), Sofia's grands (CC BY),
   more uprights (check K18 and Pianobook licences); keep one sampled upright
@@ -33,6 +68,12 @@ judge on ASAP validation, then the score benchmark once.
 ## D. Songscription bar (user's stop rule)
 Needs: can the free tier export MIDI? If yes: 3-4 clips with known notes,
 score both through the same metric.
+
+VERCEL FIX (2026-10-18): Git build of this branch failed (repo root ->
+Python detected -> torch has no cp314 wheel). Project now: root dir
+`frontend`, framework vite, VITE_API_BASE in project env; root
+`.vercelignore` limits CLI uploads to frontend/. Preview + prod rebuilt from
+the root without --build-env: API URL and new copy in the live bundle.
 
 Recommended order: A (1 session) -> B on Kaggle in the background while C is
 built locally. D whenever the MIDI question is answered.

@@ -223,6 +223,13 @@ class SqliteUserStore:
         return User(id=row["id"], email=row["email"],
                     created_at=row["created_at"])
 
+    def delete(self, user_id: str) -> bool:
+        """Remove an account. True if it existed."""
+        conn = self._connect()
+        n = conn.execute("DELETE FROM users WHERE id = ?", (user_id,)).rowcount
+        conn.commit()
+        return n > 0
+
     def count(self) -> int:
         return int(
             self._connect().execute("SELECT COUNT(*) AS n FROM users")
