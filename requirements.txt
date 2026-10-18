@@ -19,11 +19,31 @@
 #
 #   pip install torch --index-url https://download.pytorch.org/whl/cu121
 #
-# INSTALL ORDER NOTE: basic-pitch's dependency resolver tries to build numpy
-# from source here. Install it with --no-deps to keep the pinned numpy:
+# BASIC-PITCH DOES NOT RESOLVE ON PYTHON 3.12, AND THIS FILE THEREFORE DOES
+# NOT INSTALL IN ONE COMMAND. Verified on a from-scratch 3.12.5 venv:
+#
+#   basic-pitch 0.4.0 requires resampy<0.4.3, and this file pins ==0.4.3
+#   basic-pitch 0.4.0 requires tensorflow<2.15.1, which has no 3.12 wheel
+#
+# The second has no workaround at these pins: the wheel does not exist. An
+# environment built up incrementally hides both, which is why this went
+# unnoticed for so long -- the conflict only surfaces when pip resolves the
+# whole file at once, and `pip install -r requirements.txt` does exactly that.
+#
+# INSTALL IN TWO STEPS. Everything except the optional basicpitch engine:
+#
+#   findstr /v "basic-pitch onnxruntime" requirements.txt > req-core.txt
+#   pip install -r req-core.txt
+#
+# then, ONLY on Python <= 3.11 and ONLY if you want that engine (its resolver
+# also tries to build numpy from source, hence --no-deps):
 #
 #   pip install --no-deps basic-pitch onnxruntime pretty_midi mir_eval \
 #       resampy importlib_resources
+#
+# MEASURED without basic-pitch: 1,279 tests pass, 13 skip. The skips are
+# `test_remote_host_weights.py`, which needs `modal` -- NOT basicpitch. The
+# bytedance, ptify and remote engines are all unaffected.
 
 # --- Core ---
 numpy==1.26.4               # MUST be <2.0 for the torch 2.2 / librosa ABI

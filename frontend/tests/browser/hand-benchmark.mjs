@@ -23,11 +23,17 @@
 
 import fs from "node:fs";
 import { transformSync } from "esbuild";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, dirname } from "node:path";
 
-const ROOT = "C:/Users/SeanN/LivePianoSynthesizer";
+// Resolved from THIS file, never hardcoded. It used to be an absolute path
+// into a different project on the author's machine ("LivePianoSynthesizer"),
+// which is the same class of bug as the copied venv in HANDOFF section 1e:
+// the benchmark reported "missing handtruth.json" while the file sat in this
+// repo's own var/, and had that directory existed it would have scored ANOTHER
+// PROJECT'S hands.ts while claiming to measure this one.
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const TRUTH = `${ROOT}/var/handtruth.json`;
 
 if (!fs.existsSync(TRUTH)) {

@@ -11,7 +11,9 @@ import pytest
 from notation.quantise import grid_from_tempo, quantise_notes
 from notation.score import (
     DEFAULT_SPLIT,
+    _assign_staves,
     _group_into_chords,
+    _hand_method,
     _split_point,
     build_score,
     transcription_to_score,
@@ -42,6 +44,62 @@ def test_split_point_separates_two_registers():
 
 def test_split_point_defaults_when_there_is_nothing_to_split():
     assert _split_point([]) == DEFAULT_SPLIT
+
+
+def test_the_hand_model_runs_when_sources_are_present():
+    """The normal path. `quantise_notes` populates `source`, so this is what
+    a real transcription gets."""
+    g = grid_from_tempo(120.0, 10.0)
+    q = quantise_notes(_scale(), g)
+    treble, bass, method = _assign_staves(q, _split_point(q))
+    assert method == "sequential"
+    assert len(treble) + len(bass) == len(q)
+
+
+def test_one_missing_source_reverts_the_WHOLE_piece():
+    """The cliff this reporting exists for.
+
+    A single note without a `source` -- out of any number -- sends every note
+    through the 88.1% pitch cut instead of the 93.1% model. The point of the
+    test is the word WHOLE: it is not a per-note degradation, and nothing in
+    the engraved page says which rule drew it.
+    """
+    g = grid_from_tempo(120.0, 10.0)
+    q = quantise_notes(_scale(n=8), g)
+    assert _hand_method(q) == "sequential"
+
+    q[3].source = None
+    assert _hand_method(q) == "pitch-cut"
+
+    split = _split_point(q)
+    treble, bass, method = _assign_staves(q, split)
+    assert method == "pitch-cut"
+    # Engraved by the cut: every treble note is above it, which the sequential
+    # model does not guarantee (a hand crosses).
+    assert all(n.pitch >= split for n in treble)
+    assert all(n.pitch < split for n in bass)
+
+
+def test_stats_report_the_method_actually_used():
+    """The reported method must be the one that drew the page.
+
+    `ScoreStats.hand_method` is derived from `_hand_method` rather than from
+    `_assign_staves`' return value, so this pins that the two agree. A page
+    engraved by the fallback while the CLI says "sequential" would be a
+    measurement that lies -- worse than not reporting it.
+    """
+    g = grid_from_tempo(120.0, 10.0)
+    notes = _scale()
+    tr = Transcription(notes=notes, pedals=[], duration=10.0)
+
+    _, stats = transcription_to_score(tr, grid=g)
+    assert stats.hand_method == "sequential"
+    assert _assign_staves(stats.notes, _split_point(stats.notes))[2] == \
+        stats.hand_method
+
+
+def test_empty_input_reports_the_fallback_rather_than_claiming_a_model_ran():
+    assert _hand_method([]) == "pitch-cut"
 
 
 def test_group_into_chords_merges_simultaneous_notes():
@@ -262,3 +320,271 @@ def test_verovio_has_no_pdf_renderer():
     import verovio
 
     assert not hasattr(verovio.toolkit(), "renderToPDF")
+
+
+def test_chord_symbol_accidentals_survive_the_pdf_path():
+    """THE black-square bug.
+
+    Verovio writes a chord symbol's flat as `<tspan font-family="Leipzig">`
+    holding U+EA64, a Private Use Area codepoint from the SMuFL music font.
+    A browser with that font renders it fine. The PDF path does not have it --
+    SVG -> svglib -> reportlab -- so reportlab substitutes a missing-glyph
+    rectangle and every D-flat chord prints as a SOLID BLACK BOX followed by
+    the rest of its figure: `D-maj9` reads as a box, then `j9`.
+
+    MEASURED: 16 occurrences of U+EA64 on page 1 of a real take.
+
+    The replacement is ASCII `b`, not U+266D: see
+    `test_the_replacement_is_ascii_not_unicode_musical_symbols`.
+    """
+    from notation.render import _detonate_smufl_text
+
+    svg = '<tspan font-family="Leipzig" font-size="720px"></tspan>'
+
+    out = _detonate_smufl_text(svg)
+
+    assert "" not in out
+    assert "♭" in out or ">b</tspan>" in out
+    assert "Leipzig" not in out
+
+
+def test_the_substitution_leaves_ordinary_svg_alone():
+    """Staff accidentals are drawn as <use> references to embedded paths, not
+    as font characters, so they must pass through untouched."""
+    from notation.render import _detonate_smufl_text
+
+    svg = '<use xlink:href="#E260-abc" x="10" y="20"/>'
+
+    assert _detonate_smufl_text(svg) == svg
+
+
+def test_a_real_accidental_is_engraved_when_a_font_has_it():
+    """PROPER NOTATION, not `Db`.
+
+    reportlab's base-14 faces go through WinAnsiEncoding, which stops at 255,
+    so U+266D (9837) renders as the same missing-glyph box the SMuFL codepoint
+    did. Registering a TrueType face that actually has the glyph -- with
+    svglib's OWN font map, not just `pdfmetrics` -- is what puts a real flat
+    sign on the page.
+    """
+    import notation.render as render
+
+    if render._register_accidental_font() is None:
+        pytest.skip("no font on this machine carries U+266D")
+
+    flat = chr(0xEA64)
+    svg = (
+        '<g class="harm"><text x="1" y="1" font-size="0px">'
+        '<tspan class="text">'
+        '<tspan font-size="405px">D</tspan>'
+        f'<tspan font-family="Leipzig" font-size="720px">{flat}</tspan>'
+        "</tspan></text></g>"
+    )
+
+    out = render._detonate_smufl_text(svg)
+
+    assert "D♭" in out
+    assert "Leipzig" not in out
+
+
+def test_it_falls_back_to_ascii_when_no_font_has_the_glyph():
+    """A machine without such a font must print `Db`, not a box. The page is
+    still correct -- a lead sheet spells it that way -- just less engraved."""
+    import notation.render as render
+
+    saved = (render._accidental_font, render._accidental_font_resolved)
+    try:
+        render._accidental_font = None
+        render._accidental_font_resolved = True
+
+        flat = chr(0xEA64)
+        svg = (
+            '<g class="harm"><text x="1" y="1" font-size="0px">'
+            '<tspan class="text">'
+            '<tspan font-size="405px">D</tspan>'
+            f'<tspan font-family="Leipzig" font-size="720px">{flat}</tspan>'
+            "</tspan></text></g>"
+        )
+
+        out = render._detonate_smufl_text(svg)
+
+        assert "Db" in out
+        assert "♭" not in out
+    finally:
+        render._accidental_font, render._accidental_font_resolved = saved
+
+
+
+def test_a_chord_symbol_renders_as_one_positioned_run():
+    """Verovio splits a symbol across NESTED tspans -- the root letter in one,
+    the accidental in another with no x/y because SVG flows it after the first.
+
+    svglib does not implement that flow. It places every tspan at the text
+    origin, so the accidental lands ON TOP of the root and, being set at a
+    larger font-size, hides it: `Db` rendered as a lone flat and `DbMaj7` as a
+    flat followed by `Maj7`.
+    """
+    from notation.render import _detonate_smufl_text
+
+    flat = chr(0xEA64)          # the SMuFL glyph, built by codepoint
+    svg = (
+        '<g class="harm"><text x="100" y="50" font-size="0px">'
+        '<tspan class="text">'
+        '<tspan font-size="405px" x="100" y="50">D</tspan>'
+        f'<tspan font-family="Leipzig" font-size="720px">{flat}</tspan>'
+        "</tspan></text></g>"
+    )
+
+    out = _detonate_smufl_text(svg)
+
+    # Either spelling: this test is about the FLATTENING, and which of the
+    # two runs depends on whether this machine has a symbol font.
+    assert "D♭" in out or "Db" in out
+    assert 'font-size="0px"' not in out
+    # The SMALLEST size wins: the accidental tspan is set larger than the root,
+    # and taking the first match rendered the symbol at nearly double size.
+    assert 'font-size="405px"' in out
+
+
+def test_flattening_does_not_glue_words_together_with_spaces():
+    """Tag boundaries are not word boundaries. Verovio writes `D` and `b` as
+    separate tspans with markup indentation between them, and joining on that
+    whitespace produced `D b`."""
+    from notation.render import _detonate_smufl_text
+
+    svg = (
+        '<g class="harm"><text x="1" y="1" font-size="0px">\n'
+        '   <tspan class="text">\n'
+        '      <tspan font-size="405px">A</tspan>\n'
+        '      <tspan font-size="405px">b</tspan>\n'
+        "   </tspan>\n</text></g>"
+    )
+
+    assert "Ab" in _detonate_smufl_text(svg)
+
+
+def test_the_tempo_marking_prints_a_whole_number():
+    """A tracked tempo carries nowhere near two decimals of precision, and the
+    page printed `120.19` -- which reads as a measurement nobody made."""
+    from notation.quantise import grid_from_tempo
+    from notation.render import render_musicxml
+
+    tr = Transcription(notes=_scale(), duration=4.0, engine="test")
+    sc, _ = transcription_to_score(tr, grid_from_tempo(120.19, 4.0))
+
+    import tempfile
+    from pathlib import Path as _P
+
+    with tempfile.TemporaryDirectory() as td:
+        xml = render_musicxml(sc, _P(td) / "s.musicxml").read_text(
+            encoding="utf-8")
+
+    assert "120.19" not in xml
+
+
+# --- Phase 33 A3: the beat division is chosen, and reported ------------------
+#
+# Measured on the score benchmark: choosing three-per-beat on triple music took
+# Bach bwv_873 from 0.0% to 95.6% rhythm, with no other piece changing. These
+# pin that the product path does it, says so, and can still be told not to.
+
+def _triplets(beats=12):
+    from transcriber.events import NoteEvent, Transcription
+    # 60 BPM grid below, so these onsets are triplet eighths, beat by beat.
+    notes = [NoteEvent(60 + i, k + i / 3, k + i / 3 + 0.3)
+             for k in range(beats) for i in range(3)]
+    return Transcription(notes=notes, duration=beats + 1.0, engine="t")
+
+
+def test_triplet_music_is_quantised_on_a_triple_grid():
+    from notation.quantise import TRIPLE_SUBDIVISION
+    _, stats = transcription_to_score(_triplets(), grid_from_tempo(60.0, 14.0))
+    assert stats.subdivision == TRIPLE_SUBDIVISION
+    starts = sorted({round(q.start_beats % 1, 3) for q in stats.notes})
+    assert starts == [0.0, 0.333, 0.667]
+
+
+def test_division_grid_keeps_the_fixed_quarter_beat_grid():
+    from notation.quantise import DEFAULT_SUBDIVISION
+    _, stats = transcription_to_score(_triplets(), grid_from_tempo(60.0, 14.0),
+                                      division="grid")
+    assert stats.subdivision == DEFAULT_SUBDIVISION
+
+
+def test_analyse_false_still_reproduces_the_old_grid():
+    from notation.quantise import DEFAULT_SUBDIVISION
+    _, stats = transcription_to_score(_triplets(), grid_from_tempo(60.0, 14.0),
+                                      analyse=False)
+    assert stats.subdivision == DEFAULT_SUBDIVISION
+
+
+def test_unknown_division_is_refused():
+    with pytest.raises(ValueError):
+        transcription_to_score(_triplets(), grid_from_tempo(60.0, 14.0),
+                               division="sometimes")
+
+
+# --- compound meter (Phase 34) ----------------------------------------------------
+#
+# A beat that is a dotted value prints as compound time: a dotted-quarter beat
+# as x/8, a dotted-eighth beat as x/16 (user decision 2026-10-12: keep the
+# 16ths the decoder chose), with the tempo mark on the dotted beat.
+
+from notation.quantise import QuantisedNote  # noqa: E402
+from notation.score import time_signature_for  # noqa: E402
+
+
+def _eighths(n, value=0.5):
+    return [QuantisedNote(pitch=72 + (i % 5), start_beats=i * value, length_beats=value)
+            for i in range(n)]
+
+
+def test_time_signature_follows_the_beat():
+    assert time_signature_for(4, 1.0) == "4/4"
+    assert time_signature_for(2, 1.5) == "6/8"
+    assert time_signature_for(4, 1.5) == "12/8"
+    assert time_signature_for(4, 0.75) == "12/16"
+    with pytest.raises(ValueError):
+        time_signature_for(4, 0.6)
+
+
+def _roundtrip(sc, tmp_path):
+    from music21 import converter
+    path = tmp_path / "s.musicxml"
+    sc.write("musicxml", fp=str(path))
+    return converter.parse(str(path))
+
+
+def test_six_eight_roundtrips_with_a_dotted_quarter_tempo(tmp_path):
+    from music21 import meter, tempo
+    sc = build_score(_eighths(12), bpm=60.0, beats_per_bar=2, beat_quarters=1.5)
+    back = _roundtrip(sc, tmp_path)
+    assert {t.ratioString for t in back.recurse().getElementsByClass(meter.TimeSignature)} == {"6/8"}
+    measures = back.parts[0].getElementsByClass("Measure")
+    assert len(measures) == 2                                  # 12 eighths = two 6/8 bars
+    mm = next(iter(sc.recurse().getElementsByClass(tempo.MetronomeMark)))
+    assert mm.referent.quarterLength == 1.5 and mm.number == 60
+
+
+def test_twelve_sixteen_roundtrips(tmp_path):
+    from music21 import meter
+    sc = build_score(_eighths(24, value=0.25), bpm=90.0, beats_per_bar=4, beat_quarters=0.75)
+    back = _roundtrip(sc, tmp_path)
+    assert {t.ratioString for t in back.recurse().getElementsByClass(meter.TimeSignature)} == {"12/16"}
+    assert len(back.parts[0].getElementsByClass("Measure")) == 2
+
+
+def test_simple_time_is_unchanged():
+    from music21 import meter, tempo
+    sc = build_score(_eighths(8), bpm=100.0)
+    assert {t.ratioString for t in sc.recurse().getElementsByClass(meter.TimeSignature)} == {"4/4"}
+    mm = next(iter(sc.recurse().getElementsByClass(tempo.MetronomeMark)))
+    assert mm.referent.quarterLength == 1.0
+
+
+def test_stats_report_the_compound_signature():
+    from dataclasses import replace
+    tr = Transcription(notes=_scale(), duration=4.0, engine="test")
+    g = replace(grid_from_tempo(120.0, 4.0, 2), beat_quarters=1.5)
+    _, stats = transcription_to_score(tr, g)
+    assert stats.time_signature == "6/8"

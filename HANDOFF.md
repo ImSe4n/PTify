@@ -11,10 +11,106 @@ State of the codebase, the traps in it, and what the next phase needs.
 
 | | |
 |---|---|
-| **Last completed** | **Phase 25 — the false-positive guard does not exist. Three were tried; all three rejected. A per-beat floor briefly shipped on a 5-tempo sweep reading +0.018 and a 9-tempo sweep flipped it to −0.001. `detect_trills` is unchanged.** |
-| **Branch** | `phase-24-voice-separation`, off `master` (Phase 25 continues on it) |
-| **Tests** | 1191 Python, ~2 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire). |
-| **Next** | **Not another trill guard.** Three failed and §1c argues the corpus (7 scores, 122 trills) cannot resolve effects this small. Either enlarge the ornament corpus — this is what PDMX is finally for — or leave notation and run the pipeline end to end on a real recording. |
+| **Last completed** | **Phase 32 — score-level benchmark.** The printed page vs the published score on 38 ASAP pieces (MAESTRO test split): durations **39.6%**, rhythm **52.9%**, staff **89.1%**, beat level right in 19/38, downbeat F 0.17. From perfect MIDI the per-note columns are the same to within a point: **notation, not transcription, breaks the page.** `benchmarks/score-benchmark-README.md`. Phases 30-31 (durations under sustain) concluded that the shipped `notated_offsets` already beats every new rule; nothing wired in. |
+| **Branch** | `phase-27-recall-diagnosis`, off `master` (Phases 28 and 29 continue on it) |
+| **Tests** | 1309 Python, ~3.2 min. **112 browser checks** — `npm run test:fixtures` then `npm run test:browser`. **Plus `cd frontend && node tests/browser/hand-benchmark.mjs`** (offline, scores hand assignment against engraved repertoire; reproduces **93.1% vs 88.1%** over 6,273 notes). |
+| **Next** | **The web app engraves with our rhythm model (run 8 + tempo candidates + fast-8th halving + start phase)**: on the score benchmark (current FACTORS) rhythm 76.9% vs old rules 55.5%, durations 58.7% vs 42.2%, beat F 0.50 vs 0.49, downbeat F 0.22 vs 0.17, beat level 19 vs 18/38. Bar/time signature right on 15/38 since 2026-10-13 (was 10/38; rules 11/38): `rhythm.decode._bar` now picks the bar whose downbeats stand out most (Welch's t), because run 8's head fires on 70% of beats. Spelling/key now scored (spelling 89.4%, key 32/38). Beat level (19/38) PARKED: no chooser beats model confidence (val 29-31/89 vs ceiling 64). Two changes built but OFF pending a test-set run: local-key spelling, legato fill. Resume at the top of `tasks/todo.md`. Weights `checkpoints/rhythm-run8.pt` (gitignored; falls back to rules if missing); `PTIFY_RHYTHM=grid` reverts. Tests pin grid (`tests/conftest.py`). Details: `benchmarks/score-benchmark-README.md`. |
+| **Remote GPU** | **LIVE and verified.** `https://imse4n--ptify-transcribe-transcriber-transcribe.modal.run`, serving `ptify`. Cross-check: onset F1 **1.000000**, 284 notes both sides, **9.30x** speedup (68.0s -> 7.3s). See §1e. |
+
+### 1d. PHASES 27-29 in one paragraph
+
+**Phase 27 found the deficit and Phase 28 proved it is not reachable from the
+loss.** The onset head misses **38.3% of pp notes against 2.4% of f notes** --
+a 16x spread over 52,478 MAESTRO notes, with `pp`+`p` accounting for 66.6% of
+all missed notes from 33.4% of the reference. It was invisible on MAPS **by
+construction**: MAPS assigns every note velocity 80, so the dimension is
+degenerate there, and a first reading of the MAPS-only data supported the
+opposite conclusion. Two interventions were then measured and both failed the
+same way -- a velocity-aware decode threshold
+(`velocity-aware-decode-README.md`) and a per-note velocity-weighted onset loss
+(`soft-onset-boost-README.md`), the latter gated at ~6 GPU hours instead of a
+week. Neither recovers soft notes more EFFICIENTLY than simply trading
+precision for recall. Two independent mechanisms failing identically is
+evidence about the model rather than the interventions.
+
+**Phase 29 then improved the page rather than the notes**, after a reference
+engraving showed the transcription was already 94.2% in-key with the bass roots
+correct bar for bar. Chord detection generalises: 96.9% coverage and **0
+degenerate figures over 2,389 bars** on 12 MAESTRO pieces it was not tuned on
+(`tools/chord_generalisation.py`).
+
+### 1e. THE ENVIRONMENT AND THE REMOTE HOST — both were broken, both are fixed
+
+**`requirements.txt` does not install in one command, and has not for a while.**
+Verified on a from-scratch Python 3.12.5 venv, two independent conflicts:
+
+    basic-pitch 0.4.0 requires resampy<0.4.3   -- this file pins ==0.4.3
+    basic-pitch 0.4.0 requires tensorflow<2.15.1 -- no 3.12 wheel exists
+
+The second has **no workaround at these pins**: the wheel is not published. An
+environment built up incrementally hides both, which is why this went unnoticed
+-- the conflict only appears when pip resolves the whole file at once, which is
+exactly what `pip install -r requirements.txt` does. The file now documents the
+two-step install; the pins were deliberately NOT changed, because dropping a
+shipped engine is a decision rather than a dependency edit.
+
+**MEASURED without basic-pitch: 1,279 pass, 13 skip.** The skips are
+`test_remote_host_weights.py`, which needs `modal` -- not basicpitch. With
+`modal` installed the suite is **1,292**. bytedance, ptify and remote are all
+unaffected.
+
+**A venv copied between projects breaks every console script.** This one carried
+`command = ... -m venv C:\Users\SeanN\LivePianoSynthesizer\.venv` in its
+`pyvenv.cfg`, and every `.exe` launcher in `Scripts\` had that dead path
+compiled in -- so `pip`, `modal` and `pytest` all failed with `Fatal error in
+launcher`. **`python -m pip` / `python -m modal` bypasses the launchers
+entirely** and is the cheap fix; rebuilding is the real one.
+
+**DO NOT `Remove-Item -Recurse -Force .venv` WITHOUT CHECKING FOR HOLDERS.**
+VS Code's autopep8 language server runs from the venv, so the delete stops
+partway and leaves an unusable shell -- `Scripts\` with one file, no
+`pyvenv.cfg`, no `Lib`. Kill the holders first:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object { $_.CommandLine -like "*PTify*" } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+VS Code restarts that server within seconds, so do the delete immediately after.
+
+**The remote host was deployed but stale, and a stale deployment fails
+silently.** The app showed `deployed` and the URL returned a correct 401 --
+both healthy-looking -- while being two weeks older than the
+`ptify-remote-token` secret it was supposed to check (`Last used at` was empty).
+It would have rejected the current token, and may have predated the
+`PTIFY_HOST_ENGINE` baking, in which case it served **ByteDance under the ptify
+name** -- the Phase 22 failure, which produces plausible numbers rather than an
+error.
+
+**A redeploy settles both, and `crosscheck_remote` is what proves it.** An
+onset F1 of exactly 1.000000 against local `ptify` is the evidence the host runs
+the fine-tuned weights; anything less would mean it does not. Never conclude
+this from `modal app list`, which reported `deployed` throughout.
+
+```powershell
+$env:PYTHONUTF8 = "1"; $env:PYTHONIOENCODING = "utf-8"
+$env:PTIFY_HOST_ENGINE = "ptify"          # READ AT DEPLOY TIME -- bakes the model in
+python -m modal deploy hosting/modal/app.py
+python -m modal app list                   # deploy exits 0 even when it deploys nothing
+
+$env:PTIFY_REMOTE_URL = "https://imse4n--ptify-transcribe-transcriber-transcribe.modal.run"
+$env:PTIFY_REMOTE_TOKEN = "<the ptify-remote-token secret>"
+python -m tools.crosscheck_remote var\clip25.wav --remote-engine ptify --local-engine ptify
+```
+
+**`/v1/engines` reports CONFIGURATION, not reachability**, and the badge used to
+lie about which. `available: false` has two unrelated causes -- `ptify` needs a
+172MB checkpoint, `remote` needs `PTIFY_REMOTE_URL` -- and the UI printed
+"checkpoint missing" for both. That sent a real debugging session to the GPU
+host and its checkpoint when the cause was an unset env var. `requires_weights`
+already distinguished them on the API side; the frontend now reads it and prints
+**"not configured"** for remote.
 
 **READ THIS BEFORE PLANNING THE NEXT TRAINING RUN.** Phase 22 overturned two
 conclusions this file previously asserted:
@@ -256,6 +352,98 @@ either direction.
 The `clean` baseline for both engines exists; the augmented cells do not. See
 §9 for why that is a scoping decision rather than an oversight.
 
+### 1f. PHASE 30 — 16b IS STILL THE CHAMPION. Read before continuing training.
+
+**Re-averaged from the committed reports, not cited from this file.** Three
+separate continuations of `ptify-16b-step6555.pth` have now been scored on the
+14 MAPS paired tracks at the matched `onset_threshold` 0.6, and **all three
+lost**:
+
+| model | MAPS onset F1 | P | R | MAESTRO |
+|---|---|---|---|---|
+| ByteDance @0.3 | 0.7866 | 0.7435 | 0.8373 | 0.9693 |
+| **16b @0.6 — STILL THE CHAMPION** | **0.8502** | 0.8753 | 0.8269 | 0.9633 |
+| step10000 (Phase 23) | 0.8452 | 0.8657 | 0.8258 | 0.9595 |
+| a Phase 28 gate arm (`maps-paired-ptify-clean10.json`) | 0.8480 | 0.8692 | 0.8280 | — |
+
+They fail the same way each time: **precision drifts down, recall stays flat.**
+That is the opposite of what 16b's win was made of (a 37% cut in invented
+notes). §1a already concluded *"change the recipe, not the schedule"*;
+`continuation_run.ipynb` changes the schedule, and would be the fourth attempt
+at the same shape for ~6 GPU-hours to bank a +0.0031 *MAESTRO* delta measured
+on a 1,500-step arm -- a metric that is not the target.
+
+**`maps-paired-ptify-clean10.json` is committed but NOT REPRODUCIBLE, deliberately.**
+Its `checkpoint_sha256` is `2acf04b2…`, which matches no file on disk:
+`ptify-note-pedal.pth` now hashes `1f10fcd1…`. The report was generated
+2026-08-27; all four gate checkpoints were re-downloaded 2026-08-29 to the same
+filename, overwriting whichever arm produced it. It is kept because it is an
+honest record of a measurement that happened, and this note is here so nobody
+spends an afternoon trying to re-derive it. `benchmarks/soft-onset-boost-README.md`
+records the recovery method that worked before (reproducing a loss ordering);
+it cannot help here, because the file itself is gone.
+
+**The scoreboard-reading lesson, again.** The `Next` line in this file pointed
+at the continuation run for two phases while the committed reports said it
+would lose. §8's rule -- *diff the committed baselines, do not trust the prose*
+-- applies to this file's own summary rows.
+
+### 1g. PHASE 30 — HAND ASSIGNMENT: the model is fine, the benchmark was broken
+
+**Hand assignment cannot affect any accuracy number.** `evaluation/` has no
+coupling to it -- the metrics compare `(pitch, onset, offset)` against
+ground-truth MIDI, and staff assignment is a rendering decision downstream in
+`notation/score.py`. It is a readability problem, and a real one, but it does
+not move 0.8502 or 0.4984.
+
+**`frontend/tests/browser/hand-benchmark.mjs` had `C:/Users/SeanN/LivePianoSynthesizer`
+hardcoded** for BOTH the ground truth and the `hands.ts` it loaded. It printed
+`missing handtruth.json` while the file sat in this repo's own `var/` -- and had
+that directory existed, it would have scored **another project's implementation**
+while claiming to measure this one. Same class as the copied venv in §1e. Now
+resolved from `import.meta.url`; reproduces **93.1% vs 88.1% over 6,273 notes**,
+winning on all eight pieces.
+
+**The fallback in `_assign_staves` is a CLIFF and is now reported.** One
+`QuantisedNote` with `source is None` -- out of any number -- reverts the whole
+piece from the 93.1% sequential model to the 88.1% pitch cut. The symptom is an
+overloaded treble staff under a nearly empty bass, which reads as *"the hand
+model is bad"* rather than *"the hand model did not run"*. `ScoreStats.hand_method`
+now carries it and the CLI prints `Hands : sequential model` or names the cut
+and warns. One predicate, `score._hand_method()`, is consulted by both the
+branch and the report so they cannot drift.
+
+**Measured on `var/clip25.wav`: `Hands : sequential model`.** So on that file the
+good model ran, and any error seen there is genuine model error, not the
+fallback. Two caveats: the 93.1% is measured on **clean engraved MIDI**, so the
+in-pipeline figure on transcriber output (with invented and missing notes) is
+unmeasured and necessarily lower; and Bach is the honest weak case at **75.5%**,
+where two voices share a register and "which hand" is a real musical judgement.
+
+### 1h. PHASE 30 — ARBITRARY AUDIO -> PIANO is a SEPARATE ENGINE, not a fix
+
+`docs/arbitrary-audio.md` is the costed assessment. The short version: a
+non-piano MP3 producing garbage is **scope, not a defect** -- the CRNN's output
+layer is 88 units wide and trained only on piano, so given a guitar it reports
+which piano key best explains the spectrum. It belongs behind
+`transcriber/engine.py: get_engine()` as a fourth engine (the seam Phase 17
+already proved), never as a change to `ptify`, so the piano baselines stay
+comparable and it can ship as clearly experimental.
+
+**The hard stage is arrangement, and it has no metric.** Separation (Demucs) and
+multi-instrument transcription (MT3) are off-the-shelf and permissive. Deciding
+what *ten fingers* should play is taste, and every metric here compares against
+ground-truth MIDI of the same performance -- for arrangement no such reference
+exists. Phases 20-21 record what building without a metric costs. The licensing
+blocker from `from-scratch.md` is also worse here: there is no aligned corpus of
+"song + its piano arrangement", and the obvious pairs are two different
+copyrighted recordings.
+
+**The cheap probe first:** Demucs on a piano-plus-band mix, piano stem into the
+existing `ptify`, scored by the existing harness. A day's work, no new model,
+and it answers whether stage 1's output is clean enough for a piano transcriber
+to read. If it is not, stages 2 and 3 are moot.
+
 ## 2. Run it
 
 ```bash
@@ -297,6 +485,20 @@ set PTIFY_CHECKPOINT=C:\path\to\ptify-16b-step6555.pth
 .venv\Scripts\python.exe -m evaluation --compare
 .venv\Scripts\python.exe -m evaluation --all-presets
 .venv\Scripts\python.exe -m pytest tests/ -q
+
+# WHERE THE ERROR LIVES (Phases 27 and 30). Both take ~1.9x realtime on CPU,
+# so REDIRECT TO A FILE and use --limit: the 12-track MAESTRO corpus is 85
+# minutes of audio (Brahms alone is 24) and piping through `tail` hides all
+# progress until it exits.
+.venv\Scripts\python.exe -m tools.recall_diagnosis --audio-dir recordings/maps_paired ^
+    --engine ptify --json benchmarks/recall-diagnosis-ptify.json
+.venv\Scripts\python.exe -m tools.offset_diagnosis --audio-dir recordings/maestro_test12 ^
+    --engine ptify --limit 4 ^
+    --json benchmarks/offset-diagnosis-ptify-maestro.json > var\offset.log 2>&1
+
+# MAESTRO for the PEDAL question (it carries CC64; MAPS does not), MAPS for the
+# duration-regime question. `offset_diagnosis` prints the pedal table as
+# "no pedal data" rather than 0% when the reference has none.
 
 # sheet music (Phase 3)
 .venv\Scripts\python.exe -m notation song.mid --formats musicxml,pdf
@@ -1712,6 +1914,10 @@ before the first measurement.
    with a misleading exit code attached.
 
 Run it:
+
+A LIVE deployment exists and is verified -- see section 1e for the URL, the
+redeploy procedure, and why a stale deployment looks healthy while serving the
+wrong model.
 
 ```bash
 set PTIFY_REMOTE_URL=https://<you>--ptify-transcribe-transcriber-transcribe.modal.run

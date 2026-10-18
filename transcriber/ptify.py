@@ -79,6 +79,27 @@ PTIFY_16B_URL = (
     "model-v1/ptify-16b-step6555.pth"
 )
 
+#: Phase 39: 16b continued 8,000 steps with upload-chain augmentation (mic EQ,
+#: loudness compression, Opus/MP3). Scored against 16b on identical audio
+#: (`benchmarks/wild/p39/`): far phone +1.85, tiktok +1.00, phone +0.78, SMD
+#: +0.15, clean MAESTRO +0.11 onset F1; MAPS -0.66 (-0.18 once each model's
+#: far-mic onset delay is removed). Shipped 2026-10-17 on the user's call.
+PTIFY_P39_SHA256 = (
+    "6687be39bdb05a55ee1c4bee907035a8f3252806032a7209adaf9903f3983f77"
+)
+PTIFY_P39_NAME = "ptify-p39-step8000.pth"
+PTIFY_P39_URL = (
+    "https://github.com/ImSe4n/PTify/releases/download/"
+    "model-v2/ptify-p39-step8000.pth"
+)
+
+#: The weights the `ptify` engine (and the Modal host) SERVE. The 16b constants
+#: above stay as the pin for the benchmark reports that recorded them; rolling
+#: back is pointing these three names at the 16b ones.
+PTIFY_SHIPPED_SHA256 = PTIFY_P39_SHA256
+PTIFY_SHIPPED_NAME = PTIFY_P39_NAME
+PTIFY_SHIPPED_URL = PTIFY_P39_URL
+
 
 def _home_dir() -> Path:
     return Path.home() / ".ptify" / "checkpoints"
@@ -90,18 +111,18 @@ def _repo_dir() -> Path:
 
 
 def spec(dest_dir: Path | None = None) -> weights.Checkpoint:
-    """The fetch/verify spec for the 16b weights.
+    """The fetch/verify spec for the SHIPPED weights.
 
     Built on call rather than at import so that `Path.home()` is read when it
     is used — tests monkeypatch it, and binding at import would freeze whichever
     home directory happened to exist first.
     """
     return weights.Checkpoint(
-        url=PTIFY_16B_URL,
-        filename=PTIFY_16B_NAME,
+        url=PTIFY_SHIPPED_URL,
+        filename=PTIFY_SHIPPED_NAME,
         dest_dir=dest_dir or _home_dir(),
         min_bytes=int(weights.MIN_VALID_BYTES),
-        sha256=PTIFY_16B_SHA256,
+        sha256=PTIFY_SHIPPED_SHA256,
     )
 
 
@@ -119,10 +140,10 @@ def _missing(searched: list[Path], reason: str) -> PtifyWeightsMissing:
     return PtifyWeightsMissing(
         f"{reason}\n\n"
         f"  Looked in:\n{looked}\n\n"
-        f"  The PTify engine runs the Phase 16b fine-tuned weights, which are\n"
-        f"  NOT in this repository ({PTIFY_16B_NAME} is 172MB and .gitignore\n"
+        f"  The PTify engine runs its fine-tuned weights, which are\n"
+        f"  NOT in this repository ({PTIFY_SHIPPED_NAME} is 172MB and .gitignore\n"
         f"  covers *.pth). Expected sha256:\n"
-        f"    {PTIFY_16B_SHA256}\n\n"
+        f"    {PTIFY_SHIPPED_SHA256}\n\n"
         f"  Point at the file with {CHECKPOINT_ENV}=<path>, drop it in\n"
         f"  checkpoints/, or run: python -m transcriber --fetch-ptify\n\n"
         f"  This is deliberately an error and not a fallback. Falling back to\n"
@@ -132,7 +153,7 @@ def _missing(searched: list[Path], reason: str) -> PtifyWeightsMissing:
 
 
 def resolve_checkpoint(explicit: str | Path | None = None) -> Path:
-    """Find the 16b weights, or raise.
+    """Find the shipped weights, or raise.
 
     Order: explicit argument, then $PTIFY_CHECKPOINT, then `checkpoints/` in
     the repo, then `~/.ptify/checkpoints/`.
@@ -159,7 +180,7 @@ def resolve_checkpoint(explicit: str | Path | None = None) -> Path:
             )
         return p
 
-    searched = [_repo_dir() / PTIFY_16B_NAME, _home_dir() / PTIFY_16B_NAME]
+    searched = [_repo_dir() / PTIFY_SHIPPED_NAME, _home_dir() / PTIFY_SHIPPED_NAME]
     for p in searched:
         if p.exists():
             return p

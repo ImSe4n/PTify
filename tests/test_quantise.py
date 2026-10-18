@@ -460,3 +460,81 @@ def test_cli_reports_an_engraving_failure_without_a_traceback(tmp_path, capsys,
     err = capsys.readouterr().err
     assert "error:" in err
     assert "Traceback" not in err
+
+
+# --- Phase 33 A: choosing the beat division ----------------------------------
+#
+# Phase 32 measured 0-4% rhythm on every triplet / compound-meter piece, because
+# a 0.25-beat grid has no slot at 1/3 or 2/3 of a beat. The fix chooses the
+# division from the notes' own timing; these pin which way it must go.
+
+from notation.quantise import TRIPLE_SUBDIVISION, estimate_subdivision  # noqa: E402
+
+
+def _beats(onsets_in_beats):
+    """60 BPM, so one second is one beat and the positions read directly."""
+    grid = grid_from_tempo(60.0, max(onsets_in_beats) + 2)
+    return [NoteEvent(60, t, t + 0.2) for t in onsets_in_beats], grid
+
+
+def test_sixteenths_keep_the_duple_grid():
+    notes, grid = _beats([k + f for k in range(12) for f in (0, .25, .5, .75)])
+    assert estimate_subdivision(notes, grid) == DEFAULT_SUBDIVISION
+
+
+def test_triplets_choose_the_triple_grid():
+    notes, grid = _beats([k + f for k in range(12) for f in (0, 1 / 3, 2 / 3)])
+    assert estimate_subdivision(notes, grid) == TRIPLE_SUBDIVISION
+
+
+def test_played_triplets_with_timing_jitter_still_read_as_triple():
+    jitter = [0.02, -0.015, 0.01, -0.02, 0.015, -0.01]
+    onsets = [k + f + jitter[(3 * k + i) % 6]
+              for k in range(12) for i, f in enumerate((0, 1 / 3, 2 / 3))]
+    notes, grid = _beats([max(t, 0.0) for t in onsets])
+    assert estimate_subdivision(notes, grid) == TRIPLE_SUBDIVISION
+
+
+def test_a_few_triplets_in_duple_music_do_not_flip_the_grid():
+    duple = [k + f for k in range(12) for f in (0, .25, .5, .75)]
+    notes, grid = _beats(duple + [12 + 1 / 3, 12 + 2 / 3])
+    assert estimate_subdivision(notes, grid) == DEFAULT_SUBDIVISION
+
+
+def test_chords_count_once():
+    # Six-note chords on two triplet positions must not outvote thirty
+    # distinct sixteenth onsets: a chord is one rhythmic event.
+    duple = [k + f for k in range(10) for f in (.25, .5, .75)]
+    chords = [t for t in (10 + 1 / 3, 10 + 2 / 3) for _ in range(6)]
+    notes, grid = _beats(duple + chords)
+    assert estimate_subdivision(notes, grid) == DEFAULT_SUBDIVISION
+
+
+def test_too_little_evidence_keeps_the_default():
+    notes, grid = _beats([0, 1 / 3, 2 / 3, 1])
+    assert estimate_subdivision(notes, grid) == DEFAULT_SUBDIVISION
+
+
+def test_no_notes_keeps_the_default():
+    assert estimate_subdivision([], grid_from_tempo(60.0, 4.0)) == DEFAULT_SUBDIVISION
+
+
+def test_beat_grid_beat_is_a_quarter_unless_told_otherwise():
+    # Phase 34: compound meter. Every existing grid keeps a quarter-note beat.
+    from notation.quantise import BeatGrid
+    assert BeatGrid(beats=[0.0, 0.5], bpm=120.0).beat_quarters == 1.0
+    assert BeatGrid(beats=[0.0, 0.5], bpm=120.0, beat_quarters=1.5).beat_quarters == 1.5
+    with pytest.raises(ValueError):
+        BeatGrid(beats=[0.0, 0.5], bpm=120.0, beat_quarters=0.0)
+
+
+def test_quantised_notes_export_at_quarter_note_speed_in_compound_time():
+    # Phase 34: positions are quarter notes, bpm counts DOTTED beats in 6/8.
+    # 60 dotted-quarter beats a minute = 1 s per beat = 2/3 s per quarter.
+    from notation.quantise import BeatGrid, QuantisedNote, quantised_to_transcription
+    g = BeatGrid(beats=[0.0, 1.0, 2.0], bpm=60.0, beats_per_bar=2, beat_quarters=1.5)
+    assert g.sec_per_quarter == pytest.approx(2 / 3)
+    tr = quantised_to_transcription([QuantisedNote(60, 1.5, 0.5)], g)
+    assert tr.notes[0].onset == pytest.approx(1.0)          # one dotted beat in
+    assert tr.notes[0].offset - tr.notes[0].onset == pytest.approx(1 / 3)
+    assert BeatGrid(beats=[0.0, 0.5], bpm=120.0).sec_per_quarter == pytest.approx(0.5)

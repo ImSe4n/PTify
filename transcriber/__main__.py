@@ -40,7 +40,7 @@ def _fetch_ptify() -> int:
     """
     from . import weights
     from .ptify import (
-        CHECKPOINT_ENV, PTIFY_16B_NAME, resolve_checkpoint, spec,
+        CHECKPOINT_ENV, PTIFY_SHIPPED_NAME, resolve_checkpoint, spec,
     )
 
     try:
@@ -67,7 +67,7 @@ def _fetch_ptify() -> int:
         # The URL is empty until the checkpoint is published. Say so plainly
         # rather than failing somewhere inside urllib.
         print(f"error: {exc}", file=sys.stderr)
-        print(f"       {PTIFY_16B_NAME} is not published yet. If you have it, "
+        print(f"       {PTIFY_SHIPPED_NAME} is not published yet. If you have it, "
               f"point at it with PTIFY_CHECKPOINT=<path> or copy it into "
               f"checkpoints/.", file=sys.stderr)
         return 1

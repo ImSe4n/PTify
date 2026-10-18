@@ -251,7 +251,17 @@ export function UploadScreen({ step }: { step: UploadStep }) {
                         <span className="engine-name">{e.name}</span>
                         {e.default && <span className="engine-badge mono">default</span>}
                         {!e.available && (
-                          <span className="engine-badge mono is-warn">checkpoint missing</span>
+                          /* WHY TWO MESSAGES. `available` is false for two
+                             unrelated reasons and `requires_weights` is the
+                             field that tells them apart: ptify needs a 172MB
+                             checkpoint that is not bundled, while remote needs
+                             PTIFY_REMOTE_URL set. Printing "checkpoint
+                             missing" for both sent a real debugging session
+                             looking at the GPU host and its checkpoint, when
+                             the actual cause was an unset env var. */
+                          <span className="engine-badge mono is-warn">
+                            {e.requires_weights ? "checkpoint missing" : "not configured"}
+                          </span>
                         )}
                         {e.supports_pedal && (
                           <span className="engine-tag mono">pedal + velocity</span>

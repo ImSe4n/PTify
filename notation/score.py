@@ -21,10 +21,12 @@ from dataclasses import dataclass, field
 from transcriber.events import Transcription
 
 from .quantise import (
+    DEFAULT_SUBDIVISION,
     BeatGrid,
     QuantisedNote,
     grid_from_tempo,
     quantise_notes,
+    estimate_subdivision,
     uncertain_fraction,
 )
 
@@ -48,10 +50,33 @@ class ScoreStats:
     split_point: int
     uncertain_fraction: float
 
+    #: "sequential" (the 93.1% hand model) or "pitch-cut" (the 88.1% fallback).
+    #: Reported because the fallback is a cliff: one `QuantisedNote` without a
+    #: `source` reverts the whole piece, and the symptom looks like a bad hand
+    #: model rather than an absent one. Defaulted so a caller that builds
+    #: `ScoreStats` directly -- several tests do -- keeps working.
+    hand_method: str = "sequential"
+
+    #: Beats per grid slot the notes were snapped to: 0.25 (four per beat) or
+    #: 1/3 (three per beat, Phase 33). Reported for the same reason as
+    #: `hand_method`: a page engraved on the other grid reads very differently,
+    #: and nothing else on the page says which one was chosen.
+    subdivision: float = DEFAULT_SUBDIVISION
+
+    #: "grid" (beat tracker + quantiser) or "model" (the Phase 33 rhythm
+    #: model), and the beat times the notes were placed against. Carried so the
+    #: score benchmark scores the grid actually used, not the tracker's.
+    rhythm: str = "grid"
+    grid_beats: list[float] = field(default_factory=list, repr=False)
+
     #: The notes as placed on the grid. Carried here so callers can export the
     #: quantised rhythm (e.g. to MIDI) without re-running quantisation and
     #: risking a file that disagrees with the engraved page.
     notes: list[QuantisedNote] = field(default_factory=list, repr=False)
+    #: The key each of `notes` is SPELLED in (`analysis.spelling_keys`): the
+    #: local key where it is clear, else `key`. Positionally matched to
+    #: `notes`, so a benchmark can score exactly what the page prints.
+    note_keys: list = field(default_factory=list, repr=False)
 
     #: What `notation.analysis` found. `key` is None when detection was off or
     #: the material was too chromatic to call -- which is a real answer, not a
@@ -60,6 +85,11 @@ class ScoreStats:
     n_trills: int = 0
     n_staccato: int = 0
     time_signature: str = "4/4"
+    #: The grid's beat (Phase 34): how many per bar, and its length in quarter
+    #: notes (1.5 in 6/8). Carried because "6/8" alone does not say whether the
+    #: bar has 2 beats or 6.
+    beats_per_bar: int = 4
+    beat_quarters: float = 1.0
 
 
 def _split_point(notes: list[QuantisedNote]) -> int:
@@ -94,9 +124,23 @@ def _split_point(notes: list[QuantisedNote]) -> int:
     return best_split
 
 
+def _hand_method(notes: list[QuantisedNote]) -> str:
+    """Which staff-assignment rule `_assign_staves` will use on these notes.
+
+    ONE condition, consulted in two places: `_assign_staves` branches on it and
+    `ScoreStats` reports it. Duplicating the predicate would let the engraving
+    and the reported method drift apart, which is worse than not reporting it
+    at all -- a page engraved by the fallback while the CLI says "sequential"
+    is a measurement that lies.
+    """
+    if not notes or any(n.source is None for n in notes):
+        return "pitch-cut"
+    return "sequential"
+
+
 def _assign_staves(
     notes: list[QuantisedNote], split: int
-) -> tuple[list[QuantisedNote], list[QuantisedNote]]:
+) -> tuple[list[QuantisedNote], list[QuantisedNote], str]:
     """Split notes into (treble, bass) by HAND, falling back to the pitch cut.
 
     WHY NOT `_split_point` ALONE. It is one pitch boundary for the whole piece,
@@ -115,18 +159,26 @@ def _assign_staves(
     The fallback matters: `assign_hands` needs the raw `NoteEvent` timings, and
     `QuantisedNote.source` is typed optional. A caller that built notes without
     sources still gets a score, engraved by the old rule.
+
+    THE FALLBACK IS A CLIFF, NOT A GRADIENT, SO IT IS REPORTED. One missing
+    `source` out of thousands silently reverts the WHOLE piece from the 93.1%
+    model to the 88.1% cut -- and the visible symptom is the overloaded-treble
+    failure described above, which reads as "hand assignment is inaccurate"
+    rather than as "hand assignment did not run". Returning the method used
+    lets `ScoreStats` carry it to the CLI, the same way `uncertain_fraction`
+    reports that printed durations are estimates.
     """
-    sources = [n.source for n in notes]
-    if not notes or any(s is None for s in sources):
+    if _hand_method(notes) == "pitch-cut":
         return ([n for n in notes if n.pitch >= split],
-                [n for n in notes if n.pitch < split])
+                [n for n in notes if n.pitch < split],
+                "pitch-cut")
 
     from .hands import assign_hands
 
-    hands = assign_hands(sources)
+    hands = assign_hands([n.source for n in notes])
     treble = [n for n, h in zip(notes, hands) if h == "right"]
     bass = [n for n, h in zip(notes, hands) if h == "left"]
-    return treble, bass
+    return treble, bass, "sequential"
 
 
 def _group_into_chords(
@@ -139,8 +191,148 @@ def _group_into_chords(
     return sorted(groups.items())
 
 
+def _spell(midi: int, key_estimate=None):
+    """A MIDI number as a PITCH SPELLED FOR THE KEY.
+
+    `music21.note.Note(61)` is C#4 whatever the key signature says. In a flat
+    key every black key then prints as a sharp, and -- worse -- every white key
+    after one needs a natural to cancel it. MEASURED on a real take in F minor
+    (4 flats): **305 accidentals on 587 noteheads, 52%**, of which 142 were
+    sharps and 151 were naturals cancelling them. That is what makes an
+    otherwise correct page look filthy, and it is entirely a spelling bug --
+    the key signature was already right in the file.
+
+    Returns the enharmonic whose accidental matches the key's, so a flat key
+    prints D-, E-, A- rather than C#, D#, G#. Notes outside the signature keep
+    their default spelling, which is what a reader expects of an accidental
+    that genuinely is one.
+    """
+    from music21 import pitch as m21pitch
+
+    p = _drop_redundant_natural(m21pitch.Pitch(midi))
+    if key_estimate is None or not getattr(key_estimate, "confident", False):
+        return p
+
+    from music21 import key as m21key
+
+    try:
+        k = m21key.Key(key_estimate.tonic, key_estimate.mode)
+    except Exception:  # noqa: BLE001 -- an unparseable tonic is not fatal here
+        return p
+
+    altered = {a.name for a in k.alteredPitches}
+    if p.name in altered:
+        return p
+    enh = p.getEnharmonic()
+    if enh.name in altered:
+        return _drop_redundant_natural(enh)
+    return p
+
+
+def _drop_redundant_natural(p):
+    """Strip the no-op `natural` music21 attaches to every white-key pitch.
+
+    `Pitch(60)` carries an explicit natural whose `displayStatus` is False --
+    music21 knows not to print it -- but the MusicXML exporter writes
+    `<accidental>natural</accidental>` regardless, and Verovio then engraves
+    it. MEASURED in F minor: **125 naturals on C, F and G**, steps the
+    signature does not touch at all, so not one of them could ever be needed.
+
+    Only B, E, A and D can require a natural in a 4-flat key, and those keep
+    theirs: this drops the accidental only when it alters nothing.
+    """
+    if p.accidental is not None and p.accidental.alter == 0:
+        p.accidental = None
+    return p
+
+
+#: A note covering at least this share of the gap to the next note on its
+#: staff is written to reach it (`_legato_fill`). Tuned on ASAP validation
+#: (`tools/score_validation.py`); see the docstring for the measurement.
+LEGATO_FILL_MIN_RATIO = 0.5
+
+#: OFF: tried and failed (2026-10-14). ASAP validation durations: off 38.74%,
+#: theta 0.75 38.68%, 0.6 38.85%, 0.5 36.98%, 0.35 36.82%. Kept for reference.
+LEGATO_FILL = False
+
+
+def _legato_fill(notes: list[QuantisedNote], min_ratio: float) -> None:
+    """Write a note to the next onset on its staff when it nearly reaches it.
+
+    Scores write most notes legato: a value lasts until the next note in the
+    staff. The rhythm model predicts how long a key was HELD, which is
+    shorter. On ASAP validation pieces at the right beat level, 37% of printed
+    values were too short and 95% of those were written legato; the commonest
+    error was 3/4 of the written value. A note covering less than `min_ratio`
+    of the gap is a real detached note and keeps its rest.
+
+    One staff's notes. Mutates in place, like `_trim_staff_overlaps`.
+    """
+    starts = sorted({round(n.start_beats, 6) for n in notes})
+    from bisect import bisect_right
+    for n in notes:
+        i = bisect_right(starts, round(n.start_beats, 6))
+        if i >= len(starts):
+            continue
+        gap = starts[i] - n.start_beats
+        if min_ratio * gap <= n.length_beats < gap:
+            n.length_beats = gap
+
+
+def _trim_staff_overlaps(notes: list[QuantisedNote]) -> None:
+    """Shorten notes that outlast the next differently-timed note on the staff.
+
+    THIS IS WHAT REMOVES THE BLACK SQUARES.
+
+    music21 answers two overlapping notes on one staff by opening a SECOND
+    VOICE, and every measure where that voice has nothing then engraves a
+    whole-measure rest -- a solid black bar. MEASURED on a real take: the
+    hand-assigned staves produced **114 voices across 57 measures**, so nearly
+    every measure carried two of them, while a pitch-threshold split of the
+    same notes produced ZERO.
+
+    The overlaps are not real polyphony. Of 520 notes, **4** outlast a later
+    note on their staff -- 1 in the treble, 3 in the bass. Four notes were
+    forcing a second voice through the entire score.
+
+    Why they exist at all: hand assignment (`notation/hands.py`) is physically
+    right that one hand sustains a note while playing another, and it puts
+    both on that hand's staff. Engraving that faithfully costs a voice layer;
+    trimming the held note to end where the next begins costs a little
+    sustain, on a duration that was already an estimate under pedal.
+
+    Mutates in place, on the caller's own list.
+    """
+    # Trim against the lengths the ENGRAVER will use, not the raw ones. A
+    # chord is written with its longest member's value (see `_fill_part`), so
+    # measuring overlaps on individual lengths misses the case where that
+    # lengthening is itself what collides with the next chord -- which is what
+    # left the treble staff with 57 voices after a first, naive pass.
+    groups: dict[float, list] = {}
+    for n in notes:
+        groups.setdefault(round(n.start_beats, 6), []).append(n)
+
+    starts = sorted(groups)
+    for i, start in enumerate(starts):
+        if i + 1 >= len(starts):
+            break
+        nxt = starts[i + 1]
+        for n in groups[start]:
+            if start + n.length_beats > nxt + 1e-9:
+                n.length_beats = nxt - start
+
+    # Every member of a chord then shares the group's longest value, so the
+    # collapse `_fill_part` performs cannot reintroduce an overlap.
+    for start in starts:
+        longest = max(n.length_beats for n in groups[start])
+        for n in groups[start]:
+            n.length_beats = longest
+
+
 def _fill_part(part, notes: list[QuantisedNote], clef_obj,
-               trill_starts: set = None, staccato: set = None) -> None:
+               trill_starts: set = None, staccato: set = None,
+               key_estimate=None, note_keys: dict | None = None,
+               legato_fill: bool = False) -> None:
     """Append notes to a music21 Part, inserting rests for gaps.
 
     Notes are *inserted* at explicit offsets rather than appended in sequence,
@@ -149,8 +341,12 @@ def _fill_part(part, notes: list[QuantisedNote], clef_obj,
 
     `trill_starts` is a set of grid positions carrying a trill; `staccato` is a
     set of ids() of the QuantisedNotes to mark. Both are keyed that way because
-    grouping into chords loses the original indices.
+    grouping into chords loses the original indices. `note_keys` maps id()
+    of a QuantisedNote to the key it is spelled in (`key_estimate` if absent).
     """
+    if legato_fill:
+        _legato_fill(notes, LEGATO_FILL_MIN_RATIO)
+    _trim_staff_overlaps(notes)
     from music21 import articulations, chord, expressions, note as m21note
 
     trill_starts = trill_starts or set()
@@ -164,10 +360,12 @@ def _fill_part(part, notes: list[QuantisedNote], clef_obj,
         length = max(g.length_beats for g in group)
         pitches = sorted({g.pitch for g in group})
 
+        # Struck together, so one window: every member shares a spelling key.
+        spell_key = (note_keys or {}).get(id(group[0]), key_estimate)
         if len(pitches) == 1:
-            el = m21note.Note(pitches[0])
+            el = m21note.Note(_spell(pitches[0], spell_key))
         else:
-            el = chord.Chord(pitches)
+            el = chord.Chord([_spell(p, spell_key) for p in pitches])
         el.quarterLength = length
 
         # PLAYBACK velocity only -- this exports as MusicXML <sound dynamics>,
@@ -186,6 +384,19 @@ def _fill_part(part, notes: list[QuantisedNote], clef_obj,
         part.insert(start, el)
 
 
+#: Beat length (quarter notes) -> how a beat is counted in the signature.
+#: Phase 34: a dotted-eighth beat prints as x/16 (user decision 2026-10-12).
+_BEAT_UNITS = {1.0: (1, 4), 1.5: (3, 8), 0.75: (3, 16)}
+
+
+def time_signature_for(beats_per_bar: int, beat_quarters: float = 1.0) -> str:
+    """'4/4', or compound time for a dotted beat: 2 x 1.5 -> '6/8', 4 x 0.75 -> '12/16'."""
+    if beat_quarters not in _BEAT_UNITS:
+        raise ValueError(f"no time signature for a beat of {beat_quarters} quarters")
+    per_beat, denominator = _BEAT_UNITS[beat_quarters]
+    return f"{beats_per_bar * per_beat}/{denominator}"
+
+
 def build_score(
     notes: list[QuantisedNote],
     bpm: float,
@@ -197,14 +408,23 @@ def build_score(
     trill_starts: set = None,
     staccato: set = None,
     dynamics_marks: list = None,
+    chord_symbols: list = None,
+    beat_quarters: float = 1.0,
+    note_keys: list | None = None,
+    legato_fill: bool = False,
 ):
     """Assemble a two-staff piano score from quantised notes.
+
+    `beat_quarters` is the beat's length in quarter notes (Phase 34): 1.5 or
+    0.75 print compound time with the tempo mark on the dotted beat. Note
+    positions and values are in quarter notes either way.
 
     The optional arguments carry `notation.analysis` results. All default to
     off, so a caller that does no analysis gets exactly the previous score.
     """
     from music21 import clef, instrument, key as m21key, layout, metadata, \
         meter, stream, tempo
+    from music21 import duration
 
     sc = stream.Score()
     sc.insert(0, metadata.Metadata())
@@ -212,7 +432,7 @@ def build_score(
     sc.metadata.composer = composer or "transcribed"
 
     split = _split_point(notes)
-    treble, bass = _assign_staves(notes, split)
+    treble, bass, _hand_method = _assign_staves(notes, split)
 
     rh = stream.Part(id="treble")
     lh = stream.Part(id="bass")
@@ -220,10 +440,16 @@ def build_score(
 
     # A real meter string, so 6/8 and 2/2 are expressible. The denominator used
     # to be hardcoded to /4, which silently turned 6/8 into 6/4.
-    ts_string = time_signature or f"{beats_per_bar}/4"
+    ts_string = time_signature or time_signature_for(beats_per_bar, beat_quarters)
     rh.insert(0, meter.TimeSignature(ts_string))
     lh.insert(0, meter.TimeSignature(ts_string))
-    rh.insert(0, tempo.MetronomeMark(number=round(bpm, 2)))
+    # ROUNDED TO A WHOLE NUMBER. A tracked tempo is an estimate with far
+    # less precision than two decimals implies, and the page printed
+    # "120.19" -- which reads as a measurement nobody made. Published
+    # scores print an integer.
+    # On the beat as felt: "dotted quarter = 60" in 6/8, as published scores do.
+    rh.insert(0, tempo.MetronomeMark(number=int(round(bpm)),
+                                     referent=duration.Duration(beat_quarters)))
 
     # Inserted on BOTH staves: a key signature on one staff of a grand staff is
     # a malformed score. music21 respells accidentals from this, which is what
@@ -232,8 +458,14 @@ def build_score(
         for part in (rh, lh):
             part.insert(0, m21key.Key(key_estimate.tonic, key_estimate.mode))
 
-    _fill_part(rh, treble, clef.TrebleClef(), trill_starts, staccato)
-    _fill_part(lh, bass, clef.BassClef(), trill_starts, staccato)
+    # Spelling keys per note (positionally matched to `notes`), by id so they
+    # survive the split into staves.
+    key_by_id = ({id(n): k for n, k in zip(notes, note_keys)}
+                 if note_keys else None)
+    _fill_part(rh, treble, clef.TrebleClef(), trill_starts, staccato,
+               key_estimate, key_by_id, legato_fill)
+    _fill_part(lh, bass, clef.BassClef(), trill_starts, staccato,
+               key_estimate, key_by_id, legato_fill)
 
     # Dynamics belong to the piece, not to a hand. They go on the bass staff by
     # convention for piano music (printed between the staves).
@@ -248,6 +480,33 @@ def build_score(
     # material rather than reporting an error.
     rh.makeNotation(inPlace=True)
     lh.makeNotation(inPlace=True)
+
+    # Chord symbols go in AFTER makeNotation, straight into the measures.
+    #
+    # Inserting them into the flat part beforehand makes music21 lay the part
+    # out as two parallel VOICES, and every measure where the second voice
+    # holds no notes then engraves a whole-measure rest -- a solid black bar.
+    # MEASURED: the bare score has 0 backups and 6 rests; five symbols
+    # inserted the old way took it to **57 backups and 62 whole-measure
+    # rests**, which is what a reader sees as black squares across the page.
+    # The threshold is sharp -- one symbol is harmless, five trigger all 57 --
+    # so this is music21 switching layout strategy, not a per-symbol cost.
+    if chord_symbols:
+        from music21 import harmony as m21harmony
+
+        measures = list(rh.getElementsByClass("Measure"))
+        for sym in chord_symbols:
+            index = int(sym.start_beats // (beats_per_bar * beat_quarters))
+            if index >= len(measures):
+                continue
+            try:
+                cs = m21harmony.ChordSymbol(sym.figure)
+            except Exception:  # noqa: BLE001 -- an unnameable figure is skipped
+                continue
+            # writeAsChord=False prints the SYMBOL only; left True it also
+            # engraves the notes, doubling the harmony onto the staff.
+            cs.writeAsChord = False
+            measures[index].insert(0.0, cs)
 
     sc.insert(0, layout.StaffGroup([rh, lh], symbol="brace"))
     sc.insert(0, rh)
@@ -280,6 +539,14 @@ def transcription_to_score(
     composer: str = "",
     analyse: bool = True,
     time_signature: str = "",
+    division: str = "auto",
+    rhythm: str = "grid",
+    rhythm_model=None,
+    rhythm_bars: str = "model",
+    rhythm_choose_grid: bool = False,
+    rhythm_rescale: bool = False,
+    rhythm_try_tempi: bool = False,
+    rhythm_halve_fast_eighths: bool = False,
 ):
     """`Transcription` -> (score, stats), quantising against `grid`.
 
@@ -294,6 +561,31 @@ def transcription_to_score(
     if grid is None:
         grid = grid_from_tempo(120.0, tr.duration or 1.0, beats_per_bar)
 
+    # THE BEAT DIVISION (Phase 33). `division="auto"` chooses four or three
+    # slots per beat from the notes' own timing; "grid" keeps whatever the grid
+    # carries. Measured on `tools/score_benchmark.py` (38 published scores):
+    # rhythm 52.9% -> 58.3%, durations 39.6% -> 43.5%, Bach bwv_873 0.0% ->
+    # 95.6%, and no other piece moved. Only a grid still on the default is
+    # re-chosen, so an explicit subdivision is never overridden, and
+    # `analyse=False` keeps its promise of the literal pre-analysis score.
+    # RHYTHM SOURCE (Phase 33 C). "model" places notes with the trained rhythm
+    # model instead of snapping to the beat-tracked grid. Off by default until
+    # the score benchmark shows it beats the grid; torch is imported only here.
+    # "hybrid": the model's rhythm anchored to the beat-tracked grid, with bar
+    # lines from the model (`rhythm_bars="model"`) or the grid ("grid").
+    if rhythm not in ("grid", "model", "hybrid"):
+        raise ValueError(f"rhythm must be 'grid', 'model' or 'hybrid', got {rhythm!r}")
+    if rhythm_bars not in ("model", "grid"):
+        raise ValueError(f"rhythm_bars must be 'model' or 'grid', got {rhythm_bars!r}")
+    if rhythm != "grid" and rhythm_model is None:
+        raise ValueError("rhythm='model' needs rhythm_model (see rhythm.infer.load_model)")
+    if division not in ("auto", "grid"):
+        raise ValueError(f"division must be 'auto' or 'grid', got {division!r}")
+    if analyse and division == "auto" and grid.subdivision == DEFAULT_SUBDIVISION:
+        from dataclasses import replace
+
+        grid = replace(grid, subdivision=estimate_subdivision(tr.notes, grid))
+
     from . import analysis
 
     # ORDER IS LOAD-BEARING, and this is the only place it is visible.
@@ -307,7 +599,18 @@ def transcription_to_score(
     ornaments = analysis.detect_trills(tr.notes) if analyse else []
     notes_for_grid = analysis.apply_ornaments(tr.notes, ornaments)
 
-    qnotes = quantise_notes(notes_for_grid, grid, tr.pedals)
+    if rhythm in ("model", "hybrid"):
+        from rhythm.infer import rhythm_quantise
+
+        grid, qnotes = rhythm_quantise(
+            notes_for_grid, rhythm_model, tr.pedals,
+            grid=grid if (rhythm == "hybrid" or rhythm_choose_grid) else None,
+            bars=rhythm_bars, choose_grid=rhythm_choose_grid and rhythm == "model",
+            rescale=rhythm_rescale,
+            try_tempi=rhythm_try_tempi and rhythm_choose_grid and rhythm == "model",
+            halve_fast_eighths=rhythm_halve_fast_eighths)
+    else:
+        qnotes = quantise_notes(notes_for_grid, grid, tr.pedals)
 
     # Articulation is the other way round: "staccato" compares the played
     # duration against the NOTATED one, which does not exist until the note is
@@ -317,6 +620,21 @@ def transcription_to_score(
     dynamics_marks = analysis.detect_dynamics(qnotes) if analyse else []
 
     trill_starts = _trill_positions(qnotes, ornaments)
+
+    # Chord symbols are part of ANALYSIS, so they follow `analyse` like the
+    # key and the ornaments do: a caller asking for a literal engraving of the
+    # notes must not get an interpretation layered on top.
+    chord_syms = []
+    if analyse:
+        from .analysis import detect_chords
+
+        chord_syms = detect_chords(qnotes, grid, key_estimate)
+
+    # Spelling follows the local key (the signature stays global): validation
+    # spelling 84.8% -> 87.4% (`analysis.SPELLING_WINDOW_BEATS`).
+    note_keys = (analysis.spelling_keys(qnotes, key_estimate)
+                 if analyse and analysis.LOCAL_SPELLING
+                 else [key_estimate] * len(qnotes))
 
     sc = build_score(
         qnotes,
@@ -329,6 +647,12 @@ def transcription_to_score(
         trill_starts=trill_starts,
         staccato=staccato_ids,
         dynamics_marks=dynamics_marks,
+        chord_symbols=chord_syms,
+        beat_quarters=grid.beat_quarters,
+        note_keys=note_keys,
+        # The model writes held lengths; the grid path's `notated_offsets`
+        # already ends notes at the next onset on the staff.
+        legato_fill=LEGATO_FILL and rhythm in ("model", "hybrid"),
     )
 
     n_measures = 0
@@ -341,10 +665,23 @@ def transcription_to_score(
         bpm=grid.bpm,
         split_point=_split_point(qnotes),
         uncertain_fraction=uncertain_fraction(qnotes),
+        # Derived from the same condition `_assign_staves` branches on, rather
+        # than threaded back out of `build_score` (whose public signature
+        # returns a score alone) and rather than re-running the assignment,
+        # which would cost a second beam search to learn a label.
+        # `test_stats_report_the_method_actually_used` pins the two together.
+        hand_method=_hand_method(qnotes),
+        subdivision=grid.subdivision,
+        rhythm=rhythm,
+        grid_beats=list(grid.beats),
         notes=qnotes,
         key=key_estimate,
+        note_keys=note_keys,
         n_trills=len(ornaments),
         n_staccato=len(staccato_ids),
-        time_signature=time_signature or f"{grid.beats_per_bar}/4",
+        time_signature=time_signature or time_signature_for(grid.beats_per_bar,
+                                                            grid.beat_quarters),
+        beats_per_bar=grid.beats_per_bar,
+        beat_quarters=grid.beat_quarters,
     )
     return sc, stats

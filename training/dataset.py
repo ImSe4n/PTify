@@ -69,7 +69,11 @@ from transcriber.events import Transcription
 
 from .index import Segment
 from .labels import load_labels_cached
-from .targets import SEGMENT_SECONDS, render_targets
+from .targets import (
+    SEGMENT_SECONDS,
+    SOFT_ONSET_BOOST_OFF,
+    render_targets,
+)
 
 #: What the model consumes. ByteDance `sample_rate`; also the rate its
 #: internal Spectrogram/LogmelFilterBank are configured for, so this is not
@@ -187,12 +191,17 @@ class SegmentDataset:
         decoder: Decoder | None = None,
         label_loader: Callable[[Path], Transcription] | None = None,
         epoch_offset: int = 0,
+        soft_onset_boost: float = SOFT_ONSET_BOOST_OFF,
     ) -> None:
         self.segments = list(segments)
         self.audio_root = Path(audio_root)
         self.midi_root = Path(midi_root) if midi_root else self.audio_root
         self.seconds = seconds
         self.augment = augment
+        # Phase 28. Left at SOFT_ONSET_BOOST_OFF this changes nothing: the
+        # rendered weight map is all ones and the loss is bit-identical to
+        # every published run's.
+        self.soft_onset_boost = float(soft_onset_boost)
         self.epoch_offset = int(epoch_offset)
         self._decode = decoder or decode_segment
         self._load_labels = label_loader or load_labels_cached
@@ -267,7 +276,8 @@ class SegmentDataset:
             start = 0.0
 
         targets = render_targets(
-            labels.notes, labels.pedals, start, seconds=self.seconds
+            labels.notes, labels.pedals, start, seconds=self.seconds,
+            soft_onset_boost=self.soft_onset_boost,
         )
 
         return {"waveform": fit_length(audio, self._samples), **targets}

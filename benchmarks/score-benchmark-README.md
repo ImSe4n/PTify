@@ -1,0 +1,402 @@
+# Score-level benchmark — the printed page vs the published score (Phase 32)
+
+`score-benchmark-ptify-asap.json`, produced by
+
+    python -m tools.score_benchmark --engine remote --served ptify \
+        --json benchmarks/score-benchmark-ptify-asap.json
+
+**Corpus:** ASAP scores whose performance is a MAESTRO v3 **test-split**
+recording, one performance per score: 39 pieces, 38 scored. Liszt Transcendental
+Etude 11 was skipped because only 1% of its notes matched between ASAP and
+MAESTRO. Unresolved.
+ASAP and MAESTRO are CC BY-NC-SA, so only this summary and the JSON are
+committed. The data lives under `var/` and `recordings/`.
+
+**Model:** `ptify` 16b on the Modal host. Cross-checked against local `ptify`
+the same day: 284/284 notes, onset F1 1.000.
+
+## The result (pooled over notes, 38 pieces)
+
+| row | reached score | meter right | beat F | downbeat F | durations | rhythm | staff |
+|---|---|---|---|---|---|---|---|
+| from audio | 83.9% | 19/38 | 0.49 | 0.17 | **39.6%** | **52.9%** | 89.1% |
+| from perfect MIDI | 92.4% | 19/38 | 0.49 | 0.17 | **39.3%** | **52.2%** | 89.6% |
+
+## What it says
+
+1. **Notation, not transcription, is what breaks the page.** For notes that
+   reach the score, durations, rhythm and staff are the same from audio as from
+   the perfect performance MIDI, to within a point. Transcription costs
+   coverage (83.9% vs 92.4% of score notes are reached) and almost nothing
+   else. Better audio models do not move the page's rhythm.
+2. **Rhythm is right only about half the time.** Rhythm here is the gap
+   between consecutive written onsets.
+3. **The grid cannot write triple division.** `DEFAULT_SUBDIVISION = 0.25`
+   splits every beat into four. The five worst rhythm scores are all
+   triple-division music: Bach bwv_873 fugue (12/16) 0.0%, Chopin Sonata 2
+   finale (triplets) 0.5%, Beethoven 18-4 (6/8) 0.9%, Schubert 664-3 (6/8)
+   2.3%, Liszt S145/2 (6/8, 9/8) 3.5%. With the beat tracked correctly
+   (factor 1), these pieces still fail.
+4. **The beat level is wrong in half the pieces (19/38).** The tracker
+   locks onto 2x, 3x or 4x the written beat, and downbeats are almost never
+   placed (F 0.17). The pipeline also assumes 4/4 unless told otherwise.
+
+## Columns
+
+Defined in `evaluation/score_benchmark.py`. Each column fails for one reason
+only:
+
+- **meter**: the factor is how many score beats one of our beats spans. It
+  rescales durations and rhythm, so a tempo-octave error is charged here only.
+- **rhythm**: gaps, not absolute positions, so a pickup bar is not penalised.
+- **beat counts**: a performance whose beats do not pair 1:1 with the score's
+  is refused (ASAP README: 29 performances skip beats).
+
+## Not yet scored
+
+- Pitch spelling and key: needs the MusicXML, not the score MIDI.
+- Voices, ties, beaming, and readability as a whole.
+- Fixed 1/48-beat tolerance; there is no partial credit.
+
+## Phase 33 A — choosing the beat division (shipped)
+
+`score-benchmark-ptify-asap-phase33a.json`, same command (`--subdivision auto` is
+now the default; `--subdivision fixed` reproduces the table above exactly).
+
+`notation.quantise.estimate_subdivision` picks four or three slots per beat for
+the whole piece from where onsets fall in the beat, and keeps 0.25 unless the
+triple evidence is a clear majority. It's wired into `transcription_to_score`
+(`division="auto"`), so the web app, CLI and benchmark all use it.
+
+| row | durations | rhythm | staff |
+|---|---|---|---|
+| from audio, before | 39.6% | 52.9% | 89.1% |
+| from audio, **after** | **43.5%** | **58.3%** | 89.1% |
+| from perfect MIDI, after | 43.1% | 57.5% | 89.6% |
+
+Only three pieces changed, all for the better, and the other 35 are identical:
+Bach bwv_873 rhythm 0.0% -> 95.6%, Beethoven 18-4 0.9% -> 89.5%, Schubert
+664-3 2.3% -> 24.7%. The Chopin Sonata 2 finale and Liszt S145/2 stayed on the
+0.25 grid because the evidence was mixed, so the rule abstained.
+
+## Phase 33 C — our own rhythm model, run 5 (built, NOT the default)
+
+`score-benchmark-rhythm-model-run5.json`, produced by the same command plus
+`--rhythm-model var/rhythm-models/run5.pt`. A small Transformer (d192, 3 layers),
+trained on Kaggle (T4, 25 min) on 785 ASAP performances. The benchmark's 39 scores
+were excluded from training entirely. Training log: `training/rhythm-run5.jsonl`.
+
+| from audio | pipeline (Phase 33 A) | rhythm model run 5 |
+|---|---|---|
+| rhythm | 58.3% | **63.3%** |
+| durations | 43.5% | **47.0%** |
+| staff | 89.1% | 89.1% |
+| beat level right | 19/38 | 16/38 |
+| beat F / downbeat F | 0.49 / 0.17 | 0.30 / 0.14 |
+
+From perfect MIDI: rhythm 57.5% -> 68.7%, durations 43.1% -> 51.3%. The model is
+better on 28/38 pieces for rhythm and on 28/38 for durations, and worse on 9 and 7.
+
+Runs 1-4 failed, and why is the useful part:
+1. Labels in ANNOTATED beats: annotators' beat units differ per score (quarter
+   x159, dotted quarter x41, half x18 ...), so the labels contradicted each other.
+2. Quarter-note labels: still capped. A written value is a notational choice (2/4
+   and 2/2 sound the same). One scale factor per piece lifted validation real-gap
+   accuracy from 34.1% to 58.5%.
+3. Fix (run 5): labels re-expressed per window in units of the beat tracked from
+   the notes, which the model sees as input. Validation tracks training
+   (gap 80.0% vs 81.0%). Real gaps 64.4% (always-majority 37.6%), values 51.5%
+   (always-majority 30.5%).
+
+It is not the default because beat level and bar lines (downbeats) got slightly
+worse. Those shape the page as much as rhythm does.
+
+## Phase 33 C — the model is the web app's default (2026-10-10)
+
+Hybrids tried first: the model's rhythm anchored to the pipeline's audio grid
+(`--rhythm-mode hybrid`, `score-benchmark-rhythm-hybrid-*.json`). Both lost rhythm.
+
+| from audio | pipeline | **model (run 5)** | hybrid, grid bars | hybrid, model bars |
+|---|---|---|---|---|
+| rhythm | 58.3% | **63.3%** | 54.5% | 54.5% |
+| durations | 43.5% | **47.0%** | 42.7% | 42.7% |
+| beat level right | 19/38 | 16/38 | 19/38 | 19/38 |
+| downbeat F | 0.17 | 0.14 | 0.17 | **0.23** |
+
+Likely cause: the model was trained on grids tracked from NOTES, so an audio grid
+is unfamiliar input, and re-anchoring snaps away its choices. Useful finding:
+the model's downbeat head beats the pipeline's bar lines (0.23 vs 0.17) when its
+beats are good, so bar lines are worth revisiting.
+
+**Default:** `rhythm.weights.DEFAULT_MODE = "model"`. It meets the Phase 33 bar
+(rhythm and durations up, staff not lower). Weights are found at $PTIFY_RHYTHM_MODEL,
+then `checkpoints/rhythm-run5.pt`, then `~/.ptify/checkpoints/` (sha256 pinned in
+`rhythm/weights.py`). With no weights the app engraves with the rules and
+`stats.rhythm` says "grid". `PTIFY_RHYTHM=grid` reverts. Tests pin `grid` in
+`tests/conftest.py`, so they don't depend on weights being present.
+
+**Cost:** an 8-minute piece takes 23.7 s to engrave against 9.5 s (steady state;
+51 s on a cold process). The 21-minute Wanderer Fantasy takes 276 s against 90 s.
+Most of the model's own time is beat tracking from notes; the rest is music21
+engraving finer rhythms.
+
+## Phase 33 C — grid choice on; soft bar lines tried and dropped (2026-10-11)
+
+Same command as run 5, plus a flag per row.
+
+| from audio | model (run 5) | soft bar lines | **+ grid choice** |
+|---|---|---|---|
+| rhythm | 63.3% | 63.3% | **64.0%** |
+| durations | 47.0% | 47.0% | **47.5%** |
+| staff | 89.1% | 89.1% | 89.1% |
+| downbeat F (mean) | 0.142 | 0.136 | 0.137 |
+
+- **Soft bar lines** (`score-benchmark-rhythm-model-softbars.json`): bar length
+  and offset from ALL downbeat probabilities, not just those over 0.5. Worse on
+  21 pieces, better on 11. Reverted.
+- **Grid choice** (`--rhythm-choose-grid`, `score-benchmark-rhythm-model-choosegrid.json`;
+  run with soft bars still in, which does not touch rhythm or durations): the
+  model reads the piece on the beats tracked from the notes and on the audio's,
+  and keeps the more confident reading. Better on 6 pieces, worse on 1
+  (Beethoven 8-1, -0.8). Now on in the web app whenever the grid was tracked
+  from the audio (not for a typed tempo or MIDI input). Cost: one more model
+  pass, about 0.4 s.
+- **It does not fix the Schumann Toccata** (0% vs the pipeline's 86-90%). The
+  model is equally confident on both grids (0.922 vs 0.922), and even anchored
+  to the audio grid it scored 11% (hybrid run). The model itself misreads the
+  piece's 16th-note runs as triplets. That is a training-data gap, not a grid
+  problem.
+
+## Phase 33 C — notes kept on the beat; run 6 is the default (2026-10-11)
+
+**The bug.** The decoder placed each note at the running sum of the model's
+argmax gaps, so one triplet-sized slip moved every later note off the beat (in
+one 8-minute piece, 2082 of 2394 notes landed at 1/6-beat offsets). Now
+`rhythm.decode.phase_consistent_deltas` picks the gaps by Viterbi over where
+each note falls within the beat: the model's gap log-probabilities against the
+note's place on the tracked beat (sigma 0.15 beats, cost cap 0.3, tuned on the
+VALIDATION split: position within the beat 36.1% -> 51.0%, exact 22.6% -> 31.1%).
+Whole beats stay the model's choice.
+
+**Run 6** = run 5's settings with `--downbeat-pos-weight 4` (downbeats are ~16% of
+notes). Validation downbeat F1 0.18 -> 0.40; gaps 80.0 -> 79.7%, durations 50.8 ->
+50.1%. Log: `training/rhythm-run6.jsonl`.
+
+| from audio, 38 pieces | pipeline | run 5 + grid choice | run 5 + on-beat | **run 6 + on-beat** |
+|---|---|---|---|---|
+| rhythm | 58.3% | 64.0% | 64.0% | **64.3%** |
+| durations | 43.5% | 47.5% | 47.2% | **47.7%** |
+| staff | 89.1% | 89.1% | 89.1% | 89.1% |
+| beat F (mean) | 0.489 | 0.295 | 0.428 | 0.432 |
+| downbeat F (mean) | 0.175 | 0.137 | 0.191 | **0.207** |
+| beat level right | 19/38 | 16/38 | 17/38 | 16/38 |
+
+Files: `score-benchmark-rhythm-run5-phase.json`, `score-benchmark-rhythm-run6-phase.json`
+(both with grid choice). Default weights are now `checkpoints/rhythm-run6.pt`
+(sha256 in `rhythm/weights.py`). Engraving time is unchanged (7.0 s on the
+8-minute piece with a typed tempo): the exact-fraction path was not the cost.
+
+## Phase 33 C — a learned written scale (run 7), dropped (2026-10-11)
+
+A fifth head predicting written quarter notes per tracked beat (the
+`grid_scale` label) reached 79% on training windows but only 32.6% on
+validation, where always guessing ½ scores 30%, and it cost the other heads a
+little (gaps 79.7 → 79.0%, durations 50.1 → 48.4%). Not benchmarked; run 6
+stays the default. Log: `training/rhythm-run7.jsonl`.
+
+## Phase 33 C — written scale chosen at decode time: opt-in, not default (2026-10-12)
+
+`--rhythm-rescale` (`rhythm_quantise(rescale=True)`): write at the GRID_SCALES
+value that makes the piece's most common gap a 16th. Chosen on validation (scale
+right 41.4% of windows from the model's own gaps, against 22.8% unscaled; the
+alternatives tried there -- powers of 2 only, an 8th target for triple pulses --
+scored lower). `score-benchmark-rhythm-run6-rescale.json`:
+
+| from audio | pipeline | run 6 (default) | run 6 + rescale |
+|---|---|---|---|
+| beat level right | 19/38 | 16/38 | **21/38** |
+| durations | 43.5% | 47.7% | **49.4%** |
+| rhythm | 58.3% | **64.3%** | 63.9% |
+| downbeat F | 0.175 | **0.207** | 0.177 |
+| beat F | **0.489** | 0.432 | 0.394 |
+
+Fixes the Schumann Toccata (0% -> 68% / 75%) but collapses four compound or
+triplet-pulse pieces (Bach fugue 873 96.7% -> 0%, prelude 858 92.2% -> 0.3%,
+Liszt TE 3 86.4% -> 0%, Beethoven 18-4 85.6% -> 0%), where it picks a 0.75/1.5
+scale. A trade-off, so it stays off.
+
+## Phase 34 — compound meter for dotted scales: criteria NOT met (2026-10-12)
+
+With `--rhythm-rescale`, a dotted scale (0.75 / 1.5) now keeps the beat on the
+dotted value and prints compound time (x/8, x/16, tempo on the dotted beat).
+`score-benchmark-rhythm-run6-compound.json`:
+
+| from audio | run 6 default | rescale | rescale + compound |
+|---|---|---|---|
+| rhythm | **64.3%** | 63.9% | 62.2% |
+| durations | 47.7% | **49.4%** | 46.1% |
+| beat level right | 16/38 | 21/38 | 21/38 |
+
+Fixed the truly compound Bach fugue 873 (0 -> 96.7%) and Beethoven 18-4 (0 ->
+85.6%), but turned the Schumann Toccata (2/4, tracker locked on 3-sixteenth
+groups) back to 0%; Bach preludes 858/873 and Liszt TE 3 never take the
+compound path (the tracker sits on a plain sub-pulse there). A dotted pulse is
+compound meter in some pieces and a tracker artefact in others, and the gaps
+cannot tell which. Rescaling stays OFF; the compound machinery
+(`BeatGrid.beat_quarters`, `time_signature_for`, dotted tempo mark,
+`sec_per_quarter`) is only reached with rescaling on.
+
+## Phase 35 — run 8 with synthetic PDMX performances: the default (2026-10-12)
+
+Run 8 = run 6's settings, 15 epochs, trained on ASAP plus 8,884 synthetic
+performances of PDMX piano scores (5.5M notes; positions, bar lines and meter
+labelled, note values and hands not). Validation (real ASAP playing): gaps
+80.1 -> 83.5%, durations 50.6 -> 57.7%, downbeat F1 0.397 -> 0.388.
+`score-benchmark-rhythm-run8.json` (grid choice, on-the-beat decoder, no rescale):
+
+| from audio | pipeline | run 6 | **run 8** |
+|---|---|---|---|
+| rhythm | 58.3% | 64.3% | **67.1%** |
+| durations | 43.5% | 47.7% | **49.5%** |
+| staff | 89.1% | 89.1% | 89.1% |
+| downbeat F (mean) | 0.175 | 0.207 | **0.223** |
+| beat F (mean) | **0.489** | 0.432 | 0.461 |
+| beat level right | **19/38** | 16/38 | 17/38 |
+
+Better on 23 pieces, worse on 7 (Chopin Polonaise 53 +19.5, Beethoven 8-3
++12.8; Rachmaninoff 23/6 -8.9, Liszt S145/2 -6.1). The Schumann Toccata stays at
+0%, so one of the three plan criteria failed; the user chose to switch anyway
+since run 6 is also 0% there. Weights `checkpoints/rhythm-run8.pt`, sha256 in
+`rhythm/weights.py`. Training log `training/rhythm-run8.jsonl`.
+
+## Tempo candidates: on in the web app (2026-10-12)
+
+`--rhythm-try-tempi` (with grid choice): the model also reads the notes on the
+note tracker's beats at x4/3, x3/4, x2/3, x3/2, x2 and x1/2 of its tempo and keeps
+the most confident of all readings. Chosen on held-out data first (exact
+positions 33.8 -> 34.5% ASAP validation, 66.0 -> 67.6% PDMX held-out).
+`score-benchmark-rhythm-run8-tempi.json`:
+
+| from audio | run 8 | **run 8 + tempo candidates** |
+|---|---|---|
+| rhythm | 67.1% | **76.9%** |
+| durations | 49.5% | **58.8%** |
+| staff | 89.1% | 89.1% |
+| downbeat F (mean) | 0.223 | 0.226 |
+| beat F (mean) | **0.461** | 0.429 |
+| beat level right | **17/38** | 10/38 |
+
+Schumann Toccata 0% -> 95.5% / 95.6% (the tracker had locked on 3-sixteenth
+groups; the x2 reading writes the runs evenly). Liszt S145/1 +31.3, S145/2
++25.8; Beethoven 9-3 -22.1. Cost: beat level -- more pieces are written at
+double or half note values (still counted right by the factor-tolerant rhythm
+and duration columns, but visible on the page) -- and ~2 s per job.
+
+## Benchmark change + printed level: halve fast 8ths, on (2026-10-12)
+
+**FACTORS change (user decision):** the beat-level factors now include 3/4 and
+4/3. The list had 2/3 and 3/2 (a quarter beat against a dotted-quarter beat)
+and 3 and 1/3, but not the same relationship one octave over, so 12/16-type
+pieces written with a quarter beat snapped to 1.5 and scored ~0%. Results
+before this date used the old list; the two rows below use the new one.
+
+**Halving:** a reading whose most common gap is an 8th with the beat above
+160 bpm is 16ths read at double speed, so it is printed as 16ths (threshold
+chosen on held-out data: exact written positions 12.6 -> 19.1% ASAP val, 47.4 ->
+48.7% PDMX held-out).
+
+| from audio | run 8 + tempo candidates | **+ halve fast 8ths** |
+|---|---|---|
+| rhythm | 76.9% | 76.9% |
+| durations | 58.8% | 58.8% |
+| staff | 89.1% | 89.1% |
+| beat level right | 10/38 | **19/38** |
+| downbeat F (mean) | **0.226** | 0.215 |
+| beat F (mean) | **0.429** | 0.418 |
+
+Files: `score-benchmark-rhythm-run8-tempi-f2.json`, `score-benchmark-rhythm-run8-halve.json`.
+
+## Beat placement: decode from the first note's own phase (2026-10-12)
+
+The decoder put the first note on a beat but chose every later gap assuming the
+Viterbi's own start phase, so the two disagreed whenever a piece opened off the
+tracked beat (48 of 89 ASAP validation performances): every position and beat
+time shifted by that fraction. Now the start phase is used, with a start-on-
+beat preference (`START_PENALTY` 4.0, tuned on validation: position-in-beat
+right 28.1% -> 50.1%). `score-benchmark-rhythm-run8-startphase.json`:
+
+| from audio | pipeline | before | **now** |
+|---|---|---|---|
+| rhythm | 58.3% | 76.9% | 76.9% |
+| durations | 43.5% | 58.8% | 58.7% |
+| beat F (mean) | 0.489 | 0.418 | **0.495** |
+| downbeat F (mean) | 0.175 | 0.215 | 0.215 |
+| beat level right | 19/38 | 19/38 | 19/38 |
+
+11 pieces' beat F up sharply (Schubert 664-1 0.06 -> 0.81, Bach fugue 858 0.02
+-> 0.66), 3 down; Bach fugue 891 0.98 -> 0.01 (the old inconsistency happened
+to cancel a tracker locked on its off-beats; not the start phase -- the
+preference does not change it). Known case.
+
+## A bar column, and the 1/4 bug it would have caught (2026-10-12)
+
+An end-to-end run of the app's `api.pipeline.run` on real recordings (saved
+Modal transcriptions, real audio for the beat grid) printed the Schumann
+Toccata in 1/4 with 580 bars: halving turned a 2-beat bar into 1 beat. Fixed
+(`rhythm.infer._written_bar`: doubled until a whole number of quarters >= 2;
+the Toccata now prints 2/4, 290 bars). No column measured the time signature,
+so a new one does: `bar_ok` -- our bar, in score beats through the beat-level
+factor, equals the median number of annotated beats between ASAP downbeats.
+
+| from audio (current FACTORS) | old rules | web app (run 8 ...) |
+|---|---|---|
+| bar right | 11/38 | 10/38 |
+| beat level right | 18/38 | 19/38 |
+| rhythm | 55.5% | 76.9% |
+| durations | 42.2% | 58.7% |
+| beat F (mean) | 0.49 | 0.50 |
+| downbeat F (mean) | 0.17 | 0.22 |
+| staff | 89.1% | 89.1% |
+
+The old rules' rhythm/durations here (55.5 / 42.2%) are LOWER than the 58.3 /
+43.5% quoted earlier: under the FACTORS that include 3/4 and 4/3, a few of their
+pieces with a beat-level ratio near 0.7 now snap to 3/4 instead of 2/3. Same
+yardstick for both columns above. Bars are right on 5 pieces for both, 5 only
+for the model, 6 only for the rules. Files: `score-benchmark-rhythm-run8-bar.json`,
+`score-benchmark-rules-bar.json`.
+
+## Bar length from relative downbeat evidence: on (2026-10-13)
+
+**Cause.** Run 8's downbeat head (trained with pos weight 4) puts a median 70% of
+beats over 0.5. `rhythm.decode._bar` took the most common spacing between those
+beats, so it chose a 2-beat bar for 86 of 89 ASAP validation pieces.
+
+**Fix.** The bar is the (length, phase) in {2, 3, 4, 6} whose downbeats stand out
+most from every other beat, by Welch's t on each beat's strongest downbeat
+probability. No tuned parameter. Chosen on ASAP validation with this benchmark's
+bar definition (`tools/bar_validation.py`, 89 performances):
+
+| validation rule | bar right | downbeat F |
+|---|---|---|
+| old: spacing of beats over 0.5 | 9/89 | 0.244 |
+| difference of means | 22/89 | 0.202 |
+| **Welch's t** | **25/89** | 0.213 |
+| with 8 and 12 beats allowed (any variant) | <= 17/89 | lower |
+| "prefer a divisor within a margin" variants | 14-19/89 | 0.23-0.24 |
+
+Downbeat F favours short bars (a downbeat every 2 beats catches every real one),
+which is why `bar_ok` decided it. On validation the true bar is 8 or 12 TRACKED
+beats in 25/89 pieces (the tracker counts eighths), so it is out of reach for any
+choice in {2, 3, 4, 6}. That is a beat-level problem, not a bar problem.
+
+Test set, web-app settings (`score-benchmark-rhythm-run8-tbar.json`):
+
+| from audio | before | **after** |
+|---|---|---|
+| bar right | 10/38 | **15/38** |
+| downbeat F (mean) | 0.218 | **0.233** |
+| rhythm / durations / staff | 76.9 / 58.7 / 89.1% | unchanged |
+| beat F / beat level right | 0.495 / 19/38 | unchanged |
+
+Newly right: Bach prelude 862, Beethoven 12-1 and 3-1, Chopin op. 10/12, Liszt TE 3.
+None got worse.

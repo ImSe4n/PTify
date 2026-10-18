@@ -36,6 +36,28 @@ if TYPE_CHECKING:
 # detection jitter into thirty-second notes that no one played.
 DEFAULT_SUBDIVISION = 0.25
 
+# The grid for a beat that divides in THREE: triplets in simple time, and
+# compound time (6/8, 12/16) when the tracked beat is the dotted one. MEASURED
+# in Phase 32: on a 0.25 grid those pieces score 0-4% rhythm against the
+# published score, because 1/3 and 2/3 of a beat do not exist on it.
+TRIPLE_SUBDIVISION = 1 / 3
+
+# An onset votes for a division when it sits this close (in beats) to a slot
+# only that division has. 1/4 and 1/3 are 1/12 of a beat apart, so the window
+# must stay under 1/24 or one onset could vote both ways.
+DIVISION_VOTE_TOL = 0.04
+
+# Distinct off-beat onsets needed before the vote may overturn the default. A
+# handful of triplets in duple music is decoration, not the piece's grid.
+MIN_DIVISION_VOTES = 12
+
+# Onsets closer than this (in beats) are one rhythmic event -- a chord, or a
+# spread chord -- and vote once.
+CHORD_TOL_BEATS = 0.02
+
+_DUPLE_ONLY = (0.25, 0.5, 0.75)
+_TRIPLE_ONLY = (1 / 3, 2 / 3)
+
 # Fallback tempo when beat tracking has nothing to work with (silence, or a
 # handful of notes). 120 BPM is the MIDI default and keeps output valid.
 FALLBACK_BPM = 120.0
@@ -61,6 +83,10 @@ class BeatGrid:
     bpm: float
     beats_per_bar: int = 4
     subdivision: float = DEFAULT_SUBDIVISION
+    #: Quarter notes per beat (Phase 34): 1.0 is simple time; 1.5 a dotted
+    #: quarter (6/8), 0.75 a dotted eighth (12/16). Positions and note values
+    #: are always in quarter notes; only the beat and the meter change.
+    beat_quarters: float = 1.0
 
     def __post_init__(self) -> None:
         # A time signature needs at least one beat per bar. Zero reached
@@ -72,10 +98,20 @@ class BeatGrid:
             raise ValueError(
                 f"beats_per_bar must be at least 1, got {self.beats_per_bar}"
             )
+        if self.beat_quarters <= 0:
+            raise ValueError(
+                f"beat_quarters must be positive, got {self.beat_quarters}"
+            )
         if self.subdivision <= 0:
             raise ValueError(
                 f"subdivision must be positive, got {self.subdivision}"
             )
+
+    @property
+    def sec_per_quarter(self) -> float:
+        """Seconds per quarter note: `bpm` counts BEATS, which are dotted in
+        compound time, and positions are always in quarter notes."""
+        return 60.0 / (self.bpm if self.bpm > 0 else FALLBACK_BPM) / self.beat_quarters
 
     @property
     def is_empty(self) -> bool:
@@ -212,6 +248,38 @@ def estimate_grid_from_samples(
         beats_per_bar=beats_per_bar,
         subdivision=subdivision,
     )
+
+
+def estimate_subdivision(notes: list[NoteEvent], grid: BeatGrid) -> float:
+    """Does this piece's beat divide in four or in three?
+
+    Each distinct onset is placed within its beat. A position only the duple
+    grid has (1/4, 1/2, 3/4) votes duple; one only the triple grid has (1/3,
+    2/3) votes triple; on-beat onsets carry no information and do not vote.
+    Triple wins only on a strict majority of at least `MIN_DIVISION_VOTES`
+    votes, so with thin or mixed evidence the established 0.25 grid stays.
+
+    One division for the WHOLE piece. A movement that switches between
+    duplets and triplets gets the majority; per-passage choice is the job of
+    the Phase 33 model, not this baseline.
+    """
+    positions = sorted(grid.beat_position(n.onset) for n in notes)
+    distinct: list[float] = []
+    for p in positions:
+        if not distinct or p - distinct[-1] > CHORD_TOL_BEATS:
+            distinct.append(p)
+
+    duple = triple = 0
+    for p in distinct:
+        f = p - math.floor(p)
+        if any(abs(f - s) <= DIVISION_VOTE_TOL for s in _TRIPLE_ONLY):
+            triple += 1
+        elif any(abs(f - s) <= DIVISION_VOTE_TOL for s in _DUPLE_ONLY):
+            duple += 1
+
+    if triple + duple < MIN_DIVISION_VOTES or triple <= duple:
+        return DEFAULT_SUBDIVISION
+    return TRIPLE_SUBDIVISION
 
 
 def _snap(value: float, subdivision: float) -> float:
@@ -384,7 +452,54 @@ def quantise_notes(
         )
 
     out.sort(key=lambda q: (q.start_beats, q.pitch))
+    _close_hairline_gaps(out, sub)
     return out
+
+
+#: Gaps this small are quantisation artifacts, not silences anyone played, and
+#: are closed by extending the earlier note. Measured on a real 520-note take:
+#: of 123 same-staff gaps, **55 (44.7%) were exactly one subdivision** and the
+#: next size up appeared 4 times. A rhythm distribution does not look like
+#: that -- a single spike at the grid's own resolution is the signature of a
+#: note quantising one step short of its neighbour.
+#:
+#: The cost of NOT closing them is 68 sixteenth rests over 113 measures, about
+#: one per bar, scattered through the score. `makeNotation` fills every gap it
+#: finds, however short, and a reader cannot tell an artifact rest from a
+#: written one.
+HAIRLINE_GAP_SUBDIVISIONS = 1.0
+
+
+def _close_hairline_gaps(qnotes: list[QuantisedNote], sub: float) -> None:
+    """Extend notes that stop one subdivision short of the next onset.
+
+    PER STAFF, because rests are per staff: a treble note does not leave a hole
+    in the bass. The staff split is the same rule the engraver uses, so the
+    gaps closed here are exactly the ones that would have been filled.
+
+    Extends the EARLIER note rather than moving the later one. Onsets are what
+    the model detects best and what every metric scores; lengths are already
+    an estimate (see `notated_offsets`), so absorbing the error into a length
+    changes the reading of the page without moving anything a listener would
+    place differently.
+
+    Mutates in place -- these are the same objects the caller sorted.
+    """
+    if not qnotes:
+        return
+    from .score import _split_point
+
+    tolerance = HAIRLINE_GAP_SUBDIVISIONS * sub + 1e-9
+    split = _split_point([q.source for q in qnotes if q.source is not None])
+
+    for upper in (True, False):
+        staff = [q for q in qnotes if (q.pitch >= split) == upper]
+        staff.sort(key=lambda q: q.start_beats)
+        for a, b in zip(staff, staff[1:]):
+            end = a.start_beats + a.length_beats
+            gap = b.start_beats - end
+            if 0.0 < gap <= tolerance:
+                a.length_beats = b.start_beats - a.start_beats
 
 
 def quantised_to_transcription(
@@ -417,7 +532,7 @@ def quantised_to_transcription(
     """
     from transcriber.events import Transcription
 
-    period = 60.0 / (grid.bpm if grid.bpm > 0 else FALLBACK_BPM)
+    period = grid.sec_per_quarter
     notes = [
         NoteEvent(
             pitch=q.pitch,

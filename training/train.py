@@ -81,7 +81,9 @@ def build_dataloader(args, split: str, *, shuffle: bool, augment=None,
 
     dataset = SegmentDataset(segments, audio_root=args.audio_root,
                              midi_root=args.midi_root or args.audio_root,
-                             augment=augment, epoch_offset=epoch_offset)
+                             augment=augment, epoch_offset=epoch_offset,
+                             soft_onset_boost=getattr(
+                                 args, "soft_onset_boost", 1.0))
     return torch.utils.data.DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -144,6 +146,11 @@ def build_augmenter(args, *, epoch: int = 0):
         clean_prob=args.augment_clean_prob,
         max_cents=args.augment_max_cents,
         eq_prob=args.augment_eq_prob,
+        compress_prob=args.augment_compress_prob,
+        codec_prob=args.augment_codec_prob,
+        synth_prob=args.augment_synth_prob,
+        synth_banks=tuple(sorted(str(b) for b in Path(args.synth_banks).glob("*.npz")))
+        if args.synth_banks else (),
     )
 
 
@@ -209,7 +216,15 @@ def evaluate(note_model, loader, device: str, max_batches: int = 20) -> dict:
             # regression guard and is compared against runs with different
             # weightings (and against the 14.5 baseline), so it has to mean the
             # same thing in every log. Only the training objective is weighted.
-            losses = compute_losses(note_model(batch["waveform"]), batch)
+            #
+            # `onset_weight` is DROPPED here for that reason (Phase 28). The
+            # collated batch carries it because the training loss needs it, and
+            # leaving it in would make `val_onset` drift with --soft-onset-boost
+            # -- so two runs' validation curves would no longer be comparable,
+            # which is the whole job of this number. Measured: a single boosted
+            # cell moves val_onset in the 4th decimal.
+            scored = {k: v for k, v in batch.items() if k != "onset_weight"}
+            losses = compute_losses(note_model(batch["waveform"]), scored)
             for key, value in losses.items():
                 totals[key] = totals.get(key, 0.0) + float(value)
             count += 1
@@ -344,6 +359,10 @@ def train(args) -> int:
         print(f"  augmentation ON (seed {args.augment_seed}, "
               f"clean {args.augment_clean_prob:.0%}, "
               f"+-{args.augment_max_cents:g} cents, "
+              f"eq {args.augment_eq_prob:.0%}, "
+              f"compress {args.augment_compress_prob:.0%}, "
+              f"codec {args.augment_codec_prob:.0%}, "
+              f"synth piano {args.augment_synth_prob:.0%}, "
               f"{len(augmenter.bank)} impulse responses)")
 
     trigger = SaveTrigger(args.save_every_steps, args.save_every_seconds)
@@ -525,6 +544,17 @@ def build_parser() -> argparse.ArgumentParser:
                          "restarts from the baseline and discards what the "
                          "last one learned. NOT the same as --resume, which "
                          "continues an interrupted run from its step_N.pt")
+    ap.add_argument("--soft-onset-boost", type=float, default=1.0,
+                    metavar="X",
+                    help="weight the ONSET loss per note by how quiet it is: "
+                         "a silent note scores X, a maximal one 1.0, and loud "
+                         "notes are never downweighted. 1.0 (default) is "
+                         "bit-identical to every published run. Phase 27 "
+                         "measured the onset head missing 38.3%% of pp notes "
+                         "against 2.4%% of f notes, with pp+p making up 66.6%% "
+                         "of all misses. NOT --loss-weights velocity=, which "
+                         "scales the VELOCITY head (Phase 23, a negative "
+                         "result) rather than reweighting onset detection")
     ap.add_argument("--loss-weights", default=None, metavar="SPEC",
                     help="per-head coefficients, e.g. 'velocity=0.1'. "
                          "Unnamed heads stay at 1.0, and the default is all "
@@ -564,6 +594,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="mic-colouration probability. Default 0: it costs "
                          "22.6ms per segment, more than the rest of the chain "
                          "combined, for a factor absent from the curve")
+    ap.add_argument("--augment-compress-prob", type=float, default=0.0,
+                    help="Phase 39: loudness compression (phone apps, "
+                         "YouTube, TikTok). Default 0 keeps the 16b recipe")
+    ap.add_argument("--augment-synth-prob", type=float, default=0.0,
+                    help="Phase 41: share of augmented segments re-rendered "
+                         "on a sampled piano (needs --synth-banks)")
+    ap.add_argument("--synth-banks", default=None,
+                    help="directory of PianoBank .npz files")
+    ap.add_argument("--augment-codec-prob", type=float, default=0.0,
+                    help="Phase 39: Opus/MP3 round-trip at 0.3-0.85 "
+                         "compression level. Default 0 keeps the 16b recipe")
 
     ap.add_argument("--train-split", default="train")
     ap.add_argument("--val-split", default="validation")

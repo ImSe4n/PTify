@@ -26,7 +26,7 @@ def _small_spec(tmp_path, sha256):
     """The real spec with a tiny floor, so tests exercise the DIGEST branch
     without writing 172MB to disk."""
     return weights.Checkpoint(
-        url="", filename=ptify.PTIFY_16B_NAME, dest_dir=tmp_path,
+        url="", filename=ptify.PTIFY_SHIPPED_NAME, dest_dir=tmp_path,
         min_bytes=4, sha256=sha256,
     )
 
@@ -45,14 +45,14 @@ def test_doctor_reports_absent_weights_as_a_warning_not_a_failure(capsys):
     assert "[FAIL]" not in out
     assert "OPTIONAL" in out
     assert ptify.CHECKPOINT_ENV in out
-    assert ptify.PTIFY_16B_NAME in out
+    assert ptify.PTIFY_SHIPPED_NAME in out
 
 
 def test_doctor_reports_a_verified_checkpoint_as_ok(tmp_path, monkeypatch,
                                                     capsys):
     from transcriber.doctor import _report_ptify_checkpoint
 
-    ckpt = tmp_path / "norepo" / ptify.PTIFY_16B_NAME
+    ckpt = tmp_path / "norepo" / ptify.PTIFY_SHIPPED_NAME
     ckpt.parent.mkdir(parents=True)
     ckpt.write_bytes(b"real weights")
     monkeypatch.setattr(
@@ -77,7 +77,7 @@ def test_doctor_FAILS_on_a_right_size_wrong_digest_checkpoint(
     """
     from transcriber.doctor import _report_ptify_checkpoint
 
-    ckpt = tmp_path / "norepo" / ptify.PTIFY_16B_NAME
+    ckpt = tmp_path / "norepo" / ptify.PTIFY_SHIPPED_NAME
     ckpt.parent.mkdir(parents=True)
     ckpt.write_bytes(b"some other model entirely")
     monkeypatch.setattr(
@@ -124,13 +124,13 @@ def test_fetch_url_is_pinned_to_a_release_tag():
     fetch different weights and score differently, with nothing in either
     report to explain it -- and the pinned sha256 would then fail in a way that
     looks like corruption."""
-    url = ptify.PTIFY_16B_URL
+    url = ptify.PTIFY_SHIPPED_URL
     assert url.startswith("https://")
     assert "/releases/download/" in url
     assert "/latest/" not in url
     # The asset must be named what the resolver searches for, or a fetched
     # file lands somewhere the engine will not look.
-    assert url.rsplit("/", 1)[1] == ptify.PTIFY_16B_NAME
+    assert url.rsplit("/", 1)[1] == ptify.PTIFY_SHIPPED_NAME
 
 
 def test_fetch_reports_a_missing_release_asset_clearly(monkeypatch, capsys):
@@ -147,7 +147,7 @@ def test_fetch_reports_a_missing_release_asset_clearly(monkeypatch, capsys):
     from transcriber.__main__ import _fetch_ptify
 
     def not_found(*a, **k):
-        raise urllib.error.HTTPError(ptify.PTIFY_16B_URL, 404, "Not Found",
+        raise urllib.error.HTTPError(ptify.PTIFY_SHIPPED_URL, 404, "Not Found",
                                      {}, None)
 
     monkeypatch.setattr(weights.urllib.request, "urlretrieve", not_found)
@@ -155,7 +155,7 @@ def test_fetch_reports_a_missing_release_asset_clearly(monkeypatch, capsys):
     assert _fetch_ptify() == 1
     err = capsys.readouterr().err
     assert "was not found" in err
-    assert ptify.PTIFY_16B_URL in err
+    assert ptify.PTIFY_SHIPPED_URL in err
     assert ptify.CHECKPOINT_ENV in err
 
 
@@ -182,7 +182,7 @@ def test_fetch_never_leaves_a_partial_file_behind(monkeypatch, tmp_path):
 def test_fetch_is_a_no_op_when_already_present(tmp_path, monkeypatch, capsys):
     from transcriber.__main__ import _fetch_ptify
 
-    ckpt = tmp_path / "norepo" / ptify.PTIFY_16B_NAME
+    ckpt = tmp_path / "norepo" / ptify.PTIFY_SHIPPED_NAME
     ckpt.parent.mkdir(parents=True)
     ckpt.write_bytes(b"real weights")
     monkeypatch.setattr(
@@ -205,7 +205,7 @@ def test_fetch_refuses_to_overwrite_a_wrong_checkpoint(tmp_path, monkeypatch,
     it would destroy the evidence of whatever went wrong."""
     from transcriber.__main__ import _fetch_ptify
 
-    ckpt = tmp_path / "norepo" / ptify.PTIFY_16B_NAME
+    ckpt = tmp_path / "norepo" / ptify.PTIFY_SHIPPED_NAME
     ckpt.parent.mkdir(parents=True)
     ckpt.write_bytes(b"not the right model")
     monkeypatch.setattr(

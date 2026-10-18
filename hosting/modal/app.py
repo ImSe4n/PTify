@@ -103,15 +103,22 @@ CHECKPOINT_PATH = f"{CHECKPOINT_DIR}/{CHECKPOINT_NAME}"
 #: validates a checkpoint by SIZE ALONE (>160MB), so any other ~172MB .pth would
 #: load without complaint and serve a model nobody can identify. Phase 18 caught
 #: the release carrying the 260MB *training* checkpoint under a similar name.
+#:
+#: Phase 39 (2026-10-17): the shipped weights are p39. Its release asset
+#: (model-v2) is not published yet, so the image bakes the file from this
+#: machine's `checkpoints/` (`PTIFY_CHECKPOINT_LOCAL`) instead of fetching the
+#: URL. The digest check at load is unchanged, so a wrong file still fails.
 PTIFY_CHECKPOINT_URL = (
     "https://github.com/ImSe4n/PTify/releases/download/"
-    "model-v1/ptify-16b-step6555.pth"
+    "model-v2/ptify-p39-step8000.pth"
 )
-PTIFY_CHECKPOINT_NAME = "ptify-16b-step6555.pth"
+PTIFY_CHECKPOINT_NAME = "ptify-p39-step8000.pth"
 PTIFY_CHECKPOINT_PATH = f"{CHECKPOINT_DIR}/{PTIFY_CHECKPOINT_NAME}"
 PTIFY_CHECKPOINT_SHA256 = (
-    "17286ad93c5806e02a59caf0333769d9bea9f4f3e53abd7360be8cabe9d4accd"
+    "6687be39bdb05a55ee1c4bee907035a8f3252806032a7209adaf9903f3983f77"
 )
+PTIFY_CHECKPOINT_LOCAL = os.path.join(
+    os.path.dirname(__file__), "..", "..", "checkpoints", PTIFY_CHECKPOINT_NAME)
 
 #: Which file each engine name serves, and the digest it must have.
 #:
@@ -173,7 +180,6 @@ image = (
     .run_commands(
         f"mkdir -p {CHECKPOINT_DIR}",
         f"wget -q -O '{CHECKPOINT_PATH}' '{BYTEDANCE_CHECKPOINT_URL}'",
-        f"wget -q -O '{PTIFY_CHECKPOINT_PATH}' '{PTIFY_CHECKPOINT_URL}'",
     )
     # WHICH MODEL THIS DEPLOYMENT SERVES, baked in at deploy time.
     #
@@ -201,6 +207,8 @@ image = (
         os.path.join(os.path.dirname(__file__), "wire.py"),
         remote_path="/root/wire.py",
     )
+    # The ptify checkpoint, from this machine (see PTIFY_CHECKPOINT_LOCAL).
+    .add_local_file(PTIFY_CHECKPOINT_LOCAL, remote_path=PTIFY_CHECKPOINT_PATH)
 )
 
 app = modal.App(APP_NAME, image=image)

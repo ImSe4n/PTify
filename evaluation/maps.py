@@ -88,9 +88,11 @@ the corpus can be reconstructed and proved identical.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import io
 import json
 import random
+import time
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -120,6 +122,9 @@ SELECTION_SEED = 13
 #: Reference velocity for every MAPS note. The annotations carry no dynamics;
 #: see the module docstring on why the velocity metric must be ignored here.
 DEFAULT_VELOCITY = 80
+
+#: Attempts per HTTP range read before giving up (see `_RemoteFile.read`).
+RANGE_RETRIES = 5
 
 
 @dataclass(frozen=True)
@@ -197,8 +202,18 @@ class _RemoteFile(io.RawIOBase):
         req = urllib.request.Request(
             self.url, headers={"Range": f"bytes={self.pos}-{self.pos + n - 1}"}
         )
-        with self._opener(req, timeout=180) as resp:
-            data = resp.read()
+        # Retried: Zenodo drops long range reads mid-body (measured on the SMD
+        # zip, Phase 38: http.client.IncompleteRead on most 3-5 member runs).
+        # A range request is idempotent, so re-asking for the same bytes is safe.
+        for attempt in range(RANGE_RETRIES):
+            try:
+                with self._opener(req, timeout=180) as resp:
+                    data = resp.read()
+                break
+            except (http.client.IncompleteRead, ConnectionError, TimeoutError):
+                if attempt == RANGE_RETRIES - 1:
+                    raise
+                time.sleep(2 ** attempt)
         self.pos += len(data)
         return data
 

@@ -1,0 +1,270 @@
+{
+ "preset": "phone",
+ "engine": "ptify",
+ "tracks": [
+  {
+   "n_ref": 1106,
+   "n_est": 977,
+   "matched": 966,
+   "extra": {
+    "timing": 0,
+    "restrike": 2,
+    "harmonic": 7,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 2
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 34,
+    "masked": 41,
+    "quiet": 34,
+    "other": 31
+   },
+   "velocity_valid": true,
+   "track": "Alexander_Scriabin-2006-Sonata_No._9-MIDI-Unprocessed"
+  },
+  {
+   "n_ref": 2380,
+   "n_est": 2233,
+   "matched": 2205,
+   "extra": {
+    "timing": 3,
+    "restrike": 3,
+    "harmonic": 14,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 8
+   },
+   "missed": {
+    "timing": 3,
+    "repeat": 12,
+    "masked": 55,
+    "quiet": 49,
+    "other": 56
+   },
+   "velocity_valid": true,
+   "track": "Claude_Debussy-2011-Jardins_sous_la_pluie_from_Estampes-MIDI-Unprocessed"
+  },
+  {
+   "n_ref": 882,
+   "n_est": 818,
+   "matched": 791,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 26,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 1
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 15,
+    "masked": 45,
+    "quiet": 11,
+    "other": 20
+   },
+   "velocity_valid": true,
+   "track": "Domenico_Scarlatti-2008-Sonata_K._525-MIDI-Unprocessed"
+  },
+  {
+   "n_ref": 1936,
+   "n_est": 1790,
+   "matched": 1777,
+   "extra": {
+    "timing": 2,
+    "restrike": 1,
+    "harmonic": 6,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 4
+   },
+   "missed": {
+    "timing": 2,
+    "repeat": 2,
+    "masked": 83,
+    "quiet": 18,
+    "other": 54
+   },
+   "velocity_valid": true,
+   "track": "Felix_Mendelssohn-2017-Fantasy_in_F-sharp_Minor,_Op._28_(Complete)-MIDI-Unprocessed"
+  },
+  {
+   "n_ref": 2420,
+   "n_est": 2149,
+   "matched": 2115,
+   "extra": {
+    "timing": 7,
+    "restrike": 1,
+    "harmonic": 14,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 12
+   },
+   "missed": {
+    "timing": 7,
+    "repeat": 13,
+    "masked": 202,
+    "quiet": 18,
+    "other": 65
+   },
+   "velocity_valid": true,
+   "track": "Franz_Liszt-2008-Transcendental_Etude_No._10_in_F_Minor__Appassionata_-MIDI-Unprocessed"
+  },
+  {
+   "n_ref": 2415,
+   "n_est": 2189,
+   "matched": 2141,
+   "extra": {
+    "timing": 4,
+    "restrike": 7,
+    "harmonic": 33,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 4
+   },
+   "missed": {
+    "timing": 4,
+    "repeat": 8,
+    "masked": 172,
+    "quiet": 13,
+    "other": 77
+   },
+   "velocity_valid": true,
+   "track": "Franz_Schubert-2015-Impromptu_Op._90_No._4_in_A-flat_Major-MIDI-Unprocessed"
+  },
+  {
+   "n_ref": 3177,
+   "n_est": 2397,
+   "matched": 2270,
+   "extra": {
+    "timing": 22,
+    "restrike": 6,
+    "harmonic": 73,
+    "fragment": 0,
+    "foreign": 1,
+    "other": 25
+   },
+   "missed": {
+    "timing": 22,
+    "repeat": 303,
+    "masked": 339,
+    "quiet": 82,
+    "other": 161
+   },
+   "velocity_valid": true,
+   "track": "Franz_Schubert___Franz_Liszt-2004-Song_Transcriptions__Aufenthalt,_Gretchen_am_Spinnrade,_"
+  },
+  {
+   "n_ref": 2111,
+   "n_est": 1946,
+   "matched": 1935,
+   "extra": {
+    "timing": 0,
+    "restrike": 3,
+    "harmonic": 3,
+    "fragment": 0,
+    "foreign": 1,
+    "other": 4
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 21,
+    "masked": 81,
+    "quiet": 11,
+    "other": 63
+   },
+   "velocity_valid": true,
+   "track": "Fr\u00e9d\u00e9ric_Chopin-2015-Etude_Op._10_No._12-MIDI-Unprocessed"
+  },
+  {
+   "n_ref": 923,
+   "n_est": 912,
+   "matched": 911,
+   "extra": {
+    "timing": 0,
+    "restrike": 0,
+    "harmonic": 0,
+    "fragment": 0,
+    "foreign": 1,
+    "other": 0
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 0,
+    "masked": 4,
+    "quiet": 1,
+    "other": 7
+   },
+   "velocity_valid": true,
+   "track": "Johann_Sebastian_Bach-2013-Prelude_and_Fugue_in_D-sharp_Minor,_WTC_II,_BWV_877-ORIG-MIDI_0"
+  },
+  {
+   "n_ref": 2238,
+   "n_est": 1977,
+   "matched": 1947,
+   "extra": {
+    "timing": 0,
+    "restrike": 1,
+    "harmonic": 24,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 5
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 29,
+    "masked": 193,
+    "quiet": 25,
+    "other": 44
+   },
+   "velocity_valid": true,
+   "track": "Johannes_Brahms-2009-Sonata_2_F-sharp_Minor,_Op._2-MIDI-Unprocessed"
+  },
+  {
+   "n_ref": 1450,
+   "n_est": 1411,
+   "matched": 1405,
+   "extra": {
+    "timing": 0,
+    "restrike": 2,
+    "harmonic": 2,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 2
+   },
+   "missed": {
+    "timing": 0,
+    "repeat": 3,
+    "masked": 31,
+    "quiet": 1,
+    "other": 10
+   },
+   "velocity_valid": true,
+   "track": "Joseph_Haydn-2008-Sonata_in_C_Minor,_First_Movement-MIDI-Unprocessed"
+  },
+  {
+   "n_ref": 1719,
+   "n_est": 1637,
+   "matched": 1624,
+   "extra": {
+    "timing": 1,
+    "restrike": 2,
+    "harmonic": 10,
+    "fragment": 0,
+    "foreign": 0,
+    "other": 0
+   },
+   "missed": {
+    "timing": 1,
+    "repeat": 13,
+    "masked": 42,
+    "quiet": 8,
+    "other": 31
+   },
+   "velocity_valid": true,
+   "track": "Ludwig_van_Beethoven-2015-Sonata_No._3_in_C_Major,_Op._2_No._3,_I._Allegro_con_brio-MIDI-U"
+  }
+ ]
+}

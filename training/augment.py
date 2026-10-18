@@ -147,6 +147,14 @@ class AugmentPlan:
     #: signature — see the comment in `apply`, where keying on `ir_index`
     #: instead collapsed the noise to one vector per impulse response.
     index: int = 0
+    #: Phase 39 upload chain (`evaluation/upload_chain.py`). None = stage off.
+    #: Compression: (threshold dB, ratio). Codec: (subtype, compression level).
+    compress: tuple[float, float] | None = None
+    codec: tuple[str, float] | None = None
+    #: Phase 41: index into the sampler's piano banks. The segment's audio is
+    #: REPLACED by its own labels rendered on that sampled piano, before the
+    #: room/mic/codec chain. None = the real recording.
+    piano: int | None = None
 
 
 class AugmentationSampler:
@@ -183,6 +191,14 @@ class AugmentationSampler:
         eq_low_db: tuple[float, float] = (-6.0, 2.0),
         eq_high_db: tuple[float, float] = (-2.0, 5.0),
         ir_bank_size: int = 24,
+        compress_prob: float = 0.0,
+        compress_threshold_db: tuple[float, float] = (-34.0, -16.0),
+        compress_ratio: tuple[float, float] = (2.0, 8.0),
+        codec_prob: float = 0.0,
+        codec_subtypes: tuple[str, ...] = ("OPUS", "MPEG_LAYER_III"),
+        codec_level: tuple[float, float] = (0.3, 0.85),
+        synth_prob: float = 0.0,
+        synth_banks: tuple[str, ...] = (),
     ) -> None:
         self.sr = sr
         self.seed = int(seed)
@@ -198,6 +214,19 @@ class AugmentationSampler:
         self.eq_prob = eq_prob
         self.eq_low_db = eq_low_db
         self.eq_high_db = eq_high_db
+        self.compress_prob = compress_prob
+        self.compress_threshold_db = compress_threshold_db
+        self.compress_ratio = compress_ratio
+        self.codec_prob = codec_prob
+        self.codec_subtypes = tuple(codec_subtypes)
+        self.codec_level = codec_level
+        self.synth_prob = synth_prob
+        self.synth_banks = tuple(str(b) for b in synth_banks)
+        if synth_prob > 0 and not self.synth_banks:
+            raise ValueError("synth_prob > 0 needs synth_banks")
+        # Loaded on first use, so each dataloader worker loads its own copy
+        # once (persistent workers) and the parent never pays for it.
+        self._banks: list | None = None
 
         # Built once per sampler (so, once per worker process). The bank's own
         # randomness is seeded from `seed`, never from a segment, so every
@@ -276,6 +305,20 @@ class AugmentationSampler:
         peak = (float(rng.uniform(*self.peak_range))
                 if rng.random() < self.quiet_prob else None)
 
+        # Phase 39 upload chain. Drawn AFTER every older parameter, so a
+        # segment's room/detune/noise/level are identical to the 16b recipe's,
+        # and drawn UNCONDITIONALLY, so changing one probability does not
+        # reshuffle the other stage's values (the same rule as `clean` above).
+        use_compress = rng.random() < self.compress_prob
+        threshold = float(rng.uniform(*self.compress_threshold_db))
+        ratio = float(rng.uniform(*self.compress_ratio))
+        use_codec = rng.random() < self.codec_prob
+        subtype = self.codec_subtypes[int(rng.integers(0, len(self.codec_subtypes)))]
+        level = float(rng.uniform(*self.codec_level))
+        # Phase 41, same rules: after every older draw, unconditional.
+        use_synth = rng.random() < self.synth_prob
+        piano = int(rng.integers(0, max(1, len(self.synth_banks))))
+
         return AugmentPlan(
             cents=cents, ir_index=ir_index,
             rt60=float(self.bank.rt60s[ir_index % len(self.bank)]),
@@ -283,6 +326,9 @@ class AugmentationSampler:
             high_gain_db=high_gain_db, peak=peak, clean=False,
             source_seconds=detune_source_seconds(self.seconds, cents),
             cents_clamped=clamped, index=index,
+            compress=(threshold, ratio) if use_compress else None,
+            codec=(subtype, level) if use_codec else None,
+            piano=piano if use_synth else None,
         )
 
     def _clamp_to_available(
@@ -332,6 +378,14 @@ class AugmentationSampler:
             segment_seed(self.seed, self.epoch, plan.index) ^ 0x9E3779B9
         )
 
+        if plan.piano is not None:
+            # The labels, played on another piano. Rendered over the same
+            # (possibly over-read) window the decoder returned, so the detune
+            # below treats it exactly like real audio.
+            bank = self._bank(plan.piano)
+            audio = bank.render(labels, duration=len(audio) / self.sr,
+                                seed=int(rng.integers(2 ** 31)))[: len(audio)]
+
         out, labels = detune_resample(
             audio, labels, self.sr, plan.cents, out_samples=out_samples
         )
@@ -358,13 +412,50 @@ class AugmentationSampler:
 
         out = _normalise(out)
 
+        # PHASE 39 COST, measured on 10 s MAESTRO segments (var/aug_cost.py):
+        # 16b recipe 27 ms median; compress +46 ms; codec +140-215 ms (Opus
+        # encode 96 ms, MP3 53 ms, the lag check ~110 ms -- it finds 0 at 16
+        # kHz, libsndfile already removes the encoder delay, but it stays as
+        # the guard). eq .5 / compress .5 / codec .5 is 106 ms median: ~9 seg/s
+        # per worker. Accepted, because the GPU, not the loader, is the
+        # bottleneck: 0.27 steps/s x 8 segments = ~2.2 seg/s consumed, against
+        # ~19 supplied by 2 workers. The >=15/worker budget predates that
+        # measurement and is kept by the DEFAULT path (stages off).
+        if plan.compress is not None:
+            # Device / platform loudness processing: squashes dynamics, which
+            # is what hides a quiet note in a chord (Phase 38).
+            from evaluation.upload_chain import compress
+            threshold, ratio = plan.compress
+            out = compress(out, self.sr, threshold_db=threshold, ratio=ratio,
+                           peak=HEADROOM).astype(np.float32)
+
         if plan.peak is not None:
-            # Applied LAST and deliberately NOT renormalised — a quiet
-            # recording is a real failure mode (Phase 1 measured a mic peaking
-            # at 0.019). `evaluation.augment.gain` already gets this right.
+            # NOT renormalised — a quiet recording is a real failure mode
+            # (Phase 1 measured a mic peaking at 0.019). `evaluation.augment.gain`
+            # already gets this right. Before the codec, which encodes
+            # whatever level it is handed, as an upload would.
             out, labels = gain(out, labels, self.sr, plan.peak)
 
+        if plan.codec is not None:
+            # LAST: the codec sees the signal as it would be uploaded. Its
+            # encoder delay is measured and removed inside `codec_roundtrip`,
+            # so the labels stay aligned.
+            from evaluation.upload_chain import codec_roundtrip
+            subtype, level = plan.codec
+            fmt = "OGG" if subtype in ("OPUS", "VORBIS") else "MP3"
+            out = codec_roundtrip(out.astype(np.float64), self.sr, fmt, subtype,
+                                  level)
+
         return _fit(out.astype(np.float32), out_samples), labels
+
+    def _bank(self, i: int):
+        if self._banks is None:
+            from evaluation.sampled_piano import PianoBank
+            self._banks = [PianoBank.load_npz(b) for b in self.synth_banks]
+            for b in self._banks:
+                if b.sr != self.sr:
+                    raise ValueError(f"bank {b.name} is {b.sr} Hz, sampler {self.sr}")
+        return self._banks[i]
 
     def __call__(
         self, audio: np.ndarray, labels: Transcription, *, index: int = 0

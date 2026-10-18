@@ -166,21 +166,21 @@ def test_explicit_path_wins(tmp_path, monkeypatch):
 
 def test_env_wins_over_conventional_paths(tmp_path, monkeypatch):
     env = _fake_ckpt(tmp_path / "env.pth")
-    _fake_ckpt(tmp_path / "norepo" / ptify.PTIFY_16B_NAME)
+    _fake_ckpt(tmp_path / "norepo" / ptify.PTIFY_SHIPPED_NAME)
     monkeypatch.setenv(ptify.CHECKPOINT_ENV, str(env))
 
     assert resolve_checkpoint() == env
 
 
 def test_repo_checkpoints_dir_wins_over_home(tmp_path):
-    repo = _fake_ckpt(tmp_path / "norepo" / ptify.PTIFY_16B_NAME)
-    _fake_ckpt(tmp_path / "nohome" / ptify.PTIFY_16B_NAME)
+    repo = _fake_ckpt(tmp_path / "norepo" / ptify.PTIFY_SHIPPED_NAME)
+    _fake_ckpt(tmp_path / "nohome" / ptify.PTIFY_SHIPPED_NAME)
 
     assert resolve_checkpoint() == repo
 
 
 def test_home_dir_is_used_when_nothing_else_has_it(tmp_path):
-    home = _fake_ckpt(tmp_path / "nohome" / ptify.PTIFY_16B_NAME)
+    home = _fake_ckpt(tmp_path / "nohome" / ptify.PTIFY_SHIPPED_NAME)
 
     assert resolve_checkpoint() == home
 
@@ -191,7 +191,7 @@ def test_a_set_but_absent_env_var_raises_naming_itself(tmp_path, monkeypatch):
     A typo'd env var that silently resolved elsewhere would score weights the
     operator did not choose, and the error would point at the wrong thing.
     """
-    _fake_ckpt(tmp_path / "norepo" / ptify.PTIFY_16B_NAME)
+    _fake_ckpt(tmp_path / "norepo" / ptify.PTIFY_SHIPPED_NAME)
     monkeypatch.setenv(ptify.CHECKPOINT_ENV, str(tmp_path / "typo.pth"))
 
     with pytest.raises(PtifyWeightsMissing, match=ptify.CHECKPOINT_ENV):
@@ -212,8 +212,8 @@ def test_the_missing_message_names_file_digest_and_env_var():
         resolve_checkpoint()
 
     msg = str(exc.value)
-    assert ptify.PTIFY_16B_NAME in msg
-    assert ptify.PTIFY_16B_SHA256 in msg
+    assert ptify.PTIFY_SHIPPED_NAME in msg
+    assert ptify.PTIFY_SHIPPED_SHA256 in msg
     assert ptify.CHECKPOINT_ENV in msg
     assert "--fetch-ptify" in msg
     # It must also say WHY it is not simply using the stock model.
@@ -299,7 +299,7 @@ def test_a_wrong_digest_checkpoint_in_the_conventional_path_is_rejected(
 ):
     """Some other 172MB .pth left in checkpoints/ must not be scored as the
     16b model. Size alone cannot tell them apart."""
-    big = tmp_path / "norepo" / ptify.PTIFY_16B_NAME
+    big = tmp_path / "norepo" / ptify.PTIFY_SHIPPED_NAME
     big.parent.mkdir(parents=True, exist_ok=True)
     big.write_bytes(b"\0" * 64)
 
@@ -307,8 +307,8 @@ def test_a_wrong_digest_checkpoint_in_the_conventional_path_is_rejected(
     monkeypatch.setattr(
         ptify, "spec",
         lambda dest_dir=None: ptify.weights.Checkpoint(
-            url="", filename=ptify.PTIFY_16B_NAME, dest_dir=tmp_path,
-            min_bytes=8, sha256=ptify.PTIFY_16B_SHA256,
+            url="", filename=ptify.PTIFY_SHIPPED_NAME, dest_dir=tmp_path,
+            min_bytes=8, sha256=ptify.PTIFY_SHIPPED_SHA256,
         ),
     )
 
