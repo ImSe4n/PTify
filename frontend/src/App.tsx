@@ -16,6 +16,7 @@
 
 import { useEffect, useState } from "react";
 
+import { ApiError, deleteAccount } from "./api/client";
 import { useAuth } from "./auth/AuthContext";
 import { AuthScreen } from "./routes/AuthScreen";
 import LegalScreen from "./routes/LegalScreen";
@@ -206,6 +207,25 @@ function Header({ route, theme, onToggleTheme }: HeaderProps) {
             </span>
             <button className="btn-link" onClick={signOut}>
               Sign out
+            </button>
+            <button
+              className="btn-link"
+              onClick={async () => {
+                const ok = window.confirm(
+                  "Delete your account? This permanently removes your account, " +
+                    "every transcription, and any recordings you shared with " +
+                    "feedback. It cannot be undone.",
+                );
+                if (!ok) return;
+                try {
+                  await deleteAccount();
+                  signOut();
+                } catch (e) {
+                  window.alert((e as ApiError).message || "Could not delete the account.");
+                }
+              }}
+            >
+              Delete account
             </button>
           </>
         )}

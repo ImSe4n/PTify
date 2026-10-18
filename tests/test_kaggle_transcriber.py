@@ -38,7 +38,7 @@ def test_score_kernel_is_valid_and_guards_the_checkpoints():
     assert script.index("identical to the baseline") < first_score
     assert script.index("assert_deployable(") < first_score
     # Models alternate inside each set, so a cut-short session stays paired.
-    assert script.index("'p39', base), ('p41', new)") > script.index("for name, presets in")
+    assert script.index("'p39', base), ('p43', new)") > script.index("for name, presets in")
 
 
 def test_kernel_can_start_from_p39_and_pins_its_digest():

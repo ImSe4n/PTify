@@ -1,0 +1,8 @@
+# The Vercel project's root directory is `frontend/` (set 2026-10-18). From the
+# repo root, upload ONLY the frontend: recordings, checkpoints and var/ are
+# gigabytes and the site needs none of them.
+/*
+!/frontend
+/frontend/node_modules
+/frontend/dist
+/frontend/.vercel

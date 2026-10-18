@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -163,6 +164,17 @@ def create_app(
     app.state.auth_rate_limiter = RateLimiter(settings.auth_rate_limit_per_minute)
     app.state.daily_quota = DailyQuota(settings.daily_job_limit)
 
+    # Feedback + job log (api/ops.py). Needs the database; without one there is
+    # nowhere durable to keep either, so the routes answer 404.
+    app.state.ops = None
+    if settings.db_path:
+        from .ops import OpsStore
+
+        app.state.ops = OpsStore(settings.db_path,
+                                 feedback_root=Path(settings.work_dir).parent / "feedback")
+        if hasattr(queue, "on_finish"):
+            queue.on_finish = app.state.ops.log_job
+
     # Accounts need both a signing secret and somewhere to keep users, so the
     # routes exist only when both are present. A deployment with neither gets
     # no /v1/auth/* rather than endpoints that always fail: 404 is an honest
@@ -199,6 +211,9 @@ def create_app(
 
     app.include_router(health.router)
     app.include_router(jobs_routes.router, prefix=API_PREFIX)
+    from .routes import ops as ops_routes
+
+    app.include_router(ops_routes.router, prefix=API_PREFIX)
 
     return app
 

@@ -1,6 +1,13 @@
-"""Fetch VCSL's four acoustic pianos (CC0) into var/pianos/ (Phase 41).
+"""Fetch sampled pianos into var/pianos/ (Phase 41, Phase 43).
 
     python -m tools.fetch_vcsl [--only "Upright Piano, Yamaha"]
+    python -m tools.fetch_vcsl --salamander
+
+Phase 43 adds Salamander Grand Piano v3 (Yamaha C5, Alexander Holm, CC BY 3.0
+-- attribution required; github.com/sfzinstruments/SalamanderGrandPiano):
+note samples `A0v1.flac` (every third key, 16 velocity layers) go to
+`Grand Piano, Salamander/Sustains/`, key-release noises `rel1..rel88.flac` to
+`Releases/`. Harmonics and pedal noises are skipped.
 
 VCSL (github.com/sgossner/VCSL, CC0 1.0): two uprights (Knight, Yamaha) and
 two grands (Kawai, Steinway B), as raw WAV samples. Their SFZ build is not
@@ -32,10 +39,55 @@ def wanted(path: str, piano: str) -> bool:
             and "/Pedal/" not in path)
 
 
+SALAMANDER_REPO = "sfzinstruments/SalamanderGrandPiano"
+SALAMANDER_DEST = "Grand Piano, Salamander"
+
+
+def salamander_target(name: str) -> str | None:
+    """Destination subfolder for a Salamander sample, or None to skip it."""
+    import re
+    if re.fullmatch(r"[A-G]#?\dv\d+\.flac", name):
+        return "Sustains"
+    if re.fullmatch(r"rel\d+\.flac", name):
+        return "Releases"
+    return None
+
+
+def fetch_salamander() -> None:
+    url = f"https://api.github.com/repos/{SALAMANDER_REPO}/git/trees/master?recursive=1"
+    with urllib.request.urlopen(url, timeout=60) as r:
+        tree = json.load(r)
+    files = [x for x in tree["tree"] if x["type"] == "blob"
+             and x["path"].startswith("Samples/")
+             and salamander_target(x["path"].split("/")[-1])]
+    print(f"Salamander: {len(files)} files, "
+          f"{sum(x.get('size', 0) for x in files) / 1e6:.0f} MB", flush=True)
+    for x in files:
+        name = x["path"].split("/")[-1]
+        out = DEST / SALAMANDER_DEST / salamander_target(name) / name
+        if out.exists() and out.stat().st_size == x.get("size"):
+            continue
+        out.parent.mkdir(parents=True, exist_ok=True)
+        raw = (f"https://raw.githubusercontent.com/{SALAMANDER_REPO}/master/"
+               + urllib.parse.quote(x["path"]))
+        tmp = out.with_name(out.name + ".part")
+        urllib.request.urlretrieve(raw, tmp)
+        tmp.replace(out)
+    (DEST / SALAMANDER_DEST / "LICENSE.txt").write_text(
+        "Salamander Grand Piano v3 by Alexander Holm, CC BY 3.0\n"
+        "https://github.com/sfzinstruments/SalamanderGrandPiano\n", encoding="utf-8")
+    print("done", flush=True)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tools.fetch_vcsl")
     ap.add_argument("--only", default=None, help="one piano folder name")
+    ap.add_argument("--salamander", action="store_true",
+                    help="fetch Salamander Grand (CC BY 3.0) instead of VCSL")
     args = ap.parse_args(argv)
+    if args.salamander:
+        fetch_salamander()
+        return 0
     pianos = (args.only,) if args.only else PIANOS
 
     url = f"https://api.github.com/repos/{REPO}/git/trees/{BRANCH}?recursive=1"

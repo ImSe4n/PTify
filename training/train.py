@@ -151,6 +151,7 @@ def build_augmenter(args, *, epoch: int = 0):
         synth_prob=args.augment_synth_prob,
         synth_banks=tuple(sorted(str(b) for b in Path(args.synth_banks).glob("*.npz")))
         if args.synth_banks else (),
+        synth_timbre=args.augment_synth_timbre,
     )
 
 
@@ -362,7 +363,8 @@ def train(args) -> int:
               f"eq {args.augment_eq_prob:.0%}, "
               f"compress {args.augment_compress_prob:.0%}, "
               f"codec {args.augment_codec_prob:.0%}, "
-              f"synth piano {args.augment_synth_prob:.0%}, "
+              f"synth piano {args.augment_synth_prob:.0%}"
+              f"{' +timbre' if args.augment_synth_timbre else ''}, "
               f"{len(augmenter.bank)} impulse responses)")
 
     trigger = SaveTrigger(args.save_every_steps, args.save_every_seconds)
@@ -600,6 +602,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--augment-synth-prob", type=float, default=0.0,
                     help="Phase 41: share of augmented segments re-rendered "
                          "on a sampled piano (needs --synth-banks)")
+    ap.add_argument("--augment-synth-timbre", action="store_true",
+                    help="Phase 43: vary decay/detune/brightness per rendered segment")
     ap.add_argument("--synth-banks", default=None,
                     help="directory of PianoBank .npz files")
     ap.add_argument("--augment-codec-prob", type=float, default=0.0,

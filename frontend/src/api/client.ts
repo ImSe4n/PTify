@@ -183,6 +183,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const getHealth = () => request<HealthOut>("/healthz");
 export const getEngines = () => request<EngineOut[]>("/v1/engines");
 
+// --- feedback and account (plan A, 2026-10-18) -----------------------------
+
+/** Report a problem. `keepAudio` is the user's explicit opt-in to keep the
+ *  recording past the 1-hour cleanup, for improving transcription. */
+export const sendFeedback = (jobId: string, comment: string, keepAudio: boolean) =>
+  request<{ feedback_id: string; kept: boolean }>(`/v1/jobs/${jobId}/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ comment, keep_audio: keepAudio }),
+  });
+
+/** Delete the account and everything it owns. 204, no body. */
+export async function deleteAccount(): Promise<void> {
+  const res = await fetch(`${BASE}/v1/auth/me`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw await parseApiError(res);
+}
+
 // --- auth -------------------------------------------------------------------
 
 /**

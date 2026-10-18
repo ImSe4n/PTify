@@ -199,6 +199,7 @@ class AugmentationSampler:
         codec_level: tuple[float, float] = (0.3, 0.85),
         synth_prob: float = 0.0,
         synth_banks: tuple[str, ...] = (),
+        synth_timbre: bool = False,
     ) -> None:
         self.sr = sr
         self.seed = int(seed)
@@ -222,6 +223,9 @@ class AugmentationSampler:
         self.codec_level = codec_level
         self.synth_prob = synth_prob
         self.synth_banks = tuple(str(b) for b in synth_banks)
+        #: Phase 43: each rendered segment gets its own instrument variation
+        #: (decay, unison detune, brightness) -- see evaluation.sampled_piano.Timbre.
+        self.synth_timbre = bool(synth_timbre)
         if synth_prob > 0 and not self.synth_banks:
             raise ValueError("synth_prob > 0 needs synth_banks")
         # Loaded on first use, so each dataloader worker loads its own copy
@@ -383,8 +387,13 @@ class AugmentationSampler:
             # (possibly over-read) window the decoder returned, so the detune
             # below treats it exactly like real audio.
             bank = self._bank(plan.piano)
+            seed = int(rng.integers(2 ** 31))
+            timbre = None
+            if self.synth_timbre:
+                from evaluation.sampled_piano import Timbre
+                timbre = Timbre.draw(np.random.default_rng(seed ^ 0x5EED))
             audio = bank.render(labels, duration=len(audio) / self.sr,
-                                seed=int(rng.integers(2 ** 31)))[: len(audio)]
+                                seed=seed, timbre=timbre)[: len(audio)]
 
         out, labels = detune_resample(
             audio, labels, self.sr, plan.cents, out_samples=out_samples

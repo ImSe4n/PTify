@@ -134,3 +134,5 @@ frontend/.env.*.local
 
 # Scratch drivers used to walk the app in a browser.
 frontend/*.tmp.mjs
+.vercel
+.env*.local

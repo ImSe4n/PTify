@@ -147,7 +147,21 @@ class InProcessQueue(JobQueue):
             finally:
                 self._queue.task_done()
 
+    #: Called with the finished Job (any outcome). Set by create_app to the
+    #: ops job log; a failing hook must never affect the job.
+    on_finish = None
+
     async def _run_one(self, job_id: str, spec: JobSpec) -> None:
+        try:
+            await self._run_one_inner(job_id, spec)
+        finally:
+            if self.on_finish is not None:
+                try:
+                    self.on_finish(self._store.get(job_id))
+                except Exception:  # noqa: BLE001
+                    log.warning("job log failed for %s", job_id, exc_info=True)
+
+    async def _run_one_inner(self, job_id: str, spec: JobSpec) -> None:
         job = self._store.get(job_id)
         if job is None:
             return  # swept or deleted while queued

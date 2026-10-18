@@ -78,7 +78,8 @@ function Privacy() {
       <p className="legal-lede">
         Short version: your recordings are deleted about an hour after they are
         transcribed, nobody else can read them, and they are never used to train
-        anything.
+        anything. The only exception is a recording you explicitly choose to
+        share when reporting a problem.
       </p>
 
       <h2>What is stored</h2>
@@ -86,7 +87,9 @@ function Privacy() {
         The audio file you upload, the transcription produced from it, and the
         artifacts you asked for (MIDI, MusicXML, PDF, SVG). Alongside those: the
         account you created, and the job&rsquo;s metadata such as which engine
-        ran and when.
+        ran and when. A short log of how each job ended (finished or failed,
+        an error code, how long it took) is kept after the job is deleted so
+        failures can be fixed; it contains no audio and no notes.
       </p>
 
       <h2>How long it is kept</h2>
@@ -108,21 +111,28 @@ function Privacy() {
         text.
       </p>
 
-      <h2>When audio leaves this server</h2>
+      <h2>Where the audio is processed</h2>
       <p>
-        Transcription normally runs on the same machine that serves this site.
-        If you choose the <span className="mono">remote</span> engine, your
-        audio is sent to a GPU host to be transcribed and the notes are sent
-        back. That host processes the file to produce the transcription and is
-        not asked to keep it. The engine picker labels this engine, and the
-        default engine does not send your audio anywhere.
+        Your audio is sent to PTify&rsquo;s own transcription server, a GPU
+        host run on Modal, and the notes are sent back. That server processes
+        the file to produce the transcription and does not keep it. The site
+        and its storage also run on Modal; the web pages are served by Vercel,
+        which never receives your audio.
       </p>
 
       <h2>Training</h2>
       <p>
-        Your recordings are not used to train or fine-tune any model. The models
-        here were trained on public research datasets (MAESTRO and MAPS), and
-        the published accuracy figures come from those, not from user uploads.
+        Your recordings are not used to train or fine-tune any model. The model
+        was trained on the MAESTRO research dataset, and the published accuracy
+        figures come from public test sets, not from user uploads.
+      </p>
+
+      <h2>Reporting a problem</h2>
+      <p>
+        Under a result you can report what went wrong. Your comment is kept.
+        The recording and its result are kept <em>only</em> if you tick the box
+        to share them; they are then used to test and improve transcription,
+        and are removed if you delete your account.
       </p>
 
       <h2>Analytics</h2>
@@ -136,9 +146,10 @@ function Privacy() {
       <h2>Removal</h2>
       <p>
         Uploads and artifacts remove themselves on the retention timer above, so
-        nothing needs to be done to have a recording deleted. There is currently
-        no button that deletes one sooner; a running job can be cancelled, which
-        stops the work at the next stage boundary.
+        nothing needs to be done to have a recording deleted. To remove
+        everything at once, use &ldquo;Delete account&rdquo; at the top of the
+        page: it deletes your account, every transcription, and any recordings
+        you shared with a problem report, immediately and permanently.
       </p>
     </>
   );

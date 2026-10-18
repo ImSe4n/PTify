@@ -22,6 +22,7 @@ import { DEFAULT_VIEW, type ColourScheme, type ViewOptions } from "../roll/viewO
 import { usePlayback } from "../audio/usePlayback";
 import { Transport } from "./Transport";
 import { fmtClock } from "../ui/format";
+import { Feedback } from "./Feedback";
 
 const DOWNLOADS: { fmt: OutputFormat; label: string; desc: string; file: string }[] = [
   { fmt: "midi", label: "MIDI", desc: "notes + pedal (CC64)", file: "transcription.mid" },
@@ -414,6 +415,11 @@ export function ResultScreen({
             {job.warnings.length > 0 && (
               <p className="aside-note">{job.warnings.join(" ")}</p>
             )}
+          </section>
+
+          <section className="aside-block">
+            <h2 className="section-title serif">Something wrong?</h2>
+            <Feedback jobId={jobId} />
           </section>
         </aside>
       </div>
