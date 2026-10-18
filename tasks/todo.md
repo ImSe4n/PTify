@@ -1,3 +1,44 @@
+# NEXT (planned 2026-10-18, branch phase-42-production-beta) -- awaiting user pick
+
+Live: https://ptify.vercel.app, invite-only beta, model p39. Done this branch:
+sign-in + legal accuracy copy updated to p39 figures (SMD 0.955, far phone +1.9,
+MAPS 0.844); redeployed.
+
+## A. Learn from real users (small, unlocks everything else) -- RECOMMENDED FIRST
+We have NO real upload with known-correct notes; every number is a proxy.
+- "This transcription is wrong" button on the result page: user can attach a
+  note and, with explicit opt-in consent, keep the audio + our output for
+  evaluation (default: deleted after 1 h as now). Admin-only listing.
+- Ops basics found while deploying: delete-account route (privacy page
+  promises deletion on request), job-failure log/alert, re-run the score
+  benchmark through the FIXED remote path (old audio rows used ByteDance
+  thresholds, so the notation baseline is slightly stale).
+- Success: feedback stored and listable by admin; delete-account tested.
+
+## B. Phase 43 -- piano diversity, bigger (the one lever that moved real uprights)
+p41: MAPS +0.54 (12/14), held-out upright +2.95 (12/12), grands -0.1. Bar was +1.0.
+- More instruments: Salamander Grand (CC BY 3.0), Sofia's grands (CC BY),
+  more uprights (check K18 and Pianobook licences); keep one sampled upright
+  held out.
+- Longer run: 16k steps across two Kaggle sessions (`--resume auto`), synth
+  share 0.5; try both T4s (Kaggle gave 2).
+- Criteria (pre-registered): MAPS >= +1.0 vs p39; held-out upright up; SMD,
+  MAESTRO clean and uploads not below p39 - 0.2.
+
+## C. Phase 44 -- note lengths on the page (the most visible flaw)
+Phase 37: durations 38% right; the duration HEAD is the bottleneck (+28.8 pt
+ceiling), not engraving. Retrain/re-decode the rhythm model's duration head;
+judge on ASAP validation, then the score benchmark once.
+
+## D. Songscription bar (user's stop rule)
+Needs: can the free tier export MIDI? If yes: 3-4 clips with known notes,
+score both through the same metric.
+
+Recommended order: A (1 session) -> B on Kaggle in the background while C is
+built locally. D whenever the MIDI question is answered.
+
+---
+
 # Phase 10 -- production readiness (user: "resolve all of these", 2026-10-18)
 
 Target: PRIVATE BETA. Frontend on Vercel; backend as a second Modal app

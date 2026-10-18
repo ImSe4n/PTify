@@ -169,9 +169,10 @@ function Terms() {
 
       <h2>Accuracy</h2>
       <p>
-        Transcription is probabilistic and the output contains mistakes. The
-        published figure is 0.840 onset F1 on MAPS, which means roughly one note
-        in six is wrong on unfamiliar pianos and rooms, and note durations are
+        Transcription is probabilistic and the output contains mistakes. On
+        clean studio recordings the current model scores about 0.955 onset F1
+        (roughly one note in twenty wrong); on unfamiliar pianos and rooms it
+        is 0.844 on MAPS (roughly one in six or seven), and note durations are
         less reliable than note starts, especially in heavily pedalled music.
         The app marks estimated note lengths rather than hiding them. Check the
         result before relying on it for anything that matters, such as
