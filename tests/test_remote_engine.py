@@ -463,3 +463,41 @@ def test_a_host_serving_another_model_is_refused():
     transport = _FakeTransport(_payload(engine="ptify"))
     with pytest.raises(remote.RemoteProtocolError, match="served 'ptify'"):
         _engine(transport, remote_engine="bytedance").transcribe_file(__file__)
+
+
+# --- 2026-10-19: Modal preempts the GPU container mid-job and answers 500 ---
+
+class _FlakyTransport(_FakeTransport):
+    def __init__(self, failures, code=500):
+        super().__init__()
+        self.failures, self.code = failures, code
+
+    def post(self, url, body, headers, timeout):
+        import urllib.error
+        self.calls.append(body)
+        if len(self.calls) <= self.failures:
+            raise urllib.error.HTTPError(url, self.code, "boom", {}, None)
+        return self._payload
+
+
+def test_a_preempted_host_is_retried(monkeypatch):
+    monkeypatch.setattr(RemoteEngine, "RETRY_WAIT_SECONDS", 0.0)
+    t = _FlakyTransport(failures=2)
+    _engine(t).transcribe_file(__file__)
+    assert len(t.calls) == 3
+
+
+def test_retries_give_up_and_report(monkeypatch):
+    monkeypatch.setattr(RemoteEngine, "RETRY_WAIT_SECONDS", 0.0)
+    t = _FlakyTransport(failures=5)
+    with pytest.raises(remote.RemoteUnavailable, match="HTTP 500"):
+        _engine(t).transcribe_file(__file__)
+    assert len(t.calls) == RemoteEngine.POST_ATTEMPTS
+
+
+def test_client_errors_are_not_retried(monkeypatch):
+    monkeypatch.setattr(RemoteEngine, "RETRY_WAIT_SECONDS", 0.0)
+    t = _FlakyTransport(failures=5, code=401)
+    with pytest.raises(remote.RemoteUnavailable):
+        _engine(t).transcribe_file(__file__)
+    assert len(t.calls) == 1

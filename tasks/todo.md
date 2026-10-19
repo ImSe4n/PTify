@@ -85,6 +85,10 @@ beat F 0.50 -> 0.43. Perfect-MIDI row identical (sanity). Hypothesis: the
 rhythm model reads PLAYED length; frame 0.05 ends notes far better (offset
 F1 0.49 -> 0.69, 2026-10-17 probe). RUNNING: onset 0.6 + frame 0.05
 (var/score_bench_f005.py -> benchmarks/score-benchmark-rhythm-run8-p39-f005.json).
+(First attempt died at 26/39: Modal PREEMPTED the GPU container mid-job
+-> HTTP 500. FIXED for production too: RemoteEngine retries 5xx up to 3x
+with backoff, never 4xx (3 tests); API redeployed with CORS, healthz 200,
+preflight 200. Benchmark resumed from cache.)
 If it restores rhythm while keeping recall, change PTIFY_FRAME_THRESHOLD
 (check MAPS/SMD onset F1 too -- frame was found inert for onsets in Phase 23).
 Phase 43 TRAINING on Kaggle (v3, from p41, 4 pianos + timbre), started ~23:25.
