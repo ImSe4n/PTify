@@ -60,7 +60,40 @@ p41: MAPS +0.54 (12/14), held-out upright +2.95 (12/12), grands -0.1. Bar was +1
 - Criteria (pre-registered): MAPS >= +1.0 vs p39; held-out upright up; SMD,
   MAESTRO clean and uploads not below p39 - 0.2.
 
-## C. Phase 44 -- note lengths on the page (the most visible flaw)
+## C. Phase 44 -- IN PROGRESS: how the duration head is wrong (ASAP val, run 8,
+`tools/duration_breakdown.py` ratio bands, predicted/written):
+  exact 36.7% | x2/3-x3/4 ("lost a dot"/triplet) 22.3% | x4/3-x3/2 8.9% |
+  x1/2 8.0% | x2 8.2% | <=x1/4 3.5% | >=x4 1.7% | other short 6.3% | long 4.5%
+-> the largest error is a systematic ~2/3-3/4 SHORTENING. Next: which
+written values (var/dur_confusion.py), then pick the fix.
+WHICH VALUES (var/dur-confusion.log): top confusion written 1/3 beat ->
+predicted 1/4 (4,381), but 84.5% of it is ONE piece (Islamey), 98% in three.
+-> not a local head weakness: a PIECE-LEVEL metric misreading.
+SCALE ORACLE (var/dur_scale_oracle.py, var/dur-scale-oracle.log): head
+accuracy 38.04% as is -> 54.44% with the best single factor per piece
+(answer key picks it). 8 of 20 pieces at the wrong scale (x0.5, x2/3, x4/3,
+x1.5). So: up to +16 pt is a per-piece METER/BEAT-LEVEL decision -- the same
+problem HANDOFF parked (no chooser beat model confidence: 29-31/89 vs 64).
+The other ~46% of errors are per-note. DECISION PENDING: do not retry a
+chooser without a NEW signal; candidates for that signal are listed in the
+user report.
+SCORE BENCHMARK THROUGH THE FIXED PATH (p39, onset 0.6 / frame 0.01 = what
+production runs; benchmarks/score-benchmark-rhythm-run8-p39.json), audio
+row vs the old (16b decoded at ByteDance 0.7/0.05): chained 83.9 -> 86.1
+(+2.2) BUT rhythm 76.9 -> 73.0, durations 58.8 -> 56.2, beat level 19 -> 17,
+beat F 0.50 -> 0.43. Perfect-MIDI row identical (sanity). Hypothesis: the
+rhythm model reads PLAYED length; frame 0.05 ends notes far better (offset
+F1 0.49 -> 0.69, 2026-10-17 probe). RUNNING: onset 0.6 + frame 0.05
+(var/score_bench_f005.py -> benchmarks/score-benchmark-rhythm-run8-p39-f005.json).
+(First attempt died at 26/39: Modal PREEMPTED the GPU container mid-job
+-> HTTP 500. FIXED for production too: RemoteEngine retries 5xx up to 3x
+with backoff, never 4xx (3 tests); API redeployed with CORS, healthz 200,
+preflight 200. Benchmark resumed from cache.)
+If it restores rhythm while keeping recall, change PTIFY_FRAME_THRESHOLD
+(check MAPS/SMD onset F1 too -- frame was found inert for onsets in Phase 23).
+Phase 43 TRAINING on Kaggle (v3, from p41, 4 pianos + timbre), started ~23:25.
+
+### (original C plan)
 Phase 37: durations 38% right; the duration HEAD is the bottleneck (+28.8 pt
 ceiling), not engraving. Retrain/re-decode the rhythm model's duration head;
 judge on ASAP validation, then the score benchmark once.

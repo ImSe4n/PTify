@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
@@ -53,6 +54,8 @@ from pathlib import Path
 
 from .engine import ProgressCallback, TranscriptionEngine
 from .events import NoteEvent, PedalEvent, Transcription
+
+log = logging.getLogger(__name__)
 
 #: The wire version this client speaks. Must match `hosting/cloudrun/wire.py`.
 #: A payload announcing anything else is REFUSED rather than parsed
@@ -434,7 +437,31 @@ class RemoteEngine(TranscriptionEngine):
         report(1.0, "done")
         return tr
 
+    #: Attempts for a 5xx from the host. MEASURED 2026-10-19: Modal preempted
+    #: the GPU container mid-job ("Container terminated due to preemption"),
+    #: answering 500. A transcription request has no side effects, so
+    #: repeating it is safe; 4xx (bad credentials, quota) is never retried.
+    POST_ATTEMPTS = 3
+    RETRY_WAIT_SECONDS = 5.0
+
     def _post(self, body: dict, headers: dict) -> dict:
+        """POST with retries on 5xx (preemption); see POST_ATTEMPTS."""
+        import time
+
+        for attempt in range(1, self.POST_ATTEMPTS + 1):
+            try:
+                return self._post_once(body, headers)
+            except RemoteUnavailable as exc:
+                status = getattr(exc.__cause__, "code", None)
+                if (not isinstance(status, int) or status < 500
+                        or attempt == self.POST_ATTEMPTS):
+                    raise
+                log.warning("remote host returned %s (attempt %d/%d); retrying",
+                            status, attempt, self.POST_ATTEMPTS)
+                time.sleep(self.RETRY_WAIT_SECONDS * attempt)
+        raise AssertionError("unreachable")
+
+    def _post_once(self, body: dict, headers: dict) -> dict:
         """POST, translating every transport failure into RemoteUnavailable."""
         try:
             return self._transport.post(

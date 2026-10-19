@@ -82,6 +82,37 @@ def breakdown(ours: list[QuantisedNote], staffs: list[str],
     return {"head": (head, n), "head_B": (head_b, n), "oracle_B": (oracle_b, n)}
 
 
+#: (label, low, high) bands for predicted/written length; first match wins.
+RATIO_BANDS = (
+    ("exact", 0.97, 1.03),
+    ("x1/2 (half as long)", 0.47, 0.53),
+    ("x2 (twice as long)", 1.9, 2.1),
+    ("x2/3 or x3/4 (lost a dot / triplet)", 0.64, 0.78),
+    ("x4/3 or x3/2 (added a dot / triplet)", 1.3, 1.55),
+    ("x1/4 or less", 0.0, 0.27),
+    ("x4 or more", 3.7, 1e9),
+)
+
+
+def ratio_bands(chained, pre_trim: dict[int, float], scale: float) -> dict[str, int]:
+    """Phase 44: HOW the head's values are wrong -- predicted/written length,
+    binned. A factor-2 band says the note-value SCALE is off; a dot band says
+    the subdivision; 'other shorter/longer' says the head misjudged the hold."""
+    counts = {label: 0 for label, _, _ in RATIO_BANDS}
+    counts["other shorter"] = counts["other longer"] = 0
+    for c in chained:
+        if c.score.length_beats <= 0:
+            continue
+        r = pre_trim[id(c.ours)] * scale / c.score.length_beats
+        for label, lo, hi in RATIO_BANDS:
+            if lo <= r <= hi:
+                counts[label] += 1
+                break
+        else:
+            counts["other shorter" if r < 1 else "other longer"] += 1
+    return counts
+
+
 def _recording_trim():
     """Wrap the engraver's trim so it records every length just before B."""
     import notation.score as ns
@@ -127,6 +158,7 @@ def run_piece(row: dict, flags: dict) -> dict[str, tuple[int, int]]:
                     align_to_score(perf.notes, perf_map, score), score)
     _, factor = meter_factor(beats, perf_map)
     out = breakdown(ours, staffs, seen, chained, factor / beat_q)
+    out["ratios"] = ratio_bands(chained, seen, factor / beat_q)
     out["ceiling"] = written_ceiling(score, [c.score for c in chained])
     return out
 
@@ -151,6 +183,7 @@ def main(argv=None) -> int:
                  halve=args.rhythm_halve_fast_eighths)
 
     totals = {c: [0, 0] for c in COLUMNS}
+    ratio_totals: dict[str, int] = {}
     rows = val_rows()
     print(f"{'piece':40s} " + " ".join(f"{c:>8s}" for c in COLUMNS), flush=True)
     for row in rows:
@@ -162,10 +195,16 @@ def main(argv=None) -> int:
         for c in COLUMNS:
             totals[c][0] += res[c][0]
             totals[c][1] += res[c][1]
+        for k, v in res["ratios"].items():
+            ratio_totals[k] = ratio_totals.get(k, 0) + v
         print(f"{row['folder'][:40]:40s} "
               + " ".join(f"{_pct(res[c]):>8s}" for c in COLUMNS), flush=True)
     print(f"{'ALL (pooled notes)':40s} "
           + " ".join(f"{_pct(tuple(totals[c])):>8s}" for c in COLUMNS))
+    n = sum(ratio_totals.values()) or 1
+    print("\nhead value / written value (chained notes):")
+    for k, v in ratio_totals.items():
+        print(f"  {k:40s} {v:6d}  {100 * v / n:5.1f}%")
     return 0
 
 

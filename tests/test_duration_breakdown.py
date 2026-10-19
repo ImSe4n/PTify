@@ -60,3 +60,18 @@ def test_breakdown_separates_head_from_engraving():
     assert out["head"] == (8, 9)      # only the treble whole note wrong
     assert out["head_B"] == (7, 9)    # ... plus the held bass engraving cuts
     assert out["oracle_B"] == (8, 9)  # true values: only the engraving cut
+
+
+def test_ratio_bands_classify_how_a_value_is_wrong():
+    from tools.duration_breakdown import ratio_bands
+    notes = [q(60, 0.0, 1.0)] * 5
+    written = [1.0, 2.0, 0.5, 1.5, 0.3]      # exact, half, double, lost dot, other
+    chained = [ChainedNote(n, "upper", ScoreNote(60, 0.0, w, "upper"))
+               for n, w in zip([q(60, 0.0, 1.0) for _ in written], written)]
+    pre = {id(c.ours): 1.0 for c in chained}
+    b = ratio_bands(chained, pre, scale=1.0)
+    assert b["exact"] == 1
+    assert b["x1/2 (half as long)"] == 1
+    assert b["x2 (twice as long)"] == 1
+    assert b["x2/3 or x3/4 (lost a dot / triplet)"] == 1
+    assert b["other longer"] == 1
