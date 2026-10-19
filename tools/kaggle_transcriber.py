@@ -51,6 +51,9 @@ INITS = {
     # Phase 41's run (3 sampled pianos, 8,000 steps); Phase 43 continues it.
     "p41": (Path("checkpoints/ptify-p41-step8000.pth"),
             "e87c30ee1fee1a709b590ec9127003952be6f4c54f6731e5c7043ceaa687407f"),
+    # Phase 43 (4 sampled pianos + timbre, from p41); shipped 2026-10-19.
+    "p43": (Path("checkpoints/ptify-p43-step8000.pth"),
+            "eb417ccefd7db8fa32db47f12f228c98761d6ad357ae7d58a3ef5ee2ca1a69d0"),
 }
 #: Phase 41 sampled-piano banks (`evaluation.sampled_piano`), shipped when the
 #: run uses `--augment-synth-prob`.

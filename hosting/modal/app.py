@@ -108,14 +108,15 @@ CHECKPOINT_PATH = f"{CHECKPOINT_DIR}/{CHECKPOINT_NAME}"
 #: (model-v2) is not published yet, so the image bakes the file from this
 #: machine's `checkpoints/` (`PTIFY_CHECKPOINT_LOCAL`) instead of fetching the
 #: URL. The digest check at load is unchanged, so a wrong file still fails.
+#: Phase 43 (2026-10-19): p43, baked the same way (model-v3 not published).
 PTIFY_CHECKPOINT_URL = (
     "https://github.com/ImSe4n/PTify/releases/download/"
-    "model-v2/ptify-p39-step8000.pth"
+    "model-v3/ptify-p43-step8000.pth"
 )
-PTIFY_CHECKPOINT_NAME = "ptify-p39-step8000.pth"
+PTIFY_CHECKPOINT_NAME = "ptify-p43-step8000.pth"
 PTIFY_CHECKPOINT_PATH = f"{CHECKPOINT_DIR}/{PTIFY_CHECKPOINT_NAME}"
 PTIFY_CHECKPOINT_SHA256 = (
-    "6687be39bdb05a55ee1c4bee907035a8f3252806032a7209adaf9903f3983f77"
+    "eb417ccefd7db8fa32db47f12f228c98761d6ad357ae7d58a3ef5ee2ca1a69d0"
 )
 PTIFY_CHECKPOINT_LOCAL = os.path.join(
     os.path.dirname(__file__), "..", "..", "checkpoints", PTIFY_CHECKPOINT_NAME)

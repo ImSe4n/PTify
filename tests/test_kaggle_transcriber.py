@@ -30,7 +30,7 @@ def test_paths_the_kernel_owns_cannot_be_overridden(owned):
 def test_score_kernel_is_valid_and_guards_the_checkpoints():
     from tools.kaggle_score import BASE, kernel_script
     from tools.kaggle_transcriber import INITS
-    script = kernel_script()
+    script = kernel_script(score_base=True)
     ast.parse(script)
     assert INITS[BASE][1] in script
     # Both guards run before anything is scored.
@@ -39,6 +39,16 @@ def test_score_kernel_is_valid_and_guards_the_checkpoints():
     assert script.index("assert_deployable(") < first_score
     # Models alternate inside each set, so a cut-short session stays paired.
     assert script.index("'p39', base), ('p43', new)") > script.index("for name, presets in")
+
+
+def test_score_kernel_default_scores_only_the_new_model_maps_first():
+    """GPU quota (2026-10-19): the baseline's numbers already exist locally."""
+    from tools.kaggle_score import kernel_script
+    script = kernel_script()
+    ast.parse(script)
+    assert "(('p43', new),)" in script and "'p39', base)" not in script
+    assert "identical to the baseline" in script      # guards still run
+    assert script.index("'maps'") < script.index("'maestro3min', 'clean")
 
 
 def test_kernel_can_start_from_p39_and_pins_its_digest():

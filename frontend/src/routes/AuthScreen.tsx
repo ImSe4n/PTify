@@ -75,15 +75,16 @@ export function AuthScreen() {
           </p>
 
           <dl className="auth-facts">
-            {/* Model v2 (p39), both from one controlled run: same audio, same
-                settings, only the weights differ (benchmarks/wild/p39/). */}
+            {/* Model v3 (p43), both from one controlled run against p39: same
+                audio, same settings, only the weights differ
+                (Kaggle ptify-score v4, var/score-run-p43). */}
             <div>
-              <dt className="mono">0.955</dt>
+              <dt className="mono">0.956</dt>
               <dd>onset F1 on 50 studio recordings the model never trained on</dd>
             </div>
             <div>
-              <dt className="mono">+1.9</dt>
-              <dd>points over our previous model on far-away phone audio, 12 of 12 tracks</dd>
+              <dt className="mono">+1.5</dt>
+              <dd>points over our previous model on an unfamiliar real piano, 14 of 14 tracks</dd>
             </div>
           </dl>
         </div>
