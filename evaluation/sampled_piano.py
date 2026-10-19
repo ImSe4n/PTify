@@ -68,6 +68,15 @@ def parse_name(name: str) -> tuple[int, int, int] | None:
     return note, int(v.group(1)) if v else 1, int(rr.group(1)) if rr else 1
 
 
+AUDIO_SUFFIXES = (".wav", ".flac")   # VCSL ships WAV, Salamander FLAC
+
+
+def _audio_files(folder: Path) -> list[Path]:
+    if not folder.is_dir():
+        return []
+    return sorted(p for p in folder.iterdir() if p.suffix.lower() in AUDIO_SUFFIXES)
+
+
 def _load(path: Path, sr: int) -> np.ndarray:
     import librosa
     y, _ = librosa.load(str(path), sr=sr, mono=True,
@@ -127,7 +136,7 @@ class PianoBank:
         bank = cls(name=Path(folder).name, sr=sr)
         files = []
         for sub in SUSTAIN_DIRS + RELEASE_DIRS:
-            for f in sorted((Path(folder) / sub).glob("*.wav")):
+            for f in _audio_files(Path(folder) / sub):
                 parsed = parse_name(f.name)
                 if parsed:
                     files.append((sub in RELEASE_DIRS, parsed, f))
