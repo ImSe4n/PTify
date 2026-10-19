@@ -52,16 +52,18 @@ KERNEL_SLUG = "ptify-score"
 RUN_OUT = Path("var/score-run")
 SR = 16000
 
-#: (name in the dataset, local source dir, presets scored)
+#: (name in the dataset, local source dir, presets scored). Run in this order:
+#: MAPS decides shipping, so it goes first and a session cut short by the GPU
+#: quota still answers the question; MAESTRO (5 presets) is the bulk, so last.
 SETS = (
-    ("maestro3min", Path("recordings/maestro_test12_3min"),
-     "clean,phone,youtube,tiktok,phone_far"),
-    ("smd", Path("recordings/smd"), "clean"),
     ("maps", Path("recordings/maps_paired"), "clean"),
     # Phase 41: the test MIDI on sampled pianos. Yamaha upright is HELD OUT of
     # training (generalisation to an unseen piano); Knight was trained on.
     ("vcsl_yamaha", Path("recordings/rendered_vcsl/upright_piano_yamaha"), "clean"),
+    ("smd", Path("recordings/smd"), "clean"),
     ("vcsl_knight", Path("recordings/rendered_vcsl/upright_piano_knight"), "clean"),
+    ("maestro3min", Path("recordings/maestro_test12_3min"),
+     "clean,phone,youtube,tiktok,phone_far"),
 )
 PACKAGES = ("evaluation", "transcriber", "training")
 TOOLS = ("__init__.py", "wild_benchmark.py", "error_taxonomy.py", "cut_excerpts.py")
@@ -102,7 +104,7 @@ subprocess.run(["nvidia-smi"], check=False)
 from tools.wild_benchmark import main as wild
 out = Path("/kaggle/working")
 for name, presets in {sets!r}:
-    for label, ckpt in (({base_label!r}, base), ({new_label!r}, new)):
+    for label, ckpt in {models}:
         rc = wild(["--audio-dir", str(audio / name), "--engine", "ptify",
                    "--checkpoint", str(ckpt), "--presets", presets,
                    "--cache", str(out / ("est-" + label + "-" + name)),
@@ -111,10 +113,16 @@ for name, presets in {sets!r}:
 '''
 
 
-def kernel_script() -> str:
+def kernel_script(score_base: bool = False) -> str:
+    """`score_base=False` (default) scores only NEW: the baseline's results
+    from an earlier version of this kernel (same audio dataset, code dataset
+    and threshold) are already in RUN_OUT, so re-scoring it spends half the
+    GPU quota on numbers we have. The baseline file still ships for the
+    digest and identical-weights guards."""
     path, sha = INITS[BASE]
+    models = "((%r, base), (%r, new))" % (BASE, NEW) if score_base else "((%r, new),)" % NEW
     return KERNEL_SCRIPT.format(base_name=path.name, base_sha=sha,
-                                base_label=BASE, new_label=NEW,
+                                base_label=BASE, models=models,
                                 sets=[(name, presets) for name, _, presets in SETS])
 
 

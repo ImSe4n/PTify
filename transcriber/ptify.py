@@ -93,12 +93,27 @@ PTIFY_P39_URL = (
     "model-v2/ptify-p39-step8000.pth"
 )
 
-#: The weights the `ptify` engine (and the Modal host) SERVE. The 16b constants
-#: above stay as the pin for the benchmark reports that recorded them; rolling
-#: back is pointing these three names at the 16b ones.
-PTIFY_SHIPPED_SHA256 = PTIFY_P39_SHA256
-PTIFY_SHIPPED_NAME = PTIFY_P39_NAME
-PTIFY_SHIPPED_URL = PTIFY_P39_URL
+#: Phase 43: p41 (p39 + 3 sampled pianos) continued 8,000 steps on 4 sampled
+#: pianos with per-render timbre variation. Scored against p39 on identical
+#: audio (Kaggle `ptify-score` v4, var/score-run-p43): MAPS +1.50 onset F1
+#: (14/14 tracks better, mostly precision: fewer extra notes), held-out Yamaha
+#: upright +2.74, SMD +0.03, MAESTRO presets -0.11..+0.05. Passes the rule
+#: (MAPS >= +1.0, others >= -0.2).
+PTIFY_P43_SHA256 = (
+    "eb417ccefd7db8fa32db47f12f228c98761d6ad357ae7d58a3ef5ee2ca1a69d0"
+)
+PTIFY_P43_NAME = "ptify-p43-step8000.pth"
+PTIFY_P43_URL = (
+    "https://github.com/ImSe4n/PTify/releases/download/"
+    "model-v3/ptify-p43-step8000.pth"
+)
+
+#: The weights the `ptify` engine (and the Modal host) SERVE. The 16b and p39
+#: constants above stay as the pins for the benchmark reports that recorded
+#: them; rolling back is pointing these three names at the p39 ones.
+PTIFY_SHIPPED_SHA256 = PTIFY_P43_SHA256
+PTIFY_SHIPPED_NAME = PTIFY_P43_NAME
+PTIFY_SHIPPED_URL = PTIFY_P43_URL
 
 
 def _home_dir() -> Path:

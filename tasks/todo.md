@@ -1,3 +1,77 @@
+# RESUME HERE (2026-10-19, after p43 training finished)
+
+DONE 2026-10-19:
+- Frame 0.05 score benchmark (p39, onset 0.6) vs live frame 0.01, audio path:
+  rhythm 72.99 -> 74.99, durations 56.17 -> 57.29, chained 86.07 -> 86.19,
+  bars 15 -> 17 of 38 (benchmarks/score-benchmark-rhythm-run8-p39-f005.json).
+- Offset F1 sweep for p39 (onset 0.6; onset F1 identical at every frame value):
+    frame    MAPS mean/worst (12)   MAESTRO 3-min mean/worst (10)
+    0.005    0.468 / 0.352          0.167 / 0.055
+    0.01     0.484 / 0.407  (live)  0.216 / 0.080
+    0.03     0.467 / 0.331          0.329 / 0.157
+    0.05     0.451 / 0.269          0.395 / 0.217
+  MAPS has no pedal data; MAESTRO is pedalled like real uploads. 0.05 wins
+  the score benchmark and MAESTRO; costs MAPS 3.3 pt mean.
+  Logs: var/calib-p39-*.log, benchmarks/threshold-calibration-p39-maps_paired.json
+  (the MAESTRO json was not written: the run stopped on its last track).
+- p43 fetched to var/transcriber-run-p43 (step 8000, val_total 0.700).
+  Scoring kernel pushed: kaggle.com/code/imse4n/ptify-score v4 (p39 vs p43).
+- PLAN C PROBE, NEGATIVE (var/dur_scale_selfsignal.py, var/dur-scale-selfsignal.log):
+  "legato fit" (per piece, the length factor making notes last to the next
+  onset on their staff) picks x1 in 19/20 pieces: head accuracy 38.04 ->
+  37.27% (oracle 54.44%); its 12/20 "agreement" is only the pieces already
+  at x1, and it wrecked Beethoven 26-2 (46.4 -> 3.7). Reason: lengths and
+  positions come from the SAME reading, so when a piece is read in the wrong
+  subdivision (Islamey triplets as 16ths, oracle x4/3) both are wrong
+  together and agree with each other. Any fix needs a signal from OUTSIDE
+  the rhythm model's reading. Not shipped; nothing changed in the pipeline.
+- GPU: user has ~3h of Kaggle left; p43 scoring is the LAST GPU run for a
+  while. kernel_script() now scores only NEW by default, MAPS first (staged,
+  not pushed; v4 runs the old both-models order).
+- P43 SCORED (Kaggle ptify-score v4, var/score-run-p43; p39 reproduced the
+  v3 numbers exactly): MAPS 84.37 -> 85.87 (+1.50, 14/14 tracks; precision
+  86.6 -> 89.0, n_est 28384 -> 28101), Yamaha held-out +2.74, Knight +8.59
+  (trained on), SMD +0.03, MAESTRO presets -0.11..+0.05. PASSES the rule.
+- P43 SHIPPED 2026-10-19 (user: "deploy"): checkpoints/ptify-p43-step8000.pth
+  (sha eb417cce...), PTIFY_SHIPPED_* = p43, host pin p43, INITS["p43"].
+  GPU host redeployed (PTIFY_HOST_ENGINE=ptify); crosscheck PASS
+  (var/crosscheck-p43.json: 285/285 notes, onset F1 1.000000, served ptify).
+  Vercel: sign-in 0.956 / +1.5 on unfamiliar real piano (14/14); legal MAPS
+  0.859. Live bundle verified; API healthz 200. 1652 tests pass.
+  User still to publish the `model-v3` release asset.
+- FRAME THRESHOLD for p43: sweep running on CPU (var/calib-p43-*.log, grid
+  0.01..0.07). Then set config.PTIFY_FRAME_THRESHOLD and redeploy ONLY the
+  API (`ptify-api`, with PTIFY_CORS_ORIGINS) -- user already said deploy.
+NEXT (old): when ptify-score is COMPLETE -> `python -m tools.kaggle_score fetch`,
+apply the rule (MAPS +1.0; SMD/maestro/uploads >= p39 - 0.2). Then sweep the
+frame threshold for whichever checkpoint ships and do ONE API redeploy
+(frame threshold is sent by the API, so only `ptify-api` needs it; also the
+GPU host if p43 ships). Needs the user's OK (live).
+
+# (previous) RESUME HERE (2026-10-19 evening, branch phase-42-production-beta, pushed)
+
+Live: https://ptify.vercel.app (p39, invite-only). Plan A done and live.
+1. FRAME-THRESHOLD TEST (local, probably stopped when the session closed):
+   rerun the same command; it resumes from var/estimates-p39-f005:
+     set -a; . var/remote.env; set +a; PTIFY_REMOTE_ENGINE=ptify \
+     PYTHONPATH=. .venv/Scripts/python.exe var/score_bench_f005.py --engine remote \
+       --served ptify --cache-dir var/estimates-p39-f005 \
+       --rhythm-model var/rhythm-models/run8.pt --rhythm-choose-grid \
+       --rhythm-try-tempi --rhythm-halve-fast-eighths \
+       --json benchmarks/score-benchmark-rhythm-run8-p39-f005.json
+   Compare with benchmarks/score-benchmark-rhythm-run8-p39.json (var/cmp_bench.py).
+   If rhythm/durations recover with chained notes kept: check MAPS/SMD onset
+   F1 at frame 0.05, then set config.PTIFY_FRAME_THRESHOLD and redeploy the
+   GPU host (PTIFY_HOST_ENGINE=ptify) + crosscheck.
+2. PHASE 43 on Kaggle (`ptify-transcriber-train` v3, from p41, 4 pianos +
+   timbre). When COMPLETE: fetch to a NEW folder (not var/transcriber-run*),
+   push `tools.kaggle_score push-kernel` (p39 vs p43), apply the MAPS +1.0 rule.
+3. Plan C next step: does the rhythm model's own duration confidence pick
+   the right per-piece scale? (oracle +16 pt; see Phase 44 notes below.)
+4. User replaced "as good as Songscription" (no export, ToS) -> proposed
+   measurable targets: MAPS 0.844, far phone 0.879, rhythm 73.0%, note
+   lengths 56.2%; stop rule = two more phases without +2 pt combined.
+
 # NEXT (planned 2026-10-18, branch phase-42-production-beta) -- awaiting user pick
 
 Live: https://ptify.vercel.app, invite-only beta, model p39. Done this branch:
