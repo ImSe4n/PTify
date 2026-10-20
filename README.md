@@ -2,11 +2,11 @@
 
 Turn a piano recording into **MIDI**, an interactive **piano roll**, and **sheet music**.
 
-> **Status: Phases 2, 3, 12 and 13 complete.** A working command-line
-> transcriber (audio → MIDI), sheet-music engraving (MIDI → MusicXML/PDF), and
-> an evaluation harness that scores transcription against both synthetic cases
-> and real MAESTRO recordings. The web app and a custom-trained model are later
-> phases — see the roadmap.
+> **Status: live as an invite-only beta at <https://ptify.vercel.app>**, running
+> PTify's own model **v3** on a GPU host. The command-line transcriber (audio →
+> MIDI), sheet-music engraving (MIDI → MusicXML/PDF), the web app and the
+> evaluation harness all work. Current focus: transcription accuracy on real
+> uploads (phone, YouTube, TikTok audio) and unfamiliar pianos. See the roadmap.
 
 ```bash
 python -m transcriber recording.mp3
@@ -110,7 +110,11 @@ impromptu. Onsets stay reliable either way.
 
 ## Web app
 
-A React + Vite front end lives in `frontend/`. Two terminals:
+**Live beta:** <https://ptify.vercel.app>. Sign-up needs an invite code. The
+front end is on Vercel; the API (`hosting/modal/api_app.py`) and the GPU
+transcription host (`hosting/modal/app.py`) run on Modal.
+
+A React + Vite front end lives in `frontend/`. To run it locally, use two terminals:
 
 ```bash
 # 1. the API, with accounts on. BOTH variables are required -- without them
@@ -284,6 +288,9 @@ and make both slower rather than raising throughput.
 
 ## Engines
 
+The table below compares engines using **PTify model v1** at the original
+decode settings. PTify is now on **v3**; see [PTify model versions](#ptify-model-versions).
+
 | | ByteDance *(default)* | Basic Pitch | PTify |
 |---|---|---|---|
 | Piano-specific | yes | no (multi-instrument) | yes |
@@ -347,6 +354,31 @@ inference and nothing downloaded:
 python -m tools.precision_review --json benchmarks/precision-recall-review.json
 ```
 
+### PTify model versions
+
+Each version continues training from the one before, and is scored against it
+on identical audio in one Kaggle job (`tools/kaggle_score.py`). Onset F1,
+onset threshold 0.6; MAESTRO rows are 3-minute excerpts of the 12 test tracks
+run through simulated upload conditions (`evaluation/upload_chain.py`).
+
+| onset F1 | v1 (`16b`) | v2 (`p39`) | **v3 (`p43`, live)** |
+|---|---|---|---|
+| MAPS, 14 real paired tracks (unseen piano and room) | 0.8503 | 0.8437 | **0.8587** |
+| SMD, 50 real Disklavier recordings | 0.9538 | 0.9553 | **0.9556** |
+| MAESTRO clean | 0.9552 | 0.9562 | 0.9552 |
+| MAESTRO through a far-away phone | 0.8603 | 0.8788 | **0.8793** |
+| MAESTRO, TikTok-style | 0.9301 | 0.9401 | 0.9400 |
+| upright piano never trained on (rendered) | — | 0.9074 | **0.9348** |
+
+- **v2** trained on audio that sounds like uploads: mic tone, loudness
+  compression, Opus/MP3. It was better on every upload condition and slightly
+  worse on MAPS. ([notes](docs/RELEASE_NOTES_model-v2.md))
+- **v3** trained on four sampled pianos (VCSL uprights and grands, plus
+  Salamander) with randomized tone. It **invents far fewer notes on unfamiliar
+  pianos**: MAPS +1.50, better on 14 of 14 tracks, mostly from precision. It
+  also ships a re-calibrated note-end threshold (`frame_threshold` 0.01 →
+  0.05). ([notes](docs/RELEASE_NOTES_model-v3.md))
+
 ```bash
 python -m transcriber --fetch-ptify     # download the weights (172MB, once)
 python -m transcriber song.wav --engine ptify
@@ -355,7 +387,7 @@ python -m transcriber --doctor          # says whether the checkpoint is usable
 
 **Its checkpoint is not in the repository** (172MB; `.gitignore` covers
 `*.pth`). It ships as a [release
-asset](https://github.com/ImSe4n/PTify/releases/tag/model-v1) and is verified
+asset](https://github.com/ImSe4n/PTify/releases/tag/model-v3) and is verified
 by **sha256** on every load — the inference library checks size alone, so a
 different 172MB `.pth` would otherwise be scored as this model.
 
@@ -668,8 +700,10 @@ under sustain pedal.
 - [x] **Phase 5** — accounts and persistence: SQLite job store, HS256 tokens, worker process
 - [x] **Phase 6** — React frontend: auth, upload, live progress, piano roll, history
 - [x] **Phase 7–8** — playback, deep links, falling-notes view, motion
-- [ ] **Phase 9** — a GPU host for inference (local is CPU-only; ~2 min for a 25s clip)
-- [ ] **Phase 10–11** — deploy, YouTube input, an interactive sheet view
+- [x] **Phase 9** — a GPU host for inference (`--engine remote`, Modal)
+- [x] **Phase 42** — production beta: invite-only sign-up, rate and daily
+  limits, feedback form, account deletion; live at <https://ptify.vercel.app>
+- [ ] **Phase 10–11** — YouTube input, an interactive sheet view
 
 Phase 5 shipped as **SQLite + a standard-library HS256 issuer** rather than
 Supabase: the thing blocking the project was jobs living inside one process,
@@ -689,7 +723,10 @@ proven. See `HANDOFF.md` §9.
 - [x] **Phase 18** — the offset anomaly explained: `offset_f1` is not comparable across corpora
 - [x] **Phase 19** — note truncation was a **decoding** bug, not the weights: +offset 0.406 → 0.503
 - [x] **Phase 22** — precision made visible; `onset_threshold` measured for the first time: **+2.4 onset F1, free**
-- [ ] **Phase 23** — retrain for frame-head **calibration** (Phase 22 showed the head's *ranking* is intact and its *level* collapsed, so it was never an undertraining problem)
+- [x] **Phase 23** — retrain for frame-head **calibration** (Phase 22 showed the head's *ranking* is intact and its *level* collapsed, so it was never an undertraining problem). Tried: the run made v1 slightly worse, so it was not shipped
+- [x] **Phase 39** — model **v2**: upload-chain augmentation (mic EQ, compression, Opus/MP3): far phone **+1.85**
+- [x] **Phase 41–43** — model **v3**: sampled pianos + timbre variation: **MAPS +1.50, 14/14 tracks**; frame threshold re-calibrated to 0.05
+- [ ] **Next** — note lengths and rhythm on the page (the per-piece meter reading), missed quiet notes inside chords
 
 The training goal is **beating ByteDance on your own recordings**, not on the
 MAESTRO benchmark. Models overfit badly to their training audio — published work
@@ -759,7 +796,11 @@ transcribed as exactly 8 correct notes with no extras.
 ## Licence
 
 MIT — see [LICENSE](LICENSE). Bundled models have their own licences:
-ByteDance (Apache 2.0), Basic Pitch (Apache 2.0).
+ByteDance (Apache 2.0), Basic Pitch (Apache 2.0). PTify's weights are
+CC BY-NC-SA 4.0 (see above). Model v3 also trained on audio rendered from VCSL
+pianos (CC0) and the Salamander Grand Piano v3 by Alexander Holm (CC BY 3.0,
+<https://github.com/sfzinstruments/SalamanderGrandPiano>). No samples are
+redistributed.
 
 **Benchmark data.** The real-audio benchmark scores excerpts of
 [MAESTRO v3.0.0](https://magenta.withgoogle.com/datasets/maestro), which is
