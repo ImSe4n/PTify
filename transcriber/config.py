@@ -253,8 +253,28 @@ DYNAMIC_LEVELS = (
 #
 # Re-run tools/calibrate_frame_threshold.py after retraining -- a checkpoint
 # with a differently-calibrated frame head invalidates these numbers.
+#
+# RE-CALIBRATED 2026-10-19 FOR p43 (model v3): 0.01 -> 0.05. The table above
+# was the 16b checkpoint on MAPS only. MAPS records no sustain pedal, while
+# MAESTRO and real uploads are pedalled, and the two pull in opposite
+# directions. p43, onset 0.6, mean / worst +offset F1
+# (benchmarks/threshold-calibration-p43-maps_paired.json, var/calib-p43-*.log):
+#
+#   frame_thr   MAPS (12 tracks)   MAESTRO 3-min (10 tracks)
+#     0.01      0.470 / 0.363      0.214 / 0.080   <- was live
+#     0.02      0.475 / 0.386      0.286 / 0.123
+#     0.03      0.466 / 0.337      0.338 / 0.162
+#     0.05      0.451 / 0.275      0.409 / 0.223   <- CHOSEN
+#     0.07      0.436 / 0.255      0.464 / 0.260
+#
+# Decided on the SCORE benchmark (what the printed page shows), measured at
+# 0.05 vs 0.01 on p39 through the live host: rhythm 72.99 -> 74.99%, note
+# lengths 56.17 -> 57.29%, bars right 15 -> 17 of 38, chained notes kept
+# (benchmarks/score-benchmark-rhythm-run8-p39-f005.json). 0.07 scores higher
+# still on MAESTRO but was never run through the score benchmark, so it is
+# not adopted on offset F1 alone. Cost: MAPS -1.9 pt mean offset F1.
 BYTEDANCE_FRAME_THRESHOLD = 0.05
-PTIFY_FRAME_THRESHOLD = 0.01
+PTIFY_FRAME_THRESHOLD = 0.05
 
 # --- Note-onset decoding: WHETHER a note exists (as opposed to where it ends) --
 #

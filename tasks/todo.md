@@ -39,7 +39,7 @@ DONE 2026-10-19:
   Vercel: sign-in 0.956 / +1.5 on unfamiliar real piano (14/14); legal MAPS
   0.859. Live bundle verified; API healthz 200. 1652 tests pass.
   User still to publish the `model-v3` release asset.
-- FRAME THRESHOLD for p43: sweep running on CPU (var/calib-p43-*.log, grid
+- FRAME THRESHOLD for p43 DONE: 0.05 chosen (MAPS 0.470->0.451, MAESTRO 0.214->0.409 offset F1; score bench at 0.05 on p39). config + 2 tests updated, 1652 pass. API REDEPLOYED by user 2026-10-19 (CORS set); smoke: healthz 200, CORS preflight allows ptify.vercel.app, anonymous upload 401 sign_in_required, signup without invite 403. Was: sweep (var/calib-p43-*.log, grid
   0.01..0.07). Then set config.PTIFY_FRAME_THRESHOLD and redeploy ONLY the
   API (`ptify-api`, with PTIFY_CORS_ORIGINS) -- user already said deploy.
 NEXT (old): when ptify-score is COMPLETE -> `python -m tools.kaggle_score fetch`,

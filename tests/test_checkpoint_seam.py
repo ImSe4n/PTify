@@ -99,14 +99,17 @@ def test_an_out_of_range_threshold_is_rejected(bad):
         ByteDanceEngine(frame_threshold=bad)
 
 
-def test_the_two_engines_carry_different_calibrations():
-    """Not cosmetic: they are different models. ByteDance's +offset peaks at
-    0.05 and degrades below it; PTify's is still climbing at 0.01, because
-    augmented training left its frame activations lower."""
+def test_the_two_engines_carry_their_own_calibrations():
+    """Not cosmetic: they are different models, each calibrated on its own
+    sweep. (Until 2026-10-19 PTify's value was the lower one, 0.01; the p43
+    re-calibration moved it to 0.05, so the values now coincide. The
+    requirement is that each engine reads ITS constant, not that they differ.)"""
+    from transcriber import config
     from transcriber.bytedance import ByteDanceEngine
     from transcriber.ptify import PtifyEngine
 
-    assert ByteDanceEngine().frame_threshold > PtifyEngine().frame_threshold
+    assert ByteDanceEngine().frame_threshold == config.BYTEDANCE_FRAME_THRESHOLD
+    assert PtifyEngine().frame_threshold == config.PTIFY_FRAME_THRESHOLD
 
 
 # --- the guards, which are the whole point --------------------------------
