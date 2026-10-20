@@ -102,15 +102,20 @@ def test_the_inner_engine_is_never_built_without_a_checkpoint(tmp_path, monkeypa
 # sits lower, so that value released notes at a third of their true length.
 
 
-def test_ptify_does_not_inherit_bytedances_note_end_threshold():
+def test_ptify_does_not_inherit_bytedances_note_end_threshold(monkeypatch):
     # Composition means class-level defaults do NOT flow down -- the inner
     # engine must be told explicitly. Measured on the default: PTify's median
     # note was 0.127s against a 0.350s reference.
+    # Since 2026-10-19 both constants are 0.05, so "the values differ" no
+    # longer proves anything: move each constant and check only its own
+    # engine follows.
     from transcriber import config
     from transcriber.bytedance import ByteDanceEngine
 
     assert PtifyEngine().frame_threshold == config.PTIFY_FRAME_THRESHOLD
-    assert ByteDanceEngine().frame_threshold != PtifyEngine().frame_threshold
+    monkeypatch.setattr(config, "PTIFY_FRAME_THRESHOLD", 0.123)
+    assert PtifyEngine().frame_threshold == 0.123
+    assert ByteDanceEngine().frame_threshold != 0.123
 
 
 def test_ptify_passes_its_own_threshold_down_to_the_inner_engine(
