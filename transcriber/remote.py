@@ -132,6 +132,25 @@ def _redact(text: str) -> str:
     return " ".join(out)
 
 
+def _retry_reason(cause: BaseException | None) -> str | None:
+    """Why a failed POST is worth repeating, or None if it is not.
+
+    Retried: 5xx (Modal preempts the GPU container mid-job and answers 500,
+    2026-10-19) and a connection dropped mid-reply (IncompleteRead, reset,
+    closed; 2026-10-20). NOT retried: 4xx (repeating cannot fix it) and
+    timeouts (each attempt would cost the user a full timeout).
+    """
+    import http.client
+
+    if isinstance(cause, urllib.error.HTTPError):
+        return f"returned {cause.code}" if cause.code >= 500 else None
+    if isinstance(cause, urllib.error.URLError):
+        cause = cause.reason if isinstance(cause.reason, BaseException) else None
+    if isinstance(cause, (http.client.IncompleteRead, ConnectionError)):
+        return f"dropped the connection ({type(cause).__name__})"
+    return None
+
+
 def _require(payload: dict, key: str):
     """Read a required key, or raise the error that maps to 503."""
     if key not in payload:
@@ -445,19 +464,20 @@ class RemoteEngine(TranscriptionEngine):
     RETRY_WAIT_SECONDS = 5.0
 
     def _post(self, body: dict, headers: dict) -> dict:
-        """POST with retries on 5xx (preemption); see POST_ATTEMPTS."""
+        """POST with retries on 5xx (preemption) and dropped connections;
+        see POST_ATTEMPTS. Repeating is safe: transcription is a pure function
+        of the audio."""
         import time
 
         for attempt in range(1, self.POST_ATTEMPTS + 1):
             try:
                 return self._post_once(body, headers)
             except RemoteUnavailable as exc:
-                status = getattr(exc.__cause__, "code", None)
-                if (not isinstance(status, int) or status < 500
-                        or attempt == self.POST_ATTEMPTS):
+                reason = _retry_reason(exc.__cause__)
+                if reason is None or attempt == self.POST_ATTEMPTS:
                     raise
-                log.warning("remote host returned %s (attempt %d/%d); retrying",
-                            status, attempt, self.POST_ATTEMPTS)
+                log.warning("remote host %s (attempt %d/%d); retrying",
+                            reason, attempt, self.POST_ATTEMPTS)
                 time.sleep(self.RETRY_WAIT_SECONDS * attempt)
         raise AssertionError("unreachable")
 

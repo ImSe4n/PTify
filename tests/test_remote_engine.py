@@ -501,3 +501,39 @@ def test_client_errors_are_not_retried(monkeypatch):
     with pytest.raises(remote.RemoteUnavailable):
         _engine(t).transcribe_file(__file__)
     assert len(t.calls) == 1
+
+
+# --- 2026-10-20: the connection dropped mid-reply (IncompleteRead) ---
+
+class _DroppingTransport(_FakeTransport):
+    def __init__(self, failures, exc):
+        super().__init__()
+        self.failures, self.exc = failures, exc
+
+    def post(self, url, body, headers, timeout):
+        self.calls.append(body)
+        if len(self.calls) <= self.failures:
+            raise self.exc
+        return self._payload
+
+
+@pytest.mark.parametrize("exc", [
+    __import__("http.client").client.IncompleteRead(b"x" * 10, 100),
+    ConnectionResetError("reset by peer"),
+    __import__("http.client").client.RemoteDisconnected("closed"),
+])
+def test_a_dropped_connection_is_retried(monkeypatch, exc):
+    # Transcription is a pure function of the audio, so repeating it is safe.
+    monkeypatch.setattr(RemoteEngine, "RETRY_WAIT_SECONDS", 0.0)
+    t = _DroppingTransport(failures=1, exc=exc)
+    _engine(t).transcribe_file(__file__)
+    assert len(t.calls) == 2
+
+
+def test_a_timeout_is_not_retried(monkeypatch):
+    # Three attempts would make the user wait three full timeouts.
+    monkeypatch.setattr(RemoteEngine, "RETRY_WAIT_SECONDS", 0.0)
+    t = _DroppingTransport(failures=5, exc=TimeoutError("slow"))
+    with pytest.raises(remote.RemoteUnavailable, match="did not answer"):
+        _engine(t).transcribe_file(__file__)
+    assert len(t.calls) == 1

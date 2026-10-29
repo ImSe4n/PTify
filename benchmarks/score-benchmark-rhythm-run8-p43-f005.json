@@ -1,0 +1,2272 @@
+{
+  "engine": "remote",
+  "served": "ptify",
+  "subdivision": "auto",
+  "rhythm_model": "var\\rhythm-models\\run8.pt",
+  "rhythm_mode": "model",
+  "rhythm_bars": "model",
+  "rhythm_choose_grid": true,
+  "rhythm_rescale": false,
+  "rhythm_try_tempi": true,
+  "rhythm_halve_fast_eighths": true,
+  "corpus": "ASAP x MAESTRO v3 test split, one performance per score",
+  "license_note": "ASAP and MAESTRO are CC BY-NC-SA; evaluation only",
+  "pooled": {
+    "audio": {
+      "duration": [
+        60115,
+        102897
+      ],
+      "rhythm": [
+        43118,
+        56183
+      ],
+      "staff": [
+        91799,
+        102897
+      ],
+      "spelling": [
+        82519,
+        92882
+      ],
+      "chained": [
+        102897,
+        119405
+      ]
+    },
+    "perfect_midi": {
+      "duration": [
+        65583,
+        110283
+      ],
+      "rhythm": [
+        44341,
+        57052
+      ],
+      "staff": [
+        98830,
+        110283
+      ],
+      "spelling": [
+        88382,
+        99187
+      ],
+      "chained": [
+        110283,
+        119405
+      ]
+    }
+  },
+  "pieces": [
+    {
+      "label": "Bach/Fugue/bwv_858",
+      "row": "audio",
+      "n_score": 930,
+      "n_aligned": 872,
+      "n_chained": 860,
+      "factor_raw": 0.4997785439093292,
+      "factor": 0.5,
+      "beat_f": 0.6552567237163814,
+      "downbeat_f": 0.17721518987341772,
+      "duration": [
+        673,
+        860
+      ],
+      "rhythm": [
+        491,
+        538
+      ],
+      "staff": [
+        827,
+        860
+      ],
+      "bar_ok": false,
+      "spelling": [
+        727,
+        860
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Fugue/bwv_858",
+      "row": "perfect_midi",
+      "n_score": 930,
+      "n_aligned": 872,
+      "n_chained": 868,
+      "factor_raw": 0.49961538461535326,
+      "factor": 0.5,
+      "beat_f": 0.6519607843137255,
+      "downbeat_f": 0.1518987341772152,
+      "duration": [
+        662,
+        868
+      ],
+      "rhythm": [
+        491,
+        539
+      ],
+      "staff": [
+        835,
+        868
+      ],
+      "bar_ok": false,
+      "spelling": [
+        735,
+        868
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Fugue/bwv_862",
+      "row": "audio",
+      "n_score": 886,
+      "n_aligned": 855,
+      "n_chained": 842,
+      "factor_raw": 0.4998647092392048,
+      "factor": 0.5,
+      "beat_f": 0.6602409638554216,
+      "downbeat_f": 0.0,
+      "duration": [
+        669,
+        842
+      ],
+      "rhythm": [
+        520,
+        526
+      ],
+      "staff": [
+        785,
+        842
+      ],
+      "bar_ok": false,
+      "spelling": [
+        824,
+        842
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Fugue/bwv_862",
+      "row": "perfect_midi",
+      "n_score": 886,
+      "n_aligned": 855,
+      "n_chained": 855,
+      "factor_raw": 0.49977088186869256,
+      "factor": 0.5,
+      "beat_f": 0.6586538461538461,
+      "downbeat_f": 0.0,
+      "duration": [
+        656,
+        855
+      ],
+      "rhythm": [
+        520,
+        526
+      ],
+      "staff": [
+        796,
+        855
+      ],
+      "bar_ok": false,
+      "spelling": [
+        837,
+        855
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Fugue/bwv_863",
+      "row": "audio",
+      "n_score": 797,
+      "n_aligned": 782,
+      "n_chained": 762,
+      "factor_raw": 0.5001517734364853,
+      "factor": 0.5,
+      "beat_f": 0.6666666666666667,
+      "downbeat_f": 0.6101694915254238,
+      "duration": [
+        571,
+        762
+      ],
+      "rhythm": [
+        400,
+        401
+      ],
+      "staff": [
+        705,
+        762
+      ],
+      "bar_ok": false,
+      "spelling": [
+        642,
+        762
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Fugue/bwv_863",
+      "row": "perfect_midi",
+      "n_score": 797,
+      "n_aligned": 782,
+      "n_chained": 782,
+      "factor_raw": 0.5000001656899122,
+      "factor": 0.5,
+      "beat_f": 0.6694560669456068,
+      "downbeat_f": 0.0,
+      "duration": [
+        597,
+        782
+      ],
+      "rhythm": [
+        399,
+        402
+      ],
+      "staff": [
+        728,
+        782
+      ],
+      "bar_ok": false,
+      "spelling": [
+        660,
+        782
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Fugue/bwv_873",
+      "row": "audio",
+      "n_score": 1386,
+      "n_aligned": 1348,
+      "n_chained": 1308,
+      "factor_raw": 1.3337765078255615,
+      "factor": 1.3333333333333333,
+      "beat_f": 0.3036437246963563,
+      "downbeat_f": 0.5352112676056338,
+      "duration": [
+        963,
+        1308
+      ],
+      "rhythm": [
+        799,
+        825
+      ],
+      "staff": [
+        1213,
+        1308
+      ],
+      "bar_ok": true,
+      "spelling": [
+        1134,
+        1308
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Fugue/bwv_873",
+      "row": "perfect_midi",
+      "n_score": 1386,
+      "n_aligned": 1348,
+      "n_chained": 1336,
+      "factor_raw": 1.3295836527342146,
+      "factor": 1.3333333333333333,
+      "beat_f": 0.291497975708502,
+      "downbeat_f": 0.011299435028248588,
+      "duration": [
+        974,
+        1336
+      ],
+      "rhythm": [
+        794,
+        833
+      ],
+      "staff": [
+        1241,
+        1336
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1158,
+        1336
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Fugue/bwv_891",
+      "row": "audio",
+      "n_score": 1750,
+      "n_aligned": 1743,
+      "n_chained": 1722,
+      "factor_raw": 0.9995641003694118,
+      "factor": 1.0,
+      "beat_f": 0.009950248756218905,
+      "downbeat_f": 0.007936507936507936,
+      "duration": [
+        1294,
+        1722
+      ],
+      "rhythm": [
+        910,
+        916
+      ],
+      "staff": [
+        1584,
+        1722
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1672,
+        1722
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Fugue/bwv_891",
+      "row": "perfect_midi",
+      "n_score": 1750,
+      "n_aligned": 1743,
+      "n_chained": 1741,
+      "factor_raw": 1.0002359615544663,
+      "factor": 1.0,
+      "beat_f": 0.009950248756218905,
+      "downbeat_f": 0.007936507936507936,
+      "duration": [
+        1302,
+        1741
+      ],
+      "rhythm": [
+        911,
+        917
+      ],
+      "staff": [
+        1599,
+        1741
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1690,
+        1741
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_858",
+      "row": "audio",
+      "n_score": 497,
+      "n_aligned": 427,
+      "n_chained": 412,
+      "factor_raw": 0.6676336770951465,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.38795986622073575,
+      "downbeat_f": 0.651685393258427,
+      "duration": [
+        245,
+        412
+      ],
+      "rhythm": [
+        349,
+        370
+      ],
+      "staff": [
+        396,
+        412
+      ],
+      "bar_ok": false,
+      "spelling": [
+        327,
+        412
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_858",
+      "row": "perfect_midi",
+      "n_score": 497,
+      "n_aligned": 427,
+      "n_chained": 416,
+      "factor_raw": 0.6668067420515875,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.38795986622073575,
+      "downbeat_f": 0.651685393258427,
+      "duration": [
+        238,
+        416
+      ],
+      "rhythm": [
+        345,
+        371
+      ],
+      "staff": [
+        400,
+        416
+      ],
+      "bar_ok": false,
+      "spelling": [
+        331,
+        416
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_862",
+      "row": "audio",
+      "n_score": 696,
+      "n_aligned": 669,
+      "n_chained": 661,
+      "factor_raw": 0.9985543189729391,
+      "factor": 1.0,
+      "beat_f": 0.9885057471264368,
+      "downbeat_f": 0.9545454545454546,
+      "duration": [
+        459,
+        661
+      ],
+      "rhythm": [
+        412,
+        434
+      ],
+      "staff": [
+        639,
+        661
+      ],
+      "bar_ok": true,
+      "spelling": [
+        657,
+        661
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_862",
+      "row": "perfect_midi",
+      "n_score": 696,
+      "n_aligned": 669,
+      "n_chained": 666,
+      "factor_raw": 1.000000011681582,
+      "factor": 1.0,
+      "beat_f": 0.9885057471264368,
+      "downbeat_f": 0.9545454545454546,
+      "duration": [
+        467,
+        666
+      ],
+      "rhythm": [
+        412,
+        433
+      ],
+      "staff": [
+        643,
+        666
+      ],
+      "bar_ok": true,
+      "spelling": [
+        662,
+        666
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_863",
+      "row": "audio",
+      "n_score": 571,
+      "n_aligned": 557,
+      "n_chained": 548,
+      "factor_raw": 0.3328522670949783,
+      "factor": 0.3333333333333333,
+      "beat_f": 0.4955752212389381,
+      "downbeat_f": 0.9655172413793104,
+      "duration": [
+        425,
+        548
+      ],
+      "rhythm": [
+        324,
+        327
+      ],
+      "staff": [
+        504,
+        548
+      ],
+      "bar_ok": true,
+      "spelling": [
+        490,
+        548
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_863",
+      "row": "perfect_midi",
+      "n_score": 571,
+      "n_aligned": 557,
+      "n_chained": 557,
+      "factor_raw": 0.3321423081704431,
+      "factor": 0.3333333333333333,
+      "beat_f": 0.5,
+      "downbeat_f": 0.6511627906976745,
+      "duration": [
+        424,
+        557
+      ],
+      "rhythm": [
+        324,
+        332
+      ],
+      "staff": [
+        512,
+        557
+      ],
+      "bar_ok": false,
+      "spelling": [
+        497,
+        557
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_873",
+      "row": "audio",
+      "n_score": 1602,
+      "n_aligned": 1275,
+      "n_chained": 1138,
+      "factor_raw": 0.33449674425919085,
+      "factor": 0.3333333333333333,
+      "beat_f": 0.4821917808219179,
+      "downbeat_f": 0.2459016393442623,
+      "duration": [
+        756,
+        1138
+      ],
+      "rhythm": [
+        601,
+        734
+      ],
+      "staff": [
+        1086,
+        1138
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1002,
+        1138
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_873",
+      "row": "perfect_midi",
+      "n_score": 1602,
+      "n_aligned": 1275,
+      "n_chained": 1152,
+      "factor_raw": 0.33443958390887474,
+      "factor": 0.3333333333333333,
+      "beat_f": 0.4828532235939644,
+      "downbeat_f": 0.34426229508196726,
+      "duration": [
+        769,
+        1152
+      ],
+      "rhythm": [
+        597,
+        736
+      ],
+      "staff": [
+        1100,
+        1152
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1014,
+        1152
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_891",
+      "row": "audio",
+      "n_score": 1182,
+      "n_aligned": 1174,
+      "n_chained": 1164,
+      "factor_raw": 0.4986872979879209,
+      "factor": 0.5,
+      "beat_f": 0.6626262626262627,
+      "downbeat_f": 0.0,
+      "duration": [
+        920,
+        1164
+      ],
+      "rhythm": [
+        641,
+        645
+      ],
+      "staff": [
+        1065,
+        1164
+      ],
+      "bar_ok": true,
+      "spelling": [
+        1140,
+        1164
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Bach/Prelude/bwv_891",
+      "row": "perfect_midi",
+      "n_score": 1182,
+      "n_aligned": 1174,
+      "n_chained": 1174,
+      "factor_raw": 0.49944380037227987,
+      "factor": 0.5,
+      "beat_f": 0.6626262626262627,
+      "downbeat_f": 0.0,
+      "duration": [
+        890,
+        1174
+      ],
+      "rhythm": [
+        641,
+        645
+      ],
+      "staff": [
+        1070,
+        1174
+      ],
+      "bar_ok": true,
+      "spelling": [
+        1150,
+        1174
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/10-1",
+      "row": "audio",
+      "n_score": 2604,
+      "n_aligned": 2560,
+      "n_chained": 2491,
+      "factor_raw": 0.9958122066277184,
+      "factor": 1.0,
+      "beat_f": 0.3945409429280397,
+      "downbeat_f": 0.16831683168316833,
+      "duration": [
+        1512,
+        2491
+      ],
+      "rhythm": [
+        1345,
+        1836
+      ],
+      "staff": [
+        2142,
+        2491
+      ],
+      "bar_ok": true,
+      "spelling": [
+        2421,
+        2490
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/10-1",
+      "row": "perfect_midi",
+      "n_score": 2604,
+      "n_aligned": 2560,
+      "n_chained": 2551,
+      "factor_raw": 0.9999998090507631,
+      "factor": 1.0,
+      "beat_f": 0.47014925373134325,
+      "downbeat_f": 0.22388059701492538,
+      "duration": [
+        1544,
+        2551
+      ],
+      "rhythm": [
+        1336,
+        1860
+      ],
+      "staff": [
+        2177,
+        2551
+      ],
+      "bar_ok": true,
+      "spelling": [
+        2481,
+        2550
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/12-1",
+      "row": "audio",
+      "n_score": 3357,
+      "n_aligned": 3133,
+      "n_chained": 2913,
+      "factor_raw": 0.9944512106083643,
+      "factor": 1.0,
+      "beat_f": 0.47129909365558914,
+      "downbeat_f": 0.24434389140271495,
+      "duration": [
+        1859,
+        2913
+      ],
+      "rhythm": [
+        1345,
+        1576
+      ],
+      "staff": [
+        2735,
+        2913
+      ],
+      "bar_ok": true,
+      "spelling": [
+        2790,
+        2901
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/12-1",
+      "row": "perfect_midi",
+      "n_score": 3357,
+      "n_aligned": 3133,
+      "n_chained": 3130,
+      "factor_raw": 0.9983466726951065,
+      "factor": 1.0,
+      "beat_f": 0.30454545454545456,
+      "downbeat_f": 0.10430839002267574,
+      "duration": [
+        2021,
+        3130
+      ],
+      "rhythm": [
+        1343,
+        1584
+      ],
+      "staff": [
+        2941,
+        3130
+      ],
+      "bar_ok": true,
+      "spelling": [
+        3006,
+        3118
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/16-1",
+      "row": "audio",
+      "n_score": 3412,
+      "n_aligned": 3205,
+      "n_chained": 3029,
+      "factor_raw": 1.008948705699595,
+      "factor": 1.0,
+      "beat_f": 0.43046357615894043,
+      "downbeat_f": 0.2686567164179105,
+      "duration": [
+        2057,
+        3029
+      ],
+      "rhythm": [
+        1296,
+        1532
+      ],
+      "staff": [
+        2479,
+        3029
+      ],
+      "bar_ok": true,
+      "spelling": [
+        2896,
+        3029
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/16-1",
+      "row": "perfect_midi",
+      "n_score": 3412,
+      "n_aligned": 3205,
+      "n_chained": 3173,
+      "factor_raw": 1.006527820250767,
+      "factor": 1.0,
+      "beat_f": 0.4262295081967213,
+      "downbeat_f": 0.22988505747126436,
+      "duration": [
+        2158,
+        3173
+      ],
+      "rhythm": [
+        1336,
+        1539
+      ],
+      "staff": [
+        2610,
+        3173
+      ],
+      "bar_ok": true,
+      "spelling": [
+        3036,
+        3173
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/16-2",
+      "row": "audio",
+      "n_score": 5922,
+      "n_aligned": 4497,
+      "n_chained": 3773,
+      "factor_raw": 0.3243253563622872,
+      "factor": 0.3333333333333333,
+      "beat_f": 0.3879194630872483,
+      "downbeat_f": 0.27309236947791166,
+      "duration": [
+        1087,
+        3773
+      ],
+      "rhythm": [
+        1531,
+        2138
+      ],
+      "staff": [
+        3373,
+        3773
+      ],
+      "bar_ok": false,
+      "spelling": [
+        3477,
+        3773
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/16-2",
+      "row": "perfect_midi",
+      "n_score": 5922,
+      "n_aligned": 4497,
+      "n_chained": 3973,
+      "factor_raw": 0.32521872265971297,
+      "factor": 0.3333333333333333,
+      "beat_f": 0.42076871207012817,
+      "downbeat_f": 0.24696356275303646,
+      "duration": [
+        1258,
+        3973
+      ],
+      "rhythm": [
+        1572,
+        2192
+      ],
+      "staff": [
+        3566,
+        3973
+      ],
+      "bar_ok": false,
+      "spelling": [
+        3672,
+        3973
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/18-1",
+      "row": "audio",
+      "n_score": 3672,
+      "n_aligned": 3212,
+      "n_chained": 3022,
+      "factor_raw": 0.9956778377497599,
+      "factor": 1.0,
+      "beat_f": 0.6640625,
+      "downbeat_f": 0.24107142857142858,
+      "duration": [
+        1590,
+        3022
+      ],
+      "rhythm": [
+        1390,
+        1882
+      ],
+      "staff": [
+        2665,
+        3022
+      ],
+      "bar_ok": false,
+      "spelling": [
+        2942,
+        3022
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/18-1",
+      "row": "perfect_midi",
+      "n_score": 3672,
+      "n_aligned": 3212,
+      "n_chained": 3199,
+      "factor_raw": 0.9999992739064965,
+      "factor": 1.0,
+      "beat_f": 0.6485436893203884,
+      "downbeat_f": 0.4186046511627907,
+      "duration": [
+        1749,
+        3199
+      ],
+      "rhythm": [
+        1383,
+        1902
+      ],
+      "staff": [
+        2863,
+        3199
+      ],
+      "bar_ok": true,
+      "spelling": [
+        3115,
+        3199
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/18-4",
+      "row": "audio",
+      "n_score": 3426,
+      "n_aligned": 3337,
+      "n_chained": 3231,
+      "factor_raw": 1.325707876680326,
+      "factor": 1.3333333333333333,
+      "beat_f": 0.2981366459627329,
+      "downbeat_f": 0.17931034482758623,
+      "duration": [
+        2566,
+        3231
+      ],
+      "rhythm": [
+        1974,
+        2100
+      ],
+      "staff": [
+        2883,
+        3231
+      ],
+      "bar_ok": false,
+      "spelling": [
+        0,
+        0
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/18-4",
+      "row": "perfect_midi",
+      "n_score": 3426,
+      "n_aligned": 3337,
+      "n_chained": 3327,
+      "factor_raw": 1.331996617672175,
+      "factor": 1.3333333333333333,
+      "beat_f": 0.30705394190871366,
+      "downbeat_f": 0.23909531502423265,
+      "duration": [
+        2689,
+        3327
+      ],
+      "rhythm": [
+        1991,
+        2119
+      ],
+      "staff": [
+        2964,
+        3327
+      ],
+      "bar_ok": false,
+      "spelling": [
+        0,
+        0
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/3-1",
+      "row": "audio",
+      "n_score": 4609,
+      "n_aligned": 4207,
+      "n_chained": 4000,
+      "factor_raw": 1.000040910253304,
+      "factor": 1.0,
+      "beat_f": 0.8389261744966443,
+      "downbeat_f": 0.3854961832061069,
+      "duration": [
+        2514,
+        4000
+      ],
+      "rhythm": [
+        2001,
+        2385
+      ],
+      "staff": [
+        3447,
+        4000
+      ],
+      "bar_ok": true,
+      "spelling": [
+        3865,
+        4000
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/3-1",
+      "row": "perfect_midi",
+      "n_score": 4609,
+      "n_aligned": 4207,
+      "n_chained": 4118,
+      "factor_raw": 0.9999999999998863,
+      "factor": 1.0,
+      "beat_f": 0.8638542665388302,
+      "downbeat_f": 0.3580952380952381,
+      "duration": [
+        2623,
+        4118
+      ],
+      "rhythm": [
+        2096,
+        2413
+      ],
+      "staff": [
+        3552,
+        4118
+      ],
+      "bar_ok": true,
+      "spelling": [
+        3979,
+        4118
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/3-2",
+      "row": "audio",
+      "n_score": 1485,
+      "n_aligned": 1451,
+      "n_chained": 1414,
+      "factor_raw": 0.24464020630327354,
+      "factor": 0.25,
+      "beat_f": 0.3701863354037267,
+      "downbeat_f": 0.34854771784232363,
+      "duration": [
+        956,
+        1414
+      ],
+      "rhythm": [
+        871,
+        942
+      ],
+      "staff": [
+        992,
+        1414
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1256,
+        1413
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/3-2",
+      "row": "perfect_midi",
+      "n_score": 1485,
+      "n_aligned": 1451,
+      "n_chained": 1442,
+      "factor_raw": 0.24361010423025675,
+      "factor": 0.25,
+      "beat_f": 0.3781094527363184,
+      "downbeat_f": 0.2987551867219917,
+      "duration": [
+        971,
+        1442
+      ],
+      "rhythm": [
+        862,
+        943
+      ],
+      "staff": [
+        1022,
+        1442
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1386,
+        1441
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/5-1",
+      "row": "audio",
+      "n_score": 2164,
+      "n_aligned": 2056,
+      "n_chained": 1997,
+      "factor_raw": 1.9880613220819043,
+      "factor": 2.0,
+      "beat_f": 0.593558282208589,
+      "downbeat_f": 0.22477064220183487,
+      "duration": [
+        1264,
+        1997
+      ],
+      "rhythm": [
+        912,
+        1196
+      ],
+      "staff": [
+        1806,
+        1997
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1922,
+        1997
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/5-1",
+      "row": "perfect_midi",
+      "n_score": 2164,
+      "n_aligned": 2056,
+      "n_chained": 2049,
+      "factor_raw": 1.999405878606666,
+      "factor": 2.0,
+      "beat_f": 0.5945121951219513,
+      "downbeat_f": 0.1717451523545706,
+      "duration": [
+        1349,
+        2049
+      ],
+      "rhythm": [
+        908,
+        1202
+      ],
+      "staff": [
+        1848,
+        2049
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1970,
+        2049
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/8-1",
+      "row": "audio",
+      "n_score": 4595,
+      "n_aligned": 4264,
+      "n_chained": 3850,
+      "factor_raw": 0.987671803965469,
+      "factor": 1.0,
+      "beat_f": 0.5083102493074793,
+      "downbeat_f": 0.21843971631205675,
+      "duration": [
+        2426,
+        3850
+      ],
+      "rhythm": [
+        1704,
+        2051
+      ],
+      "staff": [
+        3320,
+        3850
+      ],
+      "bar_ok": true,
+      "spelling": [
+        3682,
+        3850
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/8-1",
+      "row": "perfect_midi",
+      "n_score": 4595,
+      "n_aligned": 4264,
+      "n_chained": 4259,
+      "factor_raw": 0.9913698121193377,
+      "factor": 1.0,
+      "beat_f": 0.6941715782580222,
+      "downbeat_f": 0.6166219839142091,
+      "duration": [
+        2595,
+        4259
+      ],
+      "rhythm": [
+        1773,
+        2187
+      ],
+      "staff": [
+        3674,
+        4259
+      ],
+      "bar_ok": true,
+      "spelling": [
+        4071,
+        4259
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/8-3",
+      "row": "audio",
+      "n_score": 2415,
+      "n_aligned": 2371,
+      "n_chained": 2309,
+      "factor_raw": 0.9994406846035702,
+      "factor": 1.0,
+      "beat_f": 0.44632086851628466,
+      "downbeat_f": 0.35662650602409646,
+      "duration": [
+        1493,
+        2309
+      ],
+      "rhythm": [
+        1226,
+        1527
+      ],
+      "staff": [
+        2078,
+        2309
+      ],
+      "bar_ok": true,
+      "spelling": [
+        2254,
+        2309
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/8-3",
+      "row": "perfect_midi",
+      "n_score": 2415,
+      "n_aligned": 2371,
+      "n_chained": 2366,
+      "factor_raw": 0.9999999150902994,
+      "factor": 1.0,
+      "beat_f": 0.504830917874396,
+      "downbeat_f": 0.21204819277108433,
+      "duration": [
+        1493,
+        2366
+      ],
+      "rhythm": [
+        1199,
+        1545
+      ],
+      "staff": [
+        2127,
+        2366
+      ],
+      "bar_ok": true,
+      "spelling": [
+        2309,
+        2366
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/9-1",
+      "row": "audio",
+      "n_score": 2648,
+      "n_aligned": 2587,
+      "n_chained": 2384,
+      "factor_raw": 0.9979687491687912,
+      "factor": 1.0,
+      "beat_f": 0.6789838337182448,
+      "downbeat_f": 0.2663934426229508,
+      "duration": [
+        1702,
+        2384
+      ],
+      "rhythm": [
+        1116,
+        1273
+      ],
+      "staff": [
+        2132,
+        2384
+      ],
+      "bar_ok": false,
+      "spelling": [
+        2254,
+        2384
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/9-1",
+      "row": "perfect_midi",
+      "n_score": 2648,
+      "n_aligned": 2587,
+      "n_chained": 2574,
+      "factor_raw": 0.9997456857331102,
+      "factor": 1.0,
+      "beat_f": 0.6630686198920586,
+      "downbeat_f": 0.24640657084188913,
+      "duration": [
+        1908,
+        2574
+      ],
+      "rhythm": [
+        1160,
+        1287
+      ],
+      "staff": [
+        2338,
+        2574
+      ],
+      "bar_ok": false,
+      "spelling": [
+        2440,
+        2574
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/9-3",
+      "row": "audio",
+      "n_score": 1785,
+      "n_aligned": 1747,
+      "n_chained": 1677,
+      "factor_raw": 0.616071679545839,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.362589928057554,
+      "downbeat_f": 0.13389121338912136,
+      "duration": [
+        668,
+        1677
+      ],
+      "rhythm": [
+        677,
+        1250
+      ],
+      "staff": [
+        1542,
+        1677
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1633,
+        1677
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Beethoven/Piano_Sonatas/9-3",
+      "row": "perfect_midi",
+      "n_score": 1785,
+      "n_aligned": 1747,
+      "n_chained": 1742,
+      "factor_raw": 0.6067516980162395,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.358974358974359,
+      "downbeat_f": 0.20938628158844766,
+      "duration": [
+        673,
+        1742
+      ],
+      "rhythm": [
+        676,
+        1268
+      ],
+      "staff": [
+        1594,
+        1742
+      ],
+      "bar_ok": true,
+      "spelling": [
+        1694,
+        1742
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Chopin/Etudes_op_10/12",
+      "row": "audio",
+      "n_score": 2081,
+      "n_aligned": 2053,
+      "n_chained": 1981,
+      "factor_raw": 0.9902456960632708,
+      "factor": 1.0,
+      "beat_f": 0.5420289855072463,
+      "downbeat_f": 0.20930232558139536,
+      "duration": [
+        1643,
+        1981
+      ],
+      "rhythm": [
+        1149,
+        1301
+      ],
+      "staff": [
+        1762,
+        1981
+      ],
+      "bar_ok": true,
+      "spelling": [
+        1798,
+        1981
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Chopin/Etudes_op_10/12",
+      "row": "perfect_midi",
+      "n_score": 2081,
+      "n_aligned": 2053,
+      "n_chained": 2053,
+      "factor_raw": 0.9929022786154,
+      "factor": 1.0,
+      "beat_f": 0.525399129172714,
+      "downbeat_f": 0.3005780346820809,
+      "duration": [
+        1700,
+        2053
+      ],
+      "rhythm": [
+        1182,
+        1318
+      ],
+      "staff": [
+        1833,
+        2053
+      ],
+      "bar_ok": true,
+      "spelling": [
+        1863,
+        2053
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Chopin/Polonaises/53",
+      "row": "audio",
+      "n_score": 6284,
+      "n_aligned": 5683,
+      "n_chained": 4966,
+      "factor_raw": 0.992825447873507,
+      "factor": 1.0,
+      "beat_f": 0.6696588868940754,
+      "downbeat_f": 0.3422459893048128,
+      "duration": [
+        2028,
+        4966
+      ],
+      "rhythm": [
+        1295,
+        2013
+      ],
+      "staff": [
+        4671,
+        4966
+      ],
+      "bar_ok": true,
+      "spelling": [
+        4387,
+        4966
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Chopin/Polonaises/53",
+      "row": "perfect_midi",
+      "n_score": 6284,
+      "n_aligned": 5683,
+      "n_chained": 5568,
+      "factor_raw": 0.9935740547297769,
+      "factor": 1.0,
+      "beat_f": 0.6156615661566157,
+      "downbeat_f": 0.257372654155496,
+      "duration": [
+        2201,
+        5568
+      ],
+      "rhythm": [
+        1277,
+        2046
+      ],
+      "staff": [
+        5272,
+        5568
+      ],
+      "bar_ok": true,
+      "spelling": [
+        4924,
+        5568
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Chopin/Sonata_2/4th",
+      "row": "audio",
+      "n_score": 1808,
+      "n_aligned": 1636,
+      "n_chained": 1416,
+      "factor_raw": 1.514644695174951,
+      "factor": 1.5,
+      "beat_f": 0.4363636363636364,
+      "downbeat_f": 0.07407407407407407,
+      "duration": [
+        0,
+        1416
+      ],
+      "rhythm": [
+        0,
+        829
+      ],
+      "staff": [
+        1112,
+        1416
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1304,
+        1416
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Chopin/Sonata_2/4th",
+      "row": "perfect_midi",
+      "n_score": 1808,
+      "n_aligned": 1636,
+      "n_chained": 1636,
+      "factor_raw": 1.3433707025581327,
+      "factor": 1.3333333333333333,
+      "beat_f": 0.41366223908918404,
+      "downbeat_f": 0.14666666666666667,
+      "duration": [
+        1618,
+        1636
+      ],
+      "rhythm": [
+        744,
+        859
+      ],
+      "staff": [
+        1279,
+        1636
+      ],
+      "bar_ok": true,
+      "spelling": [
+        1504,
+        1636
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Debussy/Pour_le_Piano/1",
+      "row": "audio",
+      "n_score": 3230,
+      "n_aligned": 2868,
+      "n_chained": 2352,
+      "factor_raw": 0.9939712198266051,
+      "factor": 1.0,
+      "beat_f": 0.6746031746031745,
+      "downbeat_f": 0.3313953488372093,
+      "duration": [
+        1011,
+        2352
+      ],
+      "rhythm": [
+        1061,
+        1500
+      ],
+      "staff": [
+        1727,
+        2352
+      ],
+      "bar_ok": true,
+      "spelling": [
+        2116,
+        2352
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Debussy/Pour_le_Piano/1",
+      "row": "perfect_midi",
+      "n_score": 3230,
+      "n_aligned": 2868,
+      "n_chained": 2591,
+      "factor_raw": 0.9933333333333394,
+      "factor": 1.0,
+      "beat_f": 0.6751717369970559,
+      "downbeat_f": 0.14901960784313725,
+      "duration": [
+        1151,
+        2591
+      ],
+      "rhythm": [
+        1068,
+        1543
+      ],
+      "staff": [
+        1932,
+        2591
+      ],
+      "bar_ok": false,
+      "spelling": [
+        2322,
+        2591
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Liszt/Concert_Etude_S145/1",
+      "row": "audio",
+      "n_score": 3226,
+      "n_aligned": 2963,
+      "n_chained": 2699,
+      "factor_raw": 1.1238723424139039,
+      "factor": 1.0,
+      "beat_f": 0.2877492877492877,
+      "downbeat_f": 0.05405405405405406,
+      "duration": [
+        1395,
+        2699
+      ],
+      "rhythm": [
+        1062,
+        1867
+      ],
+      "staff": [
+        2418,
+        2699
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1546,
+        2699
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Liszt/Concert_Etude_S145/1",
+      "row": "perfect_midi",
+      "n_score": 3226,
+      "n_aligned": 2963,
+      "n_chained": 2963,
+      "factor_raw": 0.6891738921970418,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.2736156351791531,
+      "downbeat_f": 0.1212121212121212,
+      "duration": [
+        1683,
+        2963
+      ],
+      "rhythm": [
+        1270,
+        1955
+      ],
+      "staff": [
+        2701,
+        2963
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1715,
+        2963
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Liszt/Concert_Etude_S145/2",
+      "row": "audio",
+      "n_score": 3105,
+      "n_aligned": 2891,
+      "n_chained": 2612,
+      "factor_raw": 1.323538101543761,
+      "factor": 1.3333333333333333,
+      "beat_f": 0.28657616892911014,
+      "downbeat_f": 0.10687022900763357,
+      "duration": [
+        1373,
+        2612
+      ],
+      "rhythm": [
+        980,
+        1671
+      ],
+      "staff": [
+        2154,
+        2612
+      ],
+      "bar_ok": false,
+      "spelling": [
+        2106,
+        2612
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Liszt/Concert_Etude_S145/2",
+      "row": "perfect_midi",
+      "n_score": 3105,
+      "n_aligned": 2891,
+      "n_chained": 2864,
+      "factor_raw": 0.6573237650429462,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.41850683491062035,
+      "downbeat_f": 0.15267175572519084,
+      "duration": [
+        1633,
+        2864
+      ],
+      "rhythm": [
+        1061,
+        1728
+      ],
+      "staff": [
+        2415,
+        2864
+      ],
+      "bar_ok": false,
+      "spelling": [
+        2488,
+        2864
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Liszt/Transcendental_Etudes/10",
+      "row": "audio",
+      "n_score": 4036,
+      "n_aligned": 3780,
+      "n_chained": 3486,
+      "factor_raw": 0.6798858161347656,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.3391405342624855,
+      "downbeat_f": 0.07575757575757575,
+      "duration": [
+        2008,
+        3486
+      ],
+      "rhythm": [
+        1151,
+        1926
+      ],
+      "staff": [
+        2974,
+        3486
+      ],
+      "bar_ok": false,
+      "spelling": [
+        3097,
+        3486
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Liszt/Transcendental_Etudes/10",
+      "row": "perfect_midi",
+      "n_score": 4036,
+      "n_aligned": 3780,
+      "n_chained": 3780,
+      "factor_raw": 0.6007333282346679,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.31171548117154807,
+      "downbeat_f": 0.07142857142857142,
+      "duration": [
+        2231,
+        3780
+      ],
+      "rhythm": [
+        1152,
+        1968
+      ],
+      "staff": [
+        3240,
+        3780
+      ],
+      "bar_ok": false,
+      "spelling": [
+        3466,
+        3780
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Liszt/Transcendental_Etudes/3",
+      "row": "audio",
+      "n_score": 1898,
+      "n_aligned": 1868,
+      "n_chained": 1724,
+      "factor_raw": 0.6248739439571551,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.36571428571428577,
+      "downbeat_f": 0.14525139664804468,
+      "duration": [
+        886,
+        1724
+      ],
+      "rhythm": [
+        478,
+        596
+      ],
+      "staff": [
+        1526,
+        1724
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1531,
+        1724
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Liszt/Transcendental_Etudes/3",
+      "row": "perfect_midi",
+      "n_score": 1898,
+      "n_aligned": 1868,
+      "n_chained": 1868,
+      "factor_raw": 0.624533413368809,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.3706563706563707,
+      "downbeat_f": 0.16748768472906403,
+      "duration": [
+        984,
+        1868
+      ],
+      "rhythm": [
+        477,
+        596
+      ],
+      "staff": [
+        1679,
+        1868
+      ],
+      "bar_ok": true,
+      "spelling": [
+        1658,
+        1868
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Rachmaninoff/Preludes_op_23/6",
+      "row": "audio",
+      "n_score": 1250,
+      "n_aligned": 1198,
+      "n_chained": 1123,
+      "factor_raw": 0.4291308510831584,
+      "factor": 0.5,
+      "beat_f": 0.4421052631578948,
+      "downbeat_f": 0.1,
+      "duration": [
+        767,
+        1123
+      ],
+      "rhythm": [
+        539,
+        664
+      ],
+      "staff": [
+        1026,
+        1123
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1065,
+        1123
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Rachmaninoff/Preludes_op_23/6",
+      "row": "perfect_midi",
+      "n_score": 1250,
+      "n_aligned": 1198,
+      "n_chained": 1198,
+      "factor_raw": 0.420453631750656,
+      "factor": 0.5,
+      "beat_f": 0.41522491349480967,
+      "downbeat_f": 0.07407407407407407,
+      "duration": [
+        739,
+        1198
+      ],
+      "rhythm": [
+        524,
+        664
+      ],
+      "staff": [
+        1097,
+        1198
+      ],
+      "bar_ok": false,
+      "spelling": [
+        1139,
+        1198
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schubert/Impromptu_op.90_D.899/4_no_repeat",
+      "row": "audio",
+      "n_score": 4381,
+      "n_aligned": 4074,
+      "n_chained": 3744,
+      "factor_raw": 0.9957538990824446,
+      "factor": 1.0,
+      "beat_f": 0.7486567164179105,
+      "downbeat_f": 0.2014388489208633,
+      "duration": [
+        2589,
+        3744
+      ],
+      "rhythm": [
+        2015,
+        2204
+      ],
+      "staff": [
+        3352,
+        3744
+      ],
+      "bar_ok": false,
+      "spelling": [
+        2735,
+        3744
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schubert/Impromptu_op.90_D.899/4_no_repeat",
+      "row": "perfect_midi",
+      "n_score": 4381,
+      "n_aligned": 4074,
+      "n_chained": 4074,
+      "factor_raw": 0.9990891644997504,
+      "factor": 1.0,
+      "beat_f": 0.7228486646884272,
+      "downbeat_f": 0.38365896980461817,
+      "duration": [
+        2881,
+        4074
+      ],
+      "rhythm": [
+        1953,
+        2213
+      ],
+      "staff": [
+        3722,
+        4074
+      ],
+      "bar_ok": true,
+      "spelling": [
+        2896,
+        4074
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schubert/Piano_Sonatas/664-1",
+      "row": "audio",
+      "n_score": 2419,
+      "n_aligned": 2304,
+      "n_chained": 2187,
+      "factor_raw": 0.998757015958887,
+      "factor": 1.0,
+      "beat_f": 0.8140610545790934,
+      "downbeat_f": 0.2222222222222222,
+      "duration": [
+        1290,
+        2187
+      ],
+      "rhythm": [
+        911,
+        1175
+      ],
+      "staff": [
+        2028,
+        2187
+      ],
+      "bar_ok": false,
+      "spelling": [
+        2049,
+        2185
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schubert/Piano_Sonatas/664-1",
+      "row": "perfect_midi",
+      "n_score": 2419,
+      "n_aligned": 2304,
+      "n_chained": 2304,
+      "factor_raw": 0.9999997241637857,
+      "factor": 1.0,
+      "beat_f": 0.8126159554730983,
+      "downbeat_f": 0.2611464968152866,
+      "duration": [
+        1255,
+        2304
+      ],
+      "rhythm": [
+        927,
+        1181
+      ],
+      "staff": [
+        2148,
+        2304
+      ],
+      "bar_ok": false,
+      "spelling": [
+        2161,
+        2302
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schubert/Piano_Sonatas/664-3",
+      "row": "audio",
+      "n_score": 3400,
+      "n_aligned": 3238,
+      "n_chained": 3117,
+      "factor_raw": 0.6677787425188626,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.39772727272727276,
+      "downbeat_f": 0.2641509433962264,
+      "duration": [
+        2228,
+        3117
+      ],
+      "rhythm": [
+        1737,
+        1816
+      ],
+      "staff": [
+        2811,
+        3117
+      ],
+      "bar_ok": true,
+      "spelling": [
+        2923,
+        3115
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schubert/Piano_Sonatas/664-3",
+      "row": "perfect_midi",
+      "n_score": 3400,
+      "n_aligned": 3238,
+      "n_chained": 3220,
+      "factor_raw": 0.6667665660330044,
+      "factor": 0.6666666666666666,
+      "beat_f": 0.3927893738140418,
+      "downbeat_f": 0.11820330969267138,
+      "duration": [
+        2192,
+        3220
+      ],
+      "rhythm": [
+        1731,
+        1820
+      ],
+      "staff": [
+        2904,
+        3220
+      ],
+      "bar_ok": true,
+      "spelling": [
+        3015,
+        3218
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schubert/Wanderer_fantasie",
+      "row": "audio",
+      "n_score": 15704,
+      "n_aligned": 15151,
+      "n_chained": 13901,
+      "factor_raw": 0.9962786778612553,
+      "factor": 1.0,
+      "beat_f": 0.474679682733374,
+      "downbeat_f": 0.21692853522554484,
+      "duration": [
+        5343,
+        13901
+      ],
+      "rhythm": [
+        3202,
+        6293
+      ],
+      "staff": [
+        12982,
+        13901
+      ],
+      "bar_ok": false,
+      "spelling": [
+        10859,
+        13901
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Schubert/Wanderer_fantasie",
+      "row": "perfect_midi",
+      "n_score": 15704,
+      "n_aligned": 15151,
+      "n_chained": 15121,
+      "factor_raw": 0.997096238879017,
+      "factor": 1.0,
+      "beat_f": 0.4358715411028075,
+      "downbeat_f": 0.1698492462311558,
+      "duration": [
+        5324,
+        15121
+      ],
+      "rhythm": [
+        3205,
+        6372
+      ],
+      "staff": [
+        14160,
+        15121
+      ],
+      "bar_ok": false,
+      "spelling": [
+        11834,
+        15121
+      ],
+      "key_ok": false
+    },
+    {
+      "label": "Schumann/Toccata",
+      "row": "audio",
+      "n_score": 6066,
+      "n_aligned": 5878,
+      "n_chained": 5316,
+      "factor_raw": 0.9953789124880075,
+      "factor": 1.0,
+      "beat_f": 0.34355828220858897,
+      "downbeat_f": 0.15578947368421053,
+      "duration": [
+        3847,
+        5316
+      ],
+      "rhythm": [
+        2047,
+        2135
+      ],
+      "staff": [
+        4758,
+        5316
+      ],
+      "bar_ok": false,
+      "spelling": [
+        4996,
+        5316
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schumann/Toccata",
+      "row": "perfect_midi",
+      "n_score": 6066,
+      "n_aligned": 5878,
+      "n_chained": 5842,
+      "factor_raw": 0.9983619714319047,
+      "factor": 1.0,
+      "beat_f": 0.3479020979020979,
+      "downbeat_f": 0.14685314685314685,
+      "duration": [
+        4230,
+        5842
+      ],
+      "rhythm": [
+        2053,
+        2152
+      ],
+      "staff": [
+        5262,
+        5842
+      ],
+      "bar_ok": true,
+      "spelling": [
+        5504,
+        5842
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schumann/Toccata_repeat",
+      "row": "audio",
+      "n_score": 8126,
+      "n_aligned": 7845,
+      "n_chained": 6766,
+      "factor_raw": 0.9958794084004836,
+      "factor": 1.0,
+      "beat_f": 0.3055555555555556,
+      "downbeat_f": 0.1693121693121693,
+      "duration": [
+        5038,
+        6766
+      ],
+      "rhythm": [
+        2656,
+        2789
+      ],
+      "staff": [
+        6100,
+        6766
+      ],
+      "bar_ok": true,
+      "spelling": [
+        0,
+        0
+      ],
+      "key_ok": true
+    },
+    {
+      "label": "Schumann/Toccata_repeat",
+      "row": "perfect_midi",
+      "n_score": 8126,
+      "n_aligned": 7845,
+      "n_chained": 7751,
+      "factor_raw": 0.9994674045510408,
+      "factor": 1.0,
+      "beat_f": 0.37880794701986753,
+      "downbeat_f": 0.14834437086092714,
+      "duration": [
+        5751,
+        7751
+      ],
+      "rhythm": [
+        2648,
+        2862
+      ],
+      "staff": [
+        6986,
+        7751
+      ],
+      "bar_ok": true,
+      "spelling": [
+        0,
+        0
+      ],
+      "key_ok": true
+    }
+  ],
+  "skipped": [
+    {
+      "piece": "Liszt/Transcendental_Etudes/11",
+      "reason": "alignment to MAESTRO failed (1% notes match)"
+    }
+  ]
+}

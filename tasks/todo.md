@@ -1,3 +1,36 @@
+# PHASE 45 (2026-10-25): p45 = continue p43, same recipe, seed 45
+
+- Kaggle quota reset (user). Pushed ptify-transcriber-train v4: init p43
+  (sha eb417cce...), p43's exact args except --augment-seed 45, 8000 steps,
+  4 pianos + timbre, Yamaha upright still HELD OUT.
+- Why: p41->p43 gains came from piano diversity, invisible to MAESTRO val
+  (flat 0.0078 onset all run). Cheapest evidence-backed GPU run.
+- Rule (pre-registered, same as p43): MAPS >= +1.0 vs p43; SMD, MAESTRO
+  presets, held-out upright >= p43 - 0.2. Else p43 stays.
+- When COMPLETE: fetch to a NEW folder (var/transcriber-run-p45, not over
+  p43), add INITS["p45"], push tools.kaggle_score (p45 only, MAPS first).
+- CHORD-AWARE DECODE on p43: FAILS again (benchmarks/wild/chord-decode-p43-*.json).
+  MAESTRO 3-min: base 0.9553 | g0.3 0.9613 c0.3 0.9596 | g0.4 0.9613 c0.4 0.9603.
+  MAPS: base 0.8593 | g0.4 0.8593 c0.4 0.8592 | g0.5 0.8598 c0.5 0.8597. Dropped for good.
+- NEW (from the same run): on p43 a LOWER GLOBAL onset threshold no longer
+  costs MAPS (16b: every lower threshold hurt MAPS). 0.4: MAPS +0.0000,
+  MAESTRO clean +0.0060; 0.5: MAPS +0.0005, MAESTRO +0.0043; 0.3 costs MAPS
+  -0.0027. NEXT: onset-threshold sweep {0.4, 0.5, 0.6} on SMD + upload
+  presets (far phone, TikTok) for whichever model ships after p45 is scored.
+
+# PHASE 44 (branch phase-44-accuracy, from master after PR merge, 2026-10-20)
+
+- LIVE COMBO CONFIRMED on the score benchmark (p43 + frame 0.05 via the live
+  host; benchmarks/score-benchmark-rhythm-run8-p43-f005.json), audio row vs
+  what was live before (p39 @ 0.01): rhythm 72.99 -> 76.75, durations 56.17
+  -> 58.42, chained 86.07 -> 86.17, bars 15 -> 15, keys 33 -> 33. vs p39 @
+  0.05: rhythm +1.76, durations +1.13, bars 17 -> 15. Back to the old 16b
+  level (rhythm 76.9, durations 58.8) with +2.3 chained notes.
+- RemoteEngine now also retries dropped connections (IncompleteRead,
+  reset, closed), never timeouts or 4xx; 4 tests. Found when the benchmark
+  died on IncompleteRead. API REDEPLOYED by user 2026-10-25; smoke: healthz 200, CORS preflight 200, anonymous upload 401 sign_in_required.
+- Awaiting user: start chord-note decode probe? confirm targets?
+
 # RESUME HERE (2026-10-19, after p43 training finished)
 
 DONE 2026-10-19:
